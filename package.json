@@ -1,0 +1,125 @@
+{
+  "name": "starbox",
+  "version": "1.0.1",
+  "description": "StarBox - Emulator ringan multi-layanan",
+  "main": "electron-main.js",
+  "author": "Gingin Abdul Goni",
+  "homepage": "https://starbox.app",
+  "scripts": {
+    "dev": "NODE_ENV=development electron .",
+    "start": "NODE_ENV=production electron .",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win --arm64 --x64",
+    "build:linux": "electron-builder --linux --arm64 --x64",
+    "build:all": "npm run build:mac && npm run build:win && npm run build:linux",
+    "build": "electron-builder"
+  },
+  "build": {
+    "extraResources": [
+      {
+        "from": "assets/",
+        "to": "assets/",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "appId": "com.1112-project.StarBox",
+    "productName": "StarBox",
+    "executableName": "StarBox",
+    "copyright": "\u00a9 2025 Gingin Abdul Goni",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "index.html",
+      "preload.cjs",
+      "electron-main.js",
+      "renderer.js",
+      "style.css",
+      "assets/**/*",
+      "!dist/**/*",
+      "!sessions/**/*",
+      "automation-monitor.html",
+      "monitor-preload.cjs"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "icon": "assets/starbox.icns",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "./build/entitlements.mac.plist",
+      "entitlementsInherit": "./build/entitlements.mac.inherit.plist",
+      "identity": null
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/starbox.ico"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "tar.gz",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "assets/starbox.png",
+      "category": "Utility",
+      "maintainer": "Gingin Abdul Goni <ginginabdulgoni@gmail.com>",
+      "synopsis": "Starbox Emulator untuk multi-service",
+      "description": "Starbox adalah emulator desktop ringan untuk menjalankan WhatsApp, Telegram, dan layanan lainnya dalam sesi yang terisolasi."
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "StarBox"
+    }
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.6.0"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0",
+    "tree-kill": "^1.2.2",
+    "uuid": "^9.0.1"
+  }
+}

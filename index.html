@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StarBox – MultiService Emulator</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+
+  <body>
+    <header>
+      <h1>StarBox</h1>
+      <nav>
+        <button onclick="openModal()">
+          <i class="bi bi-plus-circle"></i> Tambah Device
+        </button>
+        <!-- <button onclick="openSettings()">
+      <i class="bi bi-gear-fill"></i> Pengaturan
+    </button> -->
+        <button onclick="openAbout()">
+          <i class="bi bi-info-circle"></i> About Us
+        </button>
+      </nav>
+    </header>
+
+    <div class="toolbar">
+      <label>
+        <input
+          type="checkbox"
+          id="selectAllDevices"
+          onchange="selectAllDevices(this)"
+        />
+        Pilih Semua
+      </label>
+      <button onclick="runAllDevices()">
+        <i class="bi bi-play-fill"></i> Run All Device
+      </button>
+      <button onclick="runSelectedDevices()">
+        <i class="bi bi-play-btn-fill"></i> Run Selected
+      </button>
+      <button onclick="restartSelectedDevices()">
+        <i class="bi bi-arrow-clockwise"></i> Restart Selected
+      </button>
+      <button onclick="restartAllDevices()">
+        <i class="bi bi-arrow-repeat"></i> Restart All
+      </button>
+      <button onclick="stopSelectedDevices()">
+        <i class="bi bi-stop-circle"></i> Stop Selected
+      </button>
+      <button onclick="stopAllDevices()">
+        <i class="bi bi-stop-btn-fill"></i> Stop All
+      </button>
+
+      <!-- Status Koneksi Internet -->
+      <span
+        id="connectionStatus"
+        style="
+          margin-left: auto;
+          padding: 6px 12px;
+          border-radius: 6px;
+          font-size: 0.85rem;
+        "
+      >
+        <i class="bi bi-wifi-off"></i> Offline
+      </span>
+    </div>
+
+    <div id="device-list">Loading...</div>
+
+    <div id="aboutModal" class="modal">
+      <div class="modal-content">
+        <span class="close" onclick="closeAbout()">&times;</span>
+        <h3>About <strong>StarBox</strong></h3>
+
+        <p>
+          <strong>StarBox</strong> dikembangkan oleh
+          <strong>Gingin Abdul Goni</strong>.
+        </p>
+        <p>
+          Emulator ringan untuk multi-login layanan seperti WhatsApp, Telegram,
+          Gmail, dll.
+        </p>
+
+        <h4>Layanan Didukung</h4>
+        <ul>
+          <li>✅ WhatsApp, Telegram, Gmail</li>
+          <li>✅ Shopee, Shopee Affiliate</li>
+          <li>⏳ Notion, Tokopedia, Instagram (segera)</li>
+        </ul>
+
+        <h4>Dukungan</h4>
+        <ul>
+          <li>
+            ☕
+            <a href="https://trakteer.id/ginginabdulgoni/tip" target="_blank"
+              >Trakteer</a
+            >
+          </li>
+          <li>
+            💸
+            <a href="https://paypal.me/ginginabdulgoni" target="_blank"
+              >PayPal</a
+            >
+          </li>
+        </ul>
+
+        <h4>Info Lain</h4>
+        <ul>
+          <li>
+            🌐
+            <a href="https://1112-project.com" target="_blank"
+              >1112-project.com</a
+            >
+          </li>
+          <li>
+            💻
+            <a href="https://github.com/ginginabdulgoni" target="_blank"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div id="addModal" class="modal">
+      <div class="modal-content" style="max-width: 400px">
+        <span class="close" onclick="closeModal()">&times;</span>
+        <h3>Tambah Device Baru</h3>
+
+        <label for="deviceName">Nama Device</label>
+        <input
+          type="text"
+          id="deviceName"
+          placeholder="Misal: WA Personal, Telegram Bot"
+        />
+
+        <label for="deviceService">Jenis Layanan</label>
+        <select id="deviceService">
+          <option value="wa">WhatsApp</option>
+          <option value="telegram">Telegram</option>
+          <option value="gmail">Gmail</option>
+          <option value="shopee">Shopee</option>
+          <option value="shopee_affiliate">Shopee Affiliate</option>
+        </select>
+
+        <div id="deviceAutoSenderSection" class="auto-sender-section" style="display: none;">
+          <label class="auto-sender-toggle">
+            <input type="checkbox" id="deviceAutoSender" />
+            Aktifkan Auto Sender (WhatsApp)
+          </label>
+          <div id="deviceAutoSenderOptions" class="auto-sender-options" style="display: none;">
+            <label for="devicePendingUrl">URL Sumber Pesan Pending</label>
+            <input
+              type="text"
+              id="devicePendingUrl"
+              placeholder="https://example.com/api/pending-messages"
+            />
+            <p id="deviceAutoSenderNote" class="auto-sender-note">
+              Catatan: Saat fitur ini aktif, mouse dan keyboard pada jendela WhatsApp akan dibatasi agar bot dapat mengirim pesan otomatis.
+            </p>
+          </div>
+        </div>
+
+        <label for="deviceMode" style="margin-top: 10px">Mode Device</label>
+        <select id="deviceMode" class="mode-select">
+          <option value="desktop">🖥️ Desktop (1000x700)</option>
+          <option value="mobile-android">🤖 Mobile Android (390x700)</option>
+          <option value="mobile-iphone">📱 Mobile iPhone (375x667)</option>
+          <option value="mobile-browser-desktop">
+            🧪 Mobile Browser on Desktop (480x700)
+          </option>
+          <option value="mobile-ipad">📘 iPad (768x1024)</option>
+          <option value="mobile-galaxy-s8">📱 Galaxy S8 (360x740)</option>
+          <option value="mobile-pixel-5">📱 Pixel 5 (393x851)</option>
+          <option value="desktop-mini">💻 Desktop Mini (800x600)</option>
+          <option value="desktop-wide">🖥️ Desktop Wide (1280x800)</option>
+        </select>
+
+        <label style="margin-top: 10px">
+          <input type="checkbox" id="deviceAutoRun" />
+          Auto Run saat aplikasi dibuka
+        </label>
+
+        <div class="modal-buttons" style="margin-top: 1rem; text-align: right">
+          <button onclick="submitDevice()">
+            <i class="bi bi-plus-circle"></i> Simpan Device
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="connectionStatus"
+      style="
+        position: fixed;
+        top: 0;
+        right: 0;
+        padding: 5px 10px;
+        font-size: 0.85rem;
+        z-index: 9999;
+        border-bottom-left-radius: 8px;
+      "
+    ></div>
+    <div id="settingsModal" class="modal">
+      <div class="modal-content">
+        <span class="close" onclick="closeSettings()">&times;</span>
+        <h3>Pengaturan Aplikasi</h3>
+
+        <label>
+          <input type="checkbox" id="autoRunCheckbox" />
+          Jalankan semua device saat aplikasi dibuka
+        </label>
+
+        <button onclick="saveSettings()">Simpan Pengaturan</button>
+      </div>
+    </div>
+    <div id="editModal" class="modal">
+      <div class="modal-content" style="max-width: 400px">
+        <h3>Edit Device</h3>
+
+        <label for="editDeviceName">Nama Device</label>
+        <input type="text" id="editDeviceName" />
+
+        <label for="editMode">Mode</label>
+        <label for="editMode">Mode Device</label>
+        <select id="editMode" class="mode-select">
+          <option value="desktop">🖥️ Desktop (1000x700)</option>
+          <option value="mobile-android">🤖 Mobile Android (390x700)</option>
+          <option value="mobile-iphone">📱 Mobile iPhone (375x667)</option>
+          <option value="mobile-browser-desktop">
+            🧪 Mobile Browser on Desktop (480x700)
+          </option>
+          <option value="mobile-ipad">📘 iPad (768x1024)</option>
+          <option value="mobile-galaxy-s8">📱 Galaxy S8 (360x740)</option>
+          <option value="mobile-pixel-5">📱 Pixel 5 (393x851)</option>
+          <option value="desktop-mini">💻 Desktop Mini (800x600)</option>
+          <option value="desktop-wide">🖥️ Desktop Wide (1280x800)</option>
+        </select>
+
+        <div id="editAutoSenderSection" class="auto-sender-section" style="display: none;">
+          <label class="auto-sender-toggle">
+            <input type="checkbox" id="editAutoSender" />
+            Aktifkan Auto Sender (WhatsApp)
+          </label>
+          <div id="editAutoSenderOptions" class="auto-sender-options" style="display: none;">
+            <label for="editPendingUrl">URL Sumber Pesan Pending</label>
+            <input
+              type="text"
+              id="editPendingUrl"
+              placeholder="https://example.com/api/pending-messages"
+            />
+            <p id="editAutoSenderNote" class="auto-sender-note">
+              Catatan: Saat fitur ini aktif, mouse dan keyboard pada jendela WhatsApp akan dibatasi agar bot dapat mengirim pesan otomatis.
+            </p>
+          </div>
+        </div>
+
+        <label style="margin-top: 10px">
+          <input type="checkbox" id="editAutoRun" />
+          Auto Run saat aplikasi dibuka
+        </label>
+
+        <div class="modal-buttons" style="margin-top: 1rem; text-align: right">
+          <button onclick="saveEditDevice()">Simpan</button>
+          <button onclick="closeEditModal()">Batal</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        // Ambil elemen modal
+        const addModal = document.getElementById("addModal");
+        const settingsModal = document.getElementById("settingsModal");
+        const autoRunCheckbox = document.getElementById("autoRunCheckbox");
+
+        // Fungsi: Buka modal tambah device
+        window.openModal = function () {
+          if (!addModal) {
+            console.error("[openModal] #addModal not found!");
+            return;
+          }
+          addModal.style.display = "flex";
+          window.refreshAddAutoSenderUI();
+
+          setTimeout(() => {
+            const input = document.getElementById("deviceName");
+            if (input) input.focus();
+          }, 50);
+        };
+
+        // Fungsi: Tutup modal tambah device
+        window.closeModal = function () {
+          if (addModal) {
+            addModal.style.display = "none";
+            const nameInput = document.getElementById("deviceName");
+            const serviceSelect = document.getElementById("deviceService");
+            const autoRunEl = document.getElementById("deviceAutoRun");
+            const autoSenderEl = document.getElementById("deviceAutoSender");
+            const pendingEl = document.getElementById("devicePendingUrl");
+            if (nameInput) nameInput.value = "";
+            if (serviceSelect) serviceSelect.value = "wa";
+            if (autoRunEl) autoRunEl.checked = false;
+            if (autoSenderEl) autoSenderEl.checked = false;
+            if (pendingEl) pendingEl.value = "";
+            window.refreshAddAutoSenderUI();
+          }
+        };
+
+        // Fungsi: Buka modal pengaturan
+        window.openSettings = function () {
+          if (!settingsModal || !autoRunCheckbox) return;
+          const config = loadConfig();
+          autoRunCheckbox.checked = config.autoRunDevicesOnStart ?? false;
+          settingsModal.style.display = "flex";
+        };
+
+        // Fungsi: Tutup modal pengaturan
+        window.closeSettings = function () {
+          if (settingsModal) settingsModal.style.display = "none";
+        };
+
+        // Fungsi: Simpan pengaturan
+        window.saveSettings = function () {
+          const config = loadConfig();
+          config.autoRunDevicesOnStart = autoRunCheckbox.checked;
+          if (window.electronAPI?.saveConfig) {
+            window.electronAPI.saveConfig(config);
+          } else {
+            console.warn(
+              "[saveSettings] electronAPI.saveConfig tidak tersedia"
+            );
+          }
+          window.closeSettings();
+        };
+
+        // Fungsi: Load config
+        window.loadConfig = function () {
+          if (window.electronAPI?.loadConfig) {
+            return window.electronAPI.loadConfig() || {};
+          } else {
+            console.warn("[loadConfig] electronAPI.loadConfig tidak tersedia");
+            return {};
+          }
+        };
+      });
+    </script>
+
+    <script>
+      // Pastikan SweetAlert2 dimuat jika digunakan di renderer.js
+      // Ganti fungsi lama Anda dengan ini
+
+      function closeModal() {
+        const modal = document.getElementById("addModal"); // konsisten dengan openModal
+        if (modal) {
+          modal.style.display = "none";
+        }
+        document.getElementById("deviceName").value = "";
+        document.getElementById("deviceService").value = "wa";
+      }
+
+      function openAbout() {
+        document.getElementById("aboutModal").style.display = "flex"; // Mengubah display ke flex
+      }
+
+      function closeAbout() {
+        document.getElementById("aboutModal").style.display = "none";
+      }
+
+      function submitDevice() {
+        const name = document.getElementById("deviceName").value.trim();
+        const service = document.getElementById("deviceService").value;
+        const mode = document.getElementById("deviceMode").value;
+        const autoRun = document.getElementById("deviceAutoRun").checked;
+        if (!name) {
+          Swal.fire({
+            icon: "error",
+            title: "Oops...",
+            text: "Nama Device wajib diisi!",
+            confirmButtonColor: "#8b5cf6",
+          });
+          return;
+        }
+        // Memanggil fungsi addDevice dari renderer.js (pastikan renderer.js sudah dimuat)
+        if (typeof window.addDevice === "function") {
+          window.addDevice(name, service);
+          closeModal();
+        } else {
+          Swal.fire({
+            icon: "warning",
+            title: "Error Internal",
+            text: "Fungsi penambahan device tidak ditemukan. Pastikan renderer.js sudah dimuat dengan benar.",
+            confirmButtonColor: "#8b5cf6",
+          });
+        }
+      }
+
+      // Fungsi placeholder untuk renderer.js (Anda akan mengisi ini nanti)
+      // Ini penting agar HTML tidak error jika renderer.js belum sepenuhnya siap
+      window.addDevice =
+        window.addDevice ||
+        function (name, service) {
+          console.log("Dummy addDevice called:", { name, service });
+          Swal.fire({
+            icon: "info",
+            title: "Device Ditambahkan (Dummy)",
+            text: `Device "${name}" (${service}) telah ditambahkan. Ini adalah fungsi dummy.`,
+            confirmButtonColor: "#8b5cf6",
+          });
+          // Di sini Anda perlu memanggil fungsi untuk me-render ulang daftar device
+          // Misalnya, refreshDeviceList();
+        };
+
+      window.selectAllDevices =
+        window.selectAllDevices ||
+        function (checkbox) {
+          console.log(
+            "Dummy selectAllDevices called. Checked:",
+            checkbox.checked
+          );
+          // Implementasi sebenarnya akan memilih/membatalkan pilihan semua checkbox device
+        };
+
+      window.runAllDevices =
+        window.runAllDevices ||
+        function () {
+          if (!navigator.onLine) {
+            Swal.fire({
+              icon: "warning",
+              title: "Tidak Ada Koneksi Internet",
+              text: "Silakan periksa koneksi Anda sebelum menjalankan semua device.",
+              confirmButtonColor: "#ef4444",
+            });
+            return;
+          }
+
+          console.log("Dummy runAllDevices called");
+          Swal.fire({
+            icon: "info",
+            title: "Run All (Dummy)",
+            text: "Ini adalah fungsi dummy untuk menjalankan semua device.",
+            confirmButtonColor: "#8b5cf6",
+          });
+        };
+
+      window.runSelectedDevices =
+        window.runSelectedDevices ||
+        function () {
+          if (!navigator.onLine) {
+            Swal.fire({
+              icon: "warning",
+              title: "Tidak Ada Koneksi Internet",
+              text: "Silakan periksa koneksi Anda sebelum menjalankan device yang dipilih.",
+              confirmButtonColor: "#ef4444",
+            });
+            return;
+          }
+
+          const selectedDevices = document.querySelectorAll(
+            ".select-device:checked"
+          );
+          if (selectedDevices.length === 0) {
+            Swal.fire({
+              icon: "info",
+              title: "Tidak Ada Device Terpilih",
+              text: "Silakan centang device yang ingin dijalankan terlebih dahulu.",
+              confirmButtonColor: "#8b5cf6",
+            });
+            return;
+          }
+
+          // Dummy logic
+          const deviceNames = Array.from(selectedDevices).map(
+            (cb) =>
+              cb.closest(".device")?.querySelector("h3")?.textContent?.trim() ||
+              "Unnamed"
+          );
+          console.log("Dummy runSelectedDevices called for:", deviceNames);
+
+          Swal.fire({
+            icon: "info",
+            title: "Run Selected (Dummy)",
+            html: `Menjalankan <strong>${
+              deviceNames.length
+            }</strong> device: <br><em>${deviceNames.join(", ")}</em>`,
+            confirmButtonColor: "#8b5cf6",
+          });
+        };
+
+      // Fungsi untuk memperbarui tampilan daftar device
+      // Anda akan mengimplementasikan ini di renderer.js atau di sini jika tidak ada backend
+      function renderDeviceList(devices) {
+        const deviceList = document.getElementById("device-list");
+        deviceList.innerHTML = ""; // Kosongkan daftar yang ada
+
+        if (devices.length === 0) {
+          deviceList.innerHTML =
+            '<p style="text-align: center; margin-top: 50px; opacity: 0.7;">Belum ada device ditambahkan. Klik "+ Tambah Device" untuk memulai!</p>';
+          return;
+        }
+
+        devices.forEach((device) => {
+          const deviceCard = document.createElement("div");
+          deviceCard.className = "device";
+          // Contoh data device. Anda akan mengisi ini dari data nyata.
+          const statusClass = device.status
+            ? device.status.toLowerCase()
+            : "stopped"; // 'running', 'stopped', 'error'
+          const statusText = device.status ? device.status : "Stopped";
+          const statusIcon = {
+            running: "bi-play-circle-fill",
+            stopped: "bi-stop-circle-fill",
+            error: "bi-exclamation-triangle-fill",
+          }[statusClass];
+
+          deviceCard.innerHTML = `
+          <div class="device-header">
+            <h3>
+             <input type="checkbox" class="select-device circle-checkbox" data-device-id="${
+               device.id || "N/A"
+             }">
+              ${device.name || "Nama Device"}
+            </h3>
+            <span class="badge ${statusClass}">
+              <i class="bi ${statusIcon}"></i> ${statusText}
+            </span>
+          </div>
+          <div class="device-info">
+            <p><strong>Layanan:</strong> ${device.service || "N/A"}</p>
+            <p><strong>PID:</strong> ${device.pid || "N/A"}</p>
+          </div>
+          <div class="device-footer">
+            <div class="device-actions">
+              <button class="run"><i class="bi bi-play-fill"></i> Jalankan</button>
+              <button class="view-log"><i class="bi bi-file-earmark-text-fill"></i> Log</button>
+              <button class="delete"><i class="bi bi-trash-fill"></i> Hapus</button>
+            </div>
+          </div>
+        `;
+          deviceList.appendChild(deviceCard);
+        });
+      }
+
+      // Contoh pemanggilan dummy untuk melihat hasilnya
+      document.addEventListener("DOMContentLoaded", () => {
+        const dummyDevices = [
+          {
+            id: "dev001",
+            name: "WA Pribadi",
+            service: "WhatsApp",
+            status: "Running",
+            pid: "12345",
+          },
+          {
+            id: "dev002",
+            name: "Telegram Bot",
+            service: "Telegram",
+            status: "Stopped",
+            pid: "N/A",
+          },
+          {
+            id: "dev003",
+            name: "Shopee Promo",
+            service: "Shopee Affiliate",
+            status: "Error",
+            pid: "54321",
+          },
+          {
+            id: "dev004",
+            name: "Email Marketing",
+            service: "Gmail",
+            status: "Running",
+            pid: "98765",
+          },
+        ];
+        renderDeviceList(dummyDevices); // Panggil ini untuk menampilkan data dummy saat pertama kali load
+      });
+    </script>
+    <script>
+      const connectionStatusEl = document.getElementById("connectionStatus");
+
+      function updateConnectionStatus() {
+        const connectionStatusEl = document.getElementById("connectionStatus");
+
+        const isOnline = navigator.onLine;
+
+        if (isOnline) {
+          connectionStatusEl.innerHTML = '<i class="bi bi-wifi"></i> Online';
+          connectionStatusEl.style.backgroundColor = "var(--color-success)";
+        } else {
+          connectionStatusEl.innerHTML =
+            '<i class="bi bi-wifi-off"></i> Offline';
+          connectionStatusEl.style.backgroundColor = "var(--color-danger)";
+        }
+
+        // Enable/disable tombol berdasarkan koneksi
+        const runButtons = document.querySelectorAll(".run");
+        runButtons.forEach((btn) => {
+          btn.disabled = !isOnline;
+          btn.classList.toggle("disabled", !isOnline); // Optional: gaya tombol nonaktif
+        });
+
+        const runAllBtn = document.querySelector(
+          'button[onclick="runAllDevices()"]'
+        );
+        const runSelectedBtn = document.querySelector(
+          'button[onclick="runSelectedDevices()"]'
+        );
+        if (runAllBtn) runAllBtn.disabled = !isOnline;
+        if (runSelectedBtn) runSelectedBtn.disabled = !isOnline;
+      }
+
+      window.addEventListener("online", () => {
+        updateConnectionStatus();
+        Swal.fire({
+          icon: "success",
+          title: "Koneksi Tersambung",
+          text: "Koneksi internet kembali aktif.",
+          confirmButtonColor: "#4ade80",
+        });
+      });
+
+      window.addEventListener("offline", () => {
+        updateConnectionStatus();
+        Swal.fire({
+          icon: "error",
+          title: "Koneksi Terputus",
+          text: "Periksa koneksi internet Anda.",
+          confirmButtonColor: "#ef4444",
+        });
+      });
+
+      updateConnectionStatus(); // Panggil saat pertama kali load
+    </script>
+    <script>
+      window.currentEditUID = null;
+      window.currentEditService = null;
+
+      const AUTO_SENDER_SERVICES = ["wa"];
+
+      window.canUseAutoSender = function (service) {
+        return AUTO_SENDER_SERVICES.includes((service || "").toLowerCase());
+      };
+
+      window.refreshAddAutoSenderUI = function () {
+        const service = document.getElementById("deviceService")?.value || "";
+        const section = document.getElementById("deviceAutoSenderSection");
+        const checkbox = document.getElementById("deviceAutoSender");
+        const options = document.getElementById("deviceAutoSenderOptions");
+        const note = document.getElementById("deviceAutoSenderNote");
+        const allowed = window.canUseAutoSender(service);
+        if (!section) return;
+        section.style.display = allowed ? "block" : "none";
+        if (!allowed) {
+          if (checkbox) checkbox.checked = false;
+          if (options) options.style.display = "none";
+          if (note) note.style.display = "none";
+        } else {
+          const checked = checkbox?.checked;
+          if (options) options.style.display = checked ? "block" : "none";
+          if (note) note.style.display = checked ? "block" : "none";
+        }
+      };
+
+      window.refreshEditAutoSenderUI = function () {
+        const section = document.getElementById("editAutoSenderSection");
+        if (!section) return;
+        const checkbox = document.getElementById("editAutoSender");
+        const options = document.getElementById("editAutoSenderOptions");
+        const note = document.getElementById("editAutoSenderNote");
+        const allowed = window.canUseAutoSender(window.currentEditService);
+        section.style.display = allowed ? "block" : "none";
+        if (!allowed) {
+          if (checkbox) checkbox.checked = false;
+          if (options) options.style.display = "none";
+          if (note) note.style.display = "none";
+        } else {
+          const checked = checkbox?.checked;
+          if (options) options.style.display = checked ? "block" : "none";
+          if (note) note.style.display = checked ? "block" : "none";
+        }
+      };
+
+      window.setEditAutoSenderState = function (service, enabled, url) {
+        window.currentEditService = service || "";
+        const checkbox = document.getElementById("editAutoSender");
+        const pendingInput = document.getElementById("editPendingUrl");
+        if (checkbox) checkbox.checked = !!enabled;
+        if (pendingInput) pendingInput.value = url || "";
+        window.refreshEditAutoSenderUI();
+      };
+
+      const addServiceEl = document.getElementById("deviceService");
+      const addAutoSenderEl = document.getElementById("deviceAutoSender");
+      const editAutoSenderEl = document.getElementById("editAutoSender");
+
+      addServiceEl?.addEventListener("change", window.refreshAddAutoSenderUI);
+      addAutoSenderEl?.addEventListener("change", window.refreshAddAutoSenderUI);
+      editAutoSenderEl?.addEventListener("change", window.refreshEditAutoSenderUI);
+
+      window.refreshAddAutoSenderUI();
+      window.refreshEditAutoSenderUI();
+
+      function openEditModal() {
+        const modal = document.getElementById("editModal");
+        if (modal) modal.style.display = "flex";
+        if (typeof window.refreshEditAutoSenderUI === "function") {
+          window.refreshEditAutoSenderUI();
+        }
+        setTimeout(() => {
+          const nameInput = document.getElementById("editDeviceName");
+          if (nameInput) nameInput.focus();
+        }, 50);
+      }
+
+      function closeEditModal() {
+        const modal = document.getElementById("editModal");
+        if (modal) modal.style.display = "none";
+        window.currentEditUID = null;
+        window.currentEditService = null;
+        const autoSenderEl = document.getElementById("editAutoSender");
+        const pendingEl = document.getElementById("editPendingUrl");
+        if (autoSenderEl) autoSenderEl.checked = false;
+        if (pendingEl) pendingEl.value = "";
+        window.refreshEditAutoSenderUI();
+      }
+
+      function saveEditDevice() {
+        const name = document.getElementById("editDeviceName").value.trim();
+        const autoRun = document.getElementById("editAutoRun").checked;
+        const mode = document.getElementById("editMode").value;
+        const autoSenderEl = document.getElementById("editAutoSender");
+        const pendingEl = document.getElementById("editPendingUrl");
+
+        if (!name || !window.currentEditUID) return;
+
+        const allowAuto = window.canUseAutoSender(window.currentEditService);
+        const autoSenderEnabled = allowAuto && !!(autoSenderEl && autoSenderEl.checked);
+        const pendingUrl = autoSenderEnabled ? (pendingEl?.value || '').trim() : '';
+
+        const updatedDevice = {
+          uid: window.currentEditUID,
+          name: name,
+          autoRun: autoRun,
+          mode: mode,
+          autoSender: autoSenderEnabled,
+          pendingUrl
+        };
+
+        window.electronAPI.editDevice(updatedDevice).then((res) => {
+          if (res.success) {
+            closeEditModal();
+
+            const deviceCard = document.querySelector(
+              `.device[data-uid="${updatedDevice.uid}"]`
+            );
+            if (deviceCard) {
+              deviceCard.querySelector("h3").textContent = updatedDevice.name;
+            }
+
+            showToast("✅ Perubahan berhasil disimpan");
+          } else {
+            showToast("❌ Gagal menyimpan: " + res.message);
+          }
+        });
+      }
+      function showToast(message, duration = 3000, type = "info") {
+        let toast = document.createElement("div");
+        toast.className = `toast-message toast-${type}`;
+        toast.textContent = message;
+
+        let backgroundColor =
+          {
+            success: "#28a745",
+            error: "#dc3545",
+            warning: "#ffc107",
+            info: "#333",
+          }[type] || "#333";
+
+        Object.assign(toast.style, {
+          position: "fixed",
+          bottom: "20px",
+          right: "20px",
+          background: backgroundColor,
+          color: "#fff",
+          padding: "10px 15px",
+          borderRadius: "6px",
+          zIndex: 9999,
+          fontSize: "0.9rem",
+          boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+          opacity: "0",
+          transition: "opacity 0.3s ease-in-out",
+        });
+
+        document.body.appendChild(toast);
+        setTimeout(() => (toast.style.opacity = "1"), 10);
+        setTimeout(() => {
+          toast.style.opacity = "0";
+          setTimeout(() => document.body.removeChild(toast), 300);
+        }, duration);
+      }
+    </script>
+  <script src="renderer.js"></script>
+  </body>
+  <footer
+    style="
+      position: fixed;
+      bottom: 0;
+      width: 100%;
+      background-color: var(--color-medium-purple);
+      color: var(--color-text-light);
+      text-align: center;
+      padding: 10px 0;
+      font-size: 0.85rem;
+      border-top: 1px solid var(--color-light-purple);
+    "
+  >
+    <span class="footer-left">StarBox v1.2.1103 &copy; 2025 Gingin Abdul Goni — <a href="https://1112-project.com" target="_blank" rel="noopener noreferrer">1112 Project</a></span>
+    <span id="system-info-badge" class="system-info-badge footer-right">Mengambil info…</span>
+  </footer>
+</html>
