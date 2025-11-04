@@ -148,20 +148,29 @@
           <option value="shopee_affiliate">Shopee Affiliate</option>
         </select>
 
-        <div id="deviceAutoSenderSection" class="auto-sender-section" style="display: none;">
+        <div
+          id="deviceAutoSenderSection"
+          class="auto-sender-section"
+          style="display: none"
+        >
           <label class="auto-sender-toggle">
             <input type="checkbox" id="deviceAutoSender" />
             Aktifkan Auto Sender (WhatsApp)
           </label>
-          <div id="deviceAutoSenderOptions" class="auto-sender-options" style="display: none;">
+          <div
+            id="deviceAutoSenderOptions"
+            class="auto-sender-options"
+            style="display: none"
+          >
             <label for="devicePendingUrl">URL Sumber Pesan Pending</label>
             <input
               type="text"
               id="devicePendingUrl"
-              placeholder="https://example.com/api/pending-messages"
+              placeholder="https://test.mywifi.web.id"
             />
             <p id="deviceAutoSenderNote" class="auto-sender-note">
-              Catatan: Saat fitur ini aktif, mouse dan keyboard pada jendela WhatsApp akan dibatasi agar bot dapat mengirim pesan otomatis.
+              Catatan: Saat fitur ini aktif, mouse dan keyboard pada jendela
+              WhatsApp akan dibatasi agar bot dapat mengirim pesan otomatis.
             </p>
           </div>
         </div>
@@ -242,20 +251,29 @@
           <option value="desktop-wide">🖥️ Desktop Wide (1280x800)</option>
         </select>
 
-        <div id="editAutoSenderSection" class="auto-sender-section" style="display: none;">
+        <div
+          id="editAutoSenderSection"
+          class="auto-sender-section"
+          style="display: none"
+        >
           <label class="auto-sender-toggle">
             <input type="checkbox" id="editAutoSender" />
             Aktifkan Auto Sender (WhatsApp)
           </label>
-          <div id="editAutoSenderOptions" class="auto-sender-options" style="display: none;">
+          <div
+            id="editAutoSenderOptions"
+            class="auto-sender-options"
+            style="display: none"
+          >
             <label for="editPendingUrl">URL Sumber Pesan Pending</label>
             <input
               type="text"
               id="editPendingUrl"
-              placeholder="https://example.com/api/pending-messages"
+              placeholder="https://test.mywifi.web.id"
             />
             <p id="editAutoSenderNote" class="auto-sender-note">
-              Catatan: Saat fitur ini aktif, mouse dan keyboard pada jendela WhatsApp akan dibatasi agar bot dapat mengirim pesan otomatis.
+              Catatan: Saat fitur ini aktif, mouse dan keyboard pada jendela
+              WhatsApp akan dibatasi agar bot dapat mengirim pesan otomatis.
             </p>
           </div>
         </div>
@@ -700,8 +718,14 @@
       const editAutoSenderEl = document.getElementById("editAutoSender");
 
       addServiceEl?.addEventListener("change", window.refreshAddAutoSenderUI);
-      addAutoSenderEl?.addEventListener("change", window.refreshAddAutoSenderUI);
-      editAutoSenderEl?.addEventListener("change", window.refreshEditAutoSenderUI);
+      addAutoSenderEl?.addEventListener(
+        "change",
+        window.refreshAddAutoSenderUI
+      );
+      editAutoSenderEl?.addEventListener(
+        "change",
+        window.refreshEditAutoSenderUI
+      );
 
       window.refreshAddAutoSenderUI();
       window.refreshEditAutoSenderUI();
@@ -740,8 +764,11 @@
         if (!name || !window.currentEditUID) return;
 
         const allowAuto = window.canUseAutoSender(window.currentEditService);
-        const autoSenderEnabled = allowAuto && !!(autoSenderEl && autoSenderEl.checked);
-        const pendingUrl = autoSenderEnabled ? (pendingEl?.value || '').trim() : '';
+        const autoSenderEnabled =
+          allowAuto && !!(autoSenderEl && autoSenderEl.checked);
+        const pendingUrl = autoSenderEnabled
+          ? (pendingEl?.value || "").trim()
+          : "";
 
         const updatedDevice = {
           uid: window.currentEditUID,
@@ -749,7 +776,7 @@
           autoRun: autoRun,
           mode: mode,
           autoSender: autoSenderEnabled,
-          pendingUrl
+          pendingUrl,
         };
 
         window.electronAPI.editDevice(updatedDevice).then((res) => {
@@ -805,22 +832,36 @@
         }, duration);
       }
     </script>
-  <script src="renderer.js"></script>
+    <script src="renderer.js"></script>
   </body>
   <footer
     style="
       position: fixed;
-      bottom: 0;
-      width: 100%;
+      bottom: 20px;
+      left: 20px;
+      width: calc(100% - 40px);
       background-color: var(--color-medium-purple);
       color: var(--color-text-light);
       text-align: center;
-      padding: 10px 0;
+      padding: 14px 24px;
       font-size: 0.85rem;
       border-top: 1px solid var(--color-light-purple);
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25);
+      z-index: 1000;
     "
   >
-    <span class="footer-left">StarBox v1.2.1103 &copy; 2025 Gingin Abdul Goni — <a href="https://1112-project.com" target="_blank" rel="noopener noreferrer">1112 Project</a></span>
-    <span id="system-info-badge" class="system-info-badge footer-right">Mengambil info…</span>
+    <span class="footer-left"
+      >StarBox v1.2.1103 &copy; 2025 Gingin Abdul Goni —
+      <a
+        href="https://1112-project.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        >1112 Project</a
+      ></span
+    >
+    <span id="system-info-badge" class="system-info-badge footer-right"
+      >Mengambil info…</span
+    >
   </footer>
 </html>

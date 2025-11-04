@@ -7,7 +7,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteDevice: (uid) => ipcRenderer.invoke('delete-device', uid),
   runDevice: (uid, service) => ipcRenderer.send('run-device', uid, service),
   stopDevice: (uid) => ipcRenderer.send('stop-device', uid),
-  sendWhatsappMessages: (uid, messages) => ipcRenderer.invoke('send-whatsapp-messages', uid, messages),
+  sendWhatsappMessages: (uid, messages, options) =>
+    ipcRenderer.invoke('send-whatsapp-messages', uid, messages, options),
   focusDevice: (uid) => ipcRenderer.send('focus-device', uid),
    saveConfig: (config) => ipcRenderer.send('save-config', config),
   loadConfig: () => ipcRenderer.sendSync('load-config'),
@@ -22,6 +23,9 @@ invoke: ipcRenderer.invoke,
   },
   log: (message) => ipcRenderer.send('log-message', message),
   getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
+  ensureMonitorWindow: (uid) => ipcRenderer.send('ensure-monitor-window', uid),
+  closeMonitorWindow: (uid) => ipcRenderer.send('close-monitor-window', uid),
+  updateAutomationMonitor: (uid, payload) => ipcRenderer.send('automation-monitor-update', uid, payload)
 
   
 });

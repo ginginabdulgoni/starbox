@@ -7,7 +7,8 @@
     <style>
       :root {
         color-scheme: dark;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
       }
 
       body {
@@ -22,6 +23,16 @@
       header {
         padding: 14px 16px;
         border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .header-text {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
       }
 
       header h1 {
@@ -31,9 +42,192 @@
       }
 
       header p {
-        margin: 4px 0 0;
+        margin: 0;
         font-size: 0.8rem;
         color: rgba(226, 232, 240, 0.6);
+      }
+
+      .header-action {
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        background: rgba(30, 41, 59, 0.65);
+        color: #e2e8f0;
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 0.75rem;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+        transition: background 0.2s ease, border 0.2s ease, color 0.2s ease;
+        min-width: 32px;
+      }
+
+      .header-action:hover {
+        background: rgba(56, 189, 248, 0.18);
+        border-color: rgba(56, 189, 248, 0.5);
+        color: #bae6fd;
+      }
+
+      .status-panel {
+        padding: 12px 16px 10px;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        background: rgba(15, 23, 42, 0.85);
+      }
+
+      .status-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        font-size: 0.78rem;
+        color: rgba(226, 232, 240, 0.7);
+      }
+
+      .status-meta span,
+      .status-meta a {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .status-meta-list {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+      }
+
+      .status-token-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .status-copy-button {
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        background: rgba(30, 41, 59, 0.65);
+        color: #e2e8f0;
+        border-radius: 6px;
+        padding: 4px 8px;
+        font-size: 0.72rem;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+        transition: background 0.2s ease, border 0.2s ease, color 0.2s ease;
+      }
+
+      .status-copy-button:hover:not([disabled]) {
+        background: rgba(56, 189, 248, 0.18);
+        border-color: rgba(56, 189, 248, 0.45);
+        color: #bae6fd;
+      }
+
+      .status-copy-button[disabled] {
+        cursor: default;
+        opacity: 0.6;
+      }
+
+      .status-link {
+        color: #38bdf8;
+        text-decoration: none;
+        word-break: break-all;
+      }
+
+      .status-link.is-disabled {
+        color: rgba(148, 163, 184, 0.55);
+        pointer-events: none;
+      }
+
+      .status-error {
+        font-size: 0.8rem;
+        color: #f87171;
+        background: rgba(248, 113, 113, 0.12);
+        border: 1px solid rgba(248, 113, 113, 0.25);
+        border-radius: 8px;
+        padding: 8px 10px;
+      }
+
+      .status-response {
+        margin: 0;
+        margin-top: -4px;
+        padding: 10px 12px;
+        background: rgba(15, 23, 42, 0.95);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 8px;
+        font-size: 0.74rem;
+        line-height: 1.4;
+        color: rgba(226, 232, 240, 0.85);
+        max-height: 140px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .status-log {
+        padding: 10px 16px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        font-size: 0.74rem;
+        color: rgba(203, 213, 225, 0.82);
+      }
+
+      .status-log.is-hidden {
+        display: none !important;
+      }
+
+      .status-log-title {
+        font-size: 0.74rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: rgba(148, 163, 184, 0.85);
+      }
+
+      .status-log-entry {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 8px 10px;
+        background: rgba(30, 41, 59, 0.6);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 8px;
+      }
+
+      .status-log-entry.online {
+        border-color: rgba(52, 211, 153, 0.5);
+      }
+
+      .status-log-entry.offline {
+        border-color: rgba(248, 113, 113, 0.45);
+      }
+
+      .status-log-entry .log-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        font-weight: 600;
+        color: rgba(226, 232, 240, 0.9);
+      }
+
+      .status-log-entry .log-meta {
+        font-size: 0.7rem;
+        color: rgba(148, 163, 184, 0.82);
+      }
+
+      .status-log-entry .log-message {
+        color: rgba(226, 232, 240, 0.82);
+      }
+
+      .status-log-entry .log-body {
+        font-family: ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco,
+          Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 0.7rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: rgba(148, 163, 184, 0.85);
+      }
+
+      .is-hidden {
+        display: none !important;
       }
 
       #typingIndicator {
@@ -157,62 +351,639 @@
       }
 
       @keyframes typingBlink {
-        0%, 80%, 100% { opacity: 0; transform: translateY(0); }
-        40% { opacity: 1; transform: translateY(-2px); }
+        0%,
+        80%,
+        100% {
+          opacity: 0;
+          transform: translateY(0);
+        }
+        40% {
+          opacity: 1;
+          transform: translateY(-2px);
+        }
       }
     </style>
   </head>
   <body>
     <header>
-      <h1>WA Auto Sender Monitor</h1>
-      <p>Daftar pesan yang sedang/sudah dikirim.</p>
+      <div class="header-text">
+        <h1>WA Auto Sender Monitor</h1>
+        <p id="monitorSummary">Daftar pesan yang sedang/sudah dikirim.</p>
+      </div>
+      <div class="header-actions">
+        <button
+          id="toggleWidthButton"
+          class="header-action"
+          type="button"
+          title="Sempitkan/Pulihkan lebar monitor"
+        >
+          ⇔
+        </button>
+      </div>
     </header>
 
-    <div id="typingIndicator">
-      <span class="typing-dots"><span></span><span></span><span></span></span>
-      <span>Sedang mengetik di WhatsApp…</span>
+    <div id="monitorContent">
+      <div class="status-panel">
+        <div class="status-meta">
+          <span id="monitorDevice">Device: -</span>
+          <span id="monitorService">Service: -</span>
+          <span id="monitorLastFetch">Sinkron: Belum pernah</span>
+        </div>
+        <div class="status-meta">
+          <span>Billig MyWiFi Url:</span>
+          <a
+            id="monitorPendingUrl"
+            class="status-link is-disabled"
+            href="#"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            -
+          </a>
+        </div>
+        <div class="status-meta status-meta-list">
+          <span>Integrasi Billing MyWiFi:</span>
+          <span>Menu: Integrasi > WA Gateway</span>
+          <span id="monitorIntegrationVendor">Vendor: StarBox</span>
+          <span class="status-token-row">
+            <span id="monitorIntegrationToken">Token: -</span>
+            <button
+              id="copyTokenButton"
+              class="status-copy-button"
+              type="button"
+              title="Salin token ke clipboard"
+            >
+              Salin
+            </button>
+          </span>
+        </div>
+        <div class="status-meta">
+          <span id="monitorConnectionStatus">Koneksi: -</span>
+          <span id="monitorResponseInfo">Respon: -</span>
+          <span id="monitorNextFetch">Sinkron ulang: -</span>
+        </div>
+        <pre
+          id="monitorResponsePreview"
+          class="status-response is-hidden"
+        ></pre>
+        <div id="monitorError" class="status-error is-hidden"></div>
+      </div>
+
+      <div id="typingIndicator">
+        <span class="typing-dots"><span></span><span></span><span></span></span>
+        <span>Sedang mengetik di WhatsApp…</span>
+      </div>
+
+      <ul id="messageList">
+        <li class="empty">Belum ada data.</li>
+      </ul>
     </div>
 
-    <ul id="messageList">
-      <li class="empty">Belum ada data.</li>
-    </ul>
-
     <script>
-      const typingIndicator = document.getElementById('typingIndicator');
-      const list = document.getElementById('messageList');
+      const typingIndicator = document.getElementById("typingIndicator");
+      const list = document.getElementById("messageList");
+      const summary = document.getElementById("monitorSummary");
+      const deviceLabel = document.getElementById("monitorDevice");
+      const serviceLabel = document.getElementById("monitorService");
+      const lastFetchLabel = document.getElementById("monitorLastFetch");
+      const pendingUrlLink = document.getElementById("monitorPendingUrl");
+      const errorLabel = document.getElementById("monitorError");
+      const integrationTokenLabel = document.getElementById(
+        "monitorIntegrationToken"
+      );
+      const integrationVendorLabel = document.getElementById(
+        "monitorIntegrationVendor"
+      );
+      const connectionStatusLabel = document.getElementById(
+        "monitorConnectionStatus"
+      );
+      const responseInfoLabel = document.getElementById("monitorResponseInfo");
+      const responsePreviewElement = document.getElementById(
+        "monitorResponsePreview"
+      );
+      const nextFetchLabel = document.getElementById("monitorNextFetch");
+      const toggleWidthButton = document.getElementById("toggleWidthButton");
+      const copyTokenButton = document.getElementById("copyTokenButton");
 
-      function renderQueue(queue = [], activeId = null) {
-        list.innerHTML = '';
-        if (!queue.length) {
-          const empty = document.createElement('li');
-          empty.className = 'empty';
-          empty.textContent = 'Semua pesan sudah diproses.';
-          list.appendChild(empty);
-          return;
+      if (integrationTokenLabel) {
+        integrationTokenLabel.title =
+          "Masukkan UID device ke Billing MyWiFi (Integrasi > WA Gateway).";
+      }
+      if (integrationVendorLabel) {
+        integrationVendorLabel.textContent = "Vendor: StarBox";
+        integrationVendorLabel.title =
+          "Pilih vendor StarBox di Billing MyWiFi (Integrasi > WA Gateway).";
+      }
+
+      const defaultConnectionState = {
+        status: "idle",
+        checkedAt: null,
+        latencyMs: null,
+        httpStatus: null,
+        statusText: "",
+        message: "",
+        responseCount: null,
+        responsePreview: "",
+        endpoint: "",
+      };
+
+      const monitorState = {
+        queue: [],
+        activeId: null,
+        typing: false,
+        error: null,
+        lastFetch: null,
+        deviceName: "",
+        service: "",
+        uid: "",
+        pendingUrl: "",
+        counts: { total: 0, pending: 0, done: 0 },
+        connection: { ...defaultConnectionState },
+        nextFetchAt: null,
+      };
+      let monitorCollapsed = false;
+      let copyTokenResetTimer = null;
+
+      function formatTimestamp(value) {
+        if (!value) return "Belum pernah";
+        try {
+          const date = new Date(value);
+          if (Number.isNaN(date.getTime())) return value;
+          return date.toLocaleString();
+        } catch {
+          return value;
         }
+      }
 
-        queue.forEach(item => {
-          const status = (item.status || 'pending').toLowerCase();
-          const li = document.createElement('li');
-          li.classList.add(status);
-          if (String(item.id) === String(activeId)) {
-            li.classList.add('active');
-          }
+      function formatFetchCountdown(targetIso) {
+        if (!targetIso) return "Tidak aktif";
+        try {
+          const target = new Date(targetIso);
+          if (Number.isNaN(target.getTime())) return targetIso;
+          const diffMs = target.getTime() - Date.now();
+          if (diffMs <= 0) return "Segera";
+          const totalSeconds = Math.max(0, Math.round(diffMs / 1000));
+          const minutes = Math.floor(totalSeconds / 60);
+          const seconds = totalSeconds % 60;
+          return `${String(minutes).padStart(2, "0")}:${String(
+            seconds
+          ).padStart(2, "0")}`;
+        } catch {
+          return targetIso;
+        }
+      }
 
-          li.innerHTML = `
-            <div class="phone">${item.phone}</div>
-            <div class="message">${item.message}</div>
-            <span class="status">${status.toUpperCase()}</span>
-          `;
+      function updateCountdownLabel() {
+        if (!nextFetchLabel) return;
+        const text = formatFetchCountdown(monitorState.nextFetchAt);
+        nextFetchLabel.textContent = `Sinkron ulang: ${text}`;
+        if (!monitorState.nextFetchAt) {
+          nextFetchLabel.title = "Pengambilan otomatis sedang tidak aktif.";
+        } else {
+          nextFetchLabel.title = `Berikutnya: ${formatTimestamp(
+            monitorState.nextFetchAt
+          )}`;
+        }
+      }
 
-          list.appendChild(li);
+      function normalizeMonitorPriority(value) {
+        const num = Number(value);
+        if (Number.isFinite(num)) {
+          return Math.max(0, Math.floor(num));
+        }
+        return 9999;
+      }
+
+      function sanitizeQueue(queue) {
+        if (!Array.isArray(queue)) return [];
+        return queue.map((item, index) => {
+          const entry = item || {};
+          const baseId = entry.id ?? entry.phone ?? index;
+          return {
+            id: baseId != null ? String(baseId) : String(index),
+            phone: entry.phone ?? "",
+            message: entry.message ?? "",
+            status: (entry.status || "pending").toLowerCase(),
+            priority: normalizeMonitorPriority(entry.priority),
+          };
         });
       }
 
-      window.monitorAPI?.onAutomationUpdate?.(({ queue = [], activeId = null, typing = false } = {}) => {
-        renderQueue(queue, activeId);
-        typingIndicator.style.display = typing && queue.length ? 'flex' : 'none';
-      });
+      function sanitizeConnectionDetails(details) {
+        if (!details || typeof details !== "object") {
+          return { ...defaultConnectionState };
+        }
+
+        const latency = Number(details.latencyMs);
+        const httpStatus =
+          typeof details.httpStatus === "number"
+            ? details.httpStatus
+            : Number.isFinite(Number(details.httpStatus))
+            ? Number(details.httpStatus)
+            : null;
+        const responseCount =
+          typeof details.responseCount === "number" &&
+          Number.isFinite(details.responseCount)
+            ? details.responseCount
+            : Number.isFinite(Number(details.responseCount))
+            ? Number(details.responseCount)
+            : null;
+
+        return {
+          status: (
+            details.status || defaultConnectionState.status
+          ).toLowerCase(),
+          checkedAt: details.checkedAt || defaultConnectionState.checkedAt,
+          latencyMs: Number.isFinite(latency)
+            ? Math.max(0, Math.round(latency))
+            : defaultConnectionState.latencyMs,
+          httpStatus,
+          statusText: details.statusText || defaultConnectionState.statusText,
+          message: details.message || defaultConnectionState.message,
+          responseCount,
+          responsePreview:
+            details.responsePreview || defaultConnectionState.responsePreview,
+          endpoint: details.endpoint || defaultConnectionState.endpoint,
+        };
+      }
+
+      function sanitizeConnectionLogs(entries) {
+        if (!Array.isArray(entries)) return [];
+        return entries.slice(0, 5).map((entry) => {
+          const latency = Number(entry?.latencyMs);
+          const httpStatus =
+            typeof entry?.httpStatus === "number"
+              ? entry.httpStatus
+              : Number.isFinite(Number(entry?.httpStatus))
+              ? Number(entry.httpStatus)
+              : null;
+          const responseCount =
+            typeof entry?.responseCount === "number" &&
+            Number.isFinite(entry.responseCount)
+              ? entry.responseCount
+              : Number.isFinite(Number(entry?.responseCount))
+              ? Number(entry.responseCount)
+              : null;
+
+          return {
+            timestamp: entry?.timestamp || entry?.checkedAt || null,
+            status: (entry?.status || "idle").toLowerCase(),
+            httpStatus,
+            statusText: entry?.statusText || "",
+            latencyMs: Number.isFinite(latency)
+              ? Math.max(0, Math.round(latency))
+              : null,
+            message: entry?.message || "",
+            responseCount,
+            responsePreview: entry?.responsePreview || "",
+          };
+        });
+      }
+
+      function renderQueue() {
+        const queue = monitorState.queue || [];
+        const activeId =
+          monitorState.activeId != null ? String(monitorState.activeId) : null;
+
+        list.innerHTML = "";
+        if (!queue.length) {
+          const empty = document.createElement("li");
+          empty.className = "empty";
+          empty.textContent = monitorState.error
+            ? "Data tidak tersedia."
+            : "Belum ada data.";
+          list.appendChild(empty);
+          list.classList.add("is-hidden");
+          return;
+        }
+
+        queue.forEach((item) => {
+          const status = (item.status || "pending").toLowerCase();
+          const li = document.createElement("li");
+          li.classList.add(status);
+          const priorityValue = Number.isFinite(item.priority)
+            ? item.priority
+            : null;
+          if (priorityValue != null && priorityValue !== 9999) {
+            li.dataset.priority = String(priorityValue);
+            li.dataset.priorityLabel = `P${priorityValue}`;
+          } else {
+            li.dataset.priority = "";
+            li.dataset.priorityLabel = "";
+          }
+          if (activeId && String(item.id) === activeId) {
+            li.classList.add("active");
+          }
+
+          const phone = document.createElement("div");
+          phone.className = "phone";
+          phone.textContent = item.phone || "—";
+
+          const message = document.createElement("div");
+          message.className = "message";
+          message.textContent = item.message || "";
+
+          const badge = document.createElement("span");
+          badge.className = "status";
+          badge.textContent = status.toUpperCase();
+
+          li.appendChild(phone);
+          li.appendChild(message);
+          li.appendChild(badge);
+
+          list.appendChild(li);
+          list.classList.remove("is-hidden");
+        });
+      }
+
+      function updateMeta() {
+        const queue = monitorState.queue || [];
+        const counts = monitorState.counts || {};
+
+        const totalProvided = Number(counts.total);
+        const pendingProvided = Number(counts.pending);
+        const doneProvided = Number(counts.done);
+
+        const derivedDone = queue.filter(
+          (item) => item.status === "done"
+        ).length;
+        const derivedPending = queue.length - derivedDone;
+
+        const total = Number.isFinite(totalProvided)
+          ? totalProvided
+          : queue.length;
+        const pending = Number.isFinite(pendingProvided)
+          ? pendingProvided
+          : derivedPending;
+        const done = Number.isFinite(doneProvided) ? doneProvided : derivedDone;
+
+        summary.textContent =
+          total > 0
+            ? `Total ${total} • Pending ${pending} • Selesai ${done}`
+            : monitorState.error
+            ? "Tidak dapat memuat data. Lihat rincian di bawah."
+            : "Belum ada pesan.";
+
+        const deviceText = monitorState.deviceName
+          ? `Device: ${monitorState.deviceName}`
+          : monitorState.uid
+          ? `Device UID: ${monitorState.uid}`
+          : "Device: -";
+        deviceLabel.textContent = deviceText;
+
+        const serviceText = monitorState.service
+          ? `Service: ${monitorState.service.toUpperCase()}`
+          : "Service: -";
+        serviceLabel.textContent = serviceText;
+
+        lastFetchLabel.textContent = `Sinkron: ${formatTimestamp(
+          monitorState.lastFetch
+        )}`;
+
+        if (monitorState.pendingUrl) {
+          pendingUrlLink.textContent = monitorState.pendingUrl;
+          pendingUrlLink.href = monitorState.pendingUrl;
+          pendingUrlLink.classList.remove("is-disabled");
+        } else {
+          pendingUrlLink.textContent = "-";
+          pendingUrlLink.href = "#";
+          pendingUrlLink.classList.add("is-disabled");
+        }
+
+        if (integrationTokenLabel) {
+          integrationTokenLabel.textContent = monitorState.uid
+            ? `Token: ${monitorState.uid}`
+            : "Token: -";
+          integrationTokenLabel.title =
+            "Masukkan UID device ke Billing MyWiFi (Integrasi > WA Gateway).";
+        }
+        if (copyTokenButton) {
+          const hasToken = Boolean(monitorState.uid);
+          if (!hasToken && copyTokenResetTimer) {
+            clearTimeout(copyTokenResetTimer);
+            copyTokenResetTimer = null;
+          }
+          copyTokenButton.disabled = !hasToken;
+          if (!hasToken) {
+            copyTokenButton.dataset.state = "idle";
+            copyTokenButton.textContent = "Salin";
+          } else if (copyTokenButton.dataset.state !== "copied") {
+            copyTokenButton.dataset.state = "ready";
+            copyTokenButton.textContent = "Salin";
+          }
+        }
+        if (integrationVendorLabel) {
+          integrationVendorLabel.textContent = "Vendor: StarBox";
+        }
+
+        const connection = monitorState.connection || {
+          ...defaultConnectionState,
+        };
+        const statusLabelParts = [];
+        if (connection.status) {
+          statusLabelParts.push(connection.status.toUpperCase());
+        }
+        if (Number.isFinite(connection.latencyMs)) {
+          statusLabelParts.push(`${connection.latencyMs} ms`);
+        }
+        if (Number.isFinite(connection.responseCount)) {
+          statusLabelParts.push(`${connection.responseCount} pesan`);
+        }
+        if (connection.message) {
+          statusLabelParts.push(connection.message);
+        }
+        connectionStatusLabel.textContent = `Koneksi: ${
+          statusLabelParts.filter(Boolean).join(" • ") || "-"
+        }`;
+
+        const httpLabel =
+          connection.httpStatus != null
+            ? `${connection.httpStatus}${
+                connection.statusText ? ` ${connection.statusText}` : ""
+              }`
+            : "n/a";
+        const responseMetaParts = [
+          `HTTP ${httpLabel}`,
+          connection.checkedAt ? formatTimestamp(connection.checkedAt) : null,
+        ].filter(Boolean);
+        responseInfoLabel.textContent = `Respon: ${
+          responseMetaParts.join(" • ") || "-"
+        }`;
+
+        updateCountdownLabel();
+
+        const preview = connection.responsePreview || "";
+        if (monitorState.error && preview) {
+          responsePreviewElement.textContent = preview;
+          responsePreviewElement.classList.remove("is-hidden");
+        } else {
+          responsePreviewElement.textContent = "";
+          responsePreviewElement.classList.add("is-hidden");
+        }
+
+        if (monitorState.error) {
+          errorLabel.textContent = monitorState.error;
+          errorLabel.classList.remove("is-hidden");
+          if (monitorState.connection?.message) {
+            responsePreviewElement.textContent =
+              monitorState.connection.responsePreview ||
+              monitorState.connection.message;
+            responsePreviewElement.classList.remove("is-hidden");
+          }
+        } else {
+          errorLabel.textContent = "";
+          errorLabel.classList.add("is-hidden");
+          responsePreviewElement.textContent = "";
+          responsePreviewElement.classList.add("is-hidden");
+        }
+      }
+
+      function applyAutomationPayload(payload = {}) {
+        if (Array.isArray(payload.queue)) {
+          monitorState.queue = sanitizeQueue(payload.queue);
+        }
+
+        if ("activeId" in payload) {
+          monitorState.activeId =
+            payload.activeId != null ? String(payload.activeId) : null;
+        }
+
+        if ("typing" in payload) {
+          monitorState.typing = !!payload.typing;
+        }
+
+        if ("error" in payload) {
+          monitorState.error = payload.error || null;
+        }
+
+        if ("lastFetch" in payload) {
+          monitorState.lastFetch = payload.lastFetch || null;
+        }
+
+        if ("deviceName" in payload) {
+          monitorState.deviceName = payload.deviceName || "";
+        }
+
+        if ("service" in payload) {
+          monitorState.service = payload.service || "";
+        }
+
+        if ("uid" in payload) {
+          monitorState.uid = payload.uid || "";
+        }
+
+        if ("pendingUrl" in payload) {
+          monitorState.pendingUrl = payload.pendingUrl || "";
+        }
+
+        if ("nextFetchAt" in payload) {
+          monitorState.nextFetchAt = payload.nextFetchAt || null;
+        }
+
+        if ("connection" in payload) {
+          monitorState.connection = sanitizeConnectionDetails(
+            payload.connection
+          );
+        }
+
+        if (payload.counts && typeof payload.counts === "object") {
+          const queue = monitorState.queue || [];
+          const derivedDone = queue.filter(
+            (item) => item.status === "done"
+          ).length;
+          const derivedPending = queue.length - derivedDone;
+
+          const totalProvided = Number(payload.counts.total);
+          const pendingProvided = Number(payload.counts.pending);
+          const doneProvided = Number(payload.counts.done);
+
+          monitorState.counts = {
+            total: Number.isFinite(totalProvided)
+              ? totalProvided
+              : queue.length,
+            pending: Number.isFinite(pendingProvided)
+              ? pendingProvided
+              : derivedPending,
+            done: Number.isFinite(doneProvided) ? doneProvided : derivedDone,
+          };
+        } else {
+          const queue = monitorState.queue || [];
+          const doneCount = queue.filter(
+            (item) => item.status === "done"
+          ).length;
+          monitorState.counts = {
+            total: queue.length,
+            pending: queue.length - doneCount,
+            done: doneCount,
+          };
+        }
+
+        typingIndicator.style.display =
+          monitorState.typing && (monitorState.queue || []).length
+            ? "flex"
+            : "none";
+        updateMeta();
+        renderQueue();
+      }
+
+      if (copyTokenButton) {
+        copyTokenButton.dataset.state = "idle";
+        copyTokenButton.disabled = true;
+        copyTokenButton.addEventListener("click", async () => {
+          if (copyTokenButton.disabled) return;
+          const tokenValue = monitorState.uid || "";
+          if (!tokenValue) return;
+
+          let copied = false;
+          if (window.monitorAPI?.copyText) {
+            try {
+              copied = await window.monitorAPI.copyText(tokenValue);
+            } catch (err) {
+              copied = false;
+            }
+          }
+          if (!copied && navigator?.clipboard?.writeText) {
+            try {
+              await navigator.clipboard.writeText(tokenValue);
+              copied = true;
+            } catch (err) {
+              copied = false;
+            }
+          }
+          if (!copied) {
+            return;
+          }
+          if (copyTokenResetTimer) {
+            clearTimeout(copyTokenResetTimer);
+          }
+          copyTokenButton.dataset.state = "copied";
+          copyTokenButton.textContent = "Disalin";
+          copyTokenResetTimer = setTimeout(() => {
+            copyTokenButton.dataset.state = "ready";
+            copyTokenButton.textContent = "Salin";
+            copyTokenResetTimer = null;
+          }, 1200);
+        });
+      }
+
+      if (toggleWidthButton && window.monitorAPI?.toggleWidth) {
+        toggleWidthButton.addEventListener("click", () => {
+          monitorCollapsed = !monitorCollapsed;
+          toggleWidthButton.textContent = monitorCollapsed ? "➕" : "⇔";
+          window.monitorAPI.toggleWidth();
+        });
+      }
+
+      updateCountdownLabel();
+      if (nextFetchLabel) {
+        setInterval(updateCountdownLabel, 1000);
+      }
+
+      if (window.monitorAPI?.onAutomationUpdate) {
+        window.monitorAPI.onAutomationUpdate(applyAutomationPayload);
+      } else {
+        console.warn("monitorAPI tidak tersedia.");
+      }
     </script>
   </body>
 </html>

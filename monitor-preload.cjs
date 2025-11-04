@@ -7,5 +7,7 @@ contextBridge.exposeInMainWorld('monitorAPI', {
         callback(payload);
       }
     });
-  }
+  },
+  toggleWidth: () => ipcRenderer.send('monitor-toggle-width'),
+  copyText: (value) => ipcRenderer.invoke('monitor-copy-text', value)
 });
