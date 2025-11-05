@@ -773,6 +773,7 @@ async function sendWhatsappMessages(uid, queue = [], options = {}) {
       if (entryIndex !== -1) queueState[entryIndex].status = "sending";
       pushMonitorUpdate(item.id ?? item.phone, true);
 
+      // Buka WhatsApp Web dengan pesan langsung
       const targetUrl = `https://web.whatsapp.com/send?phone=${
         item.phone
       }&text=${encodeURIComponent(item.message)}&app_absent=0`;
@@ -799,33 +800,56 @@ async function sendWhatsappMessages(uid, queue = [], options = {}) {
               'div[contenteditable="true"][role="textbox"]'
             ];
 
+            // Cari input box terlebih dahulu
+            let input = null;
             for (let attempt = 0; attempt < 24; attempt++) {
-              const sendButton = sendSelectors
+              input = inputSelectors
                 .map(selector => document.querySelector(selector))
                 .find(Boolean);
-              if (sendButton) {
-                sendButton.click();
-                return true;
-              }
-
-              const input = inputSelectors
-                .map(selector => document.querySelector(selector))
-                .find(Boolean);
-              if (input) {
-                input.focus();
-                const enterEvent = new KeyboardEvent('keydown', {
-                  key: 'Enter',
-                  code: 'Enter',
-                  keyCode: 13,
-                  which: 13,
-                  bubbles: true
-                });
-                input.dispatchEvent(enterEvent);
-              }
-
+              if (input) break;
               await sleep(350);
             }
-            return false;
+
+            if (!input) return false;
+
+            // Focus pada input dan ketik 10 spasi dengan cepat (simulasi mengetik)
+            input.focus();
+            await sleep(200);
+
+            // Ketik 10 spasi dengan cepat (hanya simulasi, tidak dimasukkan ke input)
+            for (let i = 0; i < 10; i++) {
+              // Hanya trigger event keyboard tanpa menambahkan ke input
+              const spaceKeydown = new KeyboardEvent('keydown', {
+                key: ' ',
+                code: 'Space',
+                keyCode: 32,
+                which: 32,
+                bubbles: true,
+                cancelable: true
+              });
+              input.dispatchEvent(spaceKeydown);
+
+              // Delay cepat antara spasi (30-50ms)
+              await sleep(30 + Math.random() * 20);
+            }
+
+            // Tunggu sebentar setelah simulasi mengetik
+            await sleep(200);
+
+            // Langsung tekan Enter untuk kirim
+            const enterEvent = new KeyboardEvent('keydown', {
+              key: 'Enter',
+              code: 'Enter',
+              keyCode: 13,
+              which: 13,
+              bubbles: true,
+              cancelable: true
+            });
+            input.dispatchEvent(enterEvent);
+
+            // Tunggu pesan terkirim
+            await sleep(500);
+            return true;
           })();
         `,
           true
@@ -835,6 +859,8 @@ async function sendWhatsappMessages(uid, queue = [], options = {}) {
           console.log(
             `✅ Pesan ${item.id || item.message.slice(0, 20)} terkirim.`
           );
+          // Tunggu tambahan untuk memastikan pesan benar-benar terkirim
+          await new Promise((res) => setTimeout(res, 1000));
           results.push({ ...item, status: "done" });
           if (entryIndex !== -1) queueState[entryIndex].status = "done";
         } else {
@@ -946,26 +972,30 @@ function createDeviceWindow(uid, service, options = {}) {
   let userAgent = "";
 
   switch (mode) {
+    // Mobile Phones
     case "mobile-iphone":
+      width = 390;
+      height = 844;
+      userAgent =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1";
+      break;
+    case "mobile-iphone-pro":
+      width = 430;
+      height = 932;
+      userAgent =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1";
+      break;
+    case "mobile-iphone-se":
       width = 375;
+      height = 667;
       userAgent =
         "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1";
       break;
     case "mobile-android":
-      width = 390;
+      width = 393;
+      height = 851;
       userAgent =
-        "Mozilla/5.0 (Linux; Android 11; Pixel 2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36";
-      break;
-    case "mobile-browser-desktop":
-      width = 480;
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36";
-      break;
-    case "mobile-ipad":
-      width = 768;
-      height = 1024;
-      userAgent =
-        "Mozilla/5.0 (iPad; CPU OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15A5341f Safari/604.1";
+        "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36";
       break;
     case "mobile-galaxy-s8":
       width = 360;
@@ -973,15 +1003,98 @@ function createDeviceWindow(uid, service, options = {}) {
       userAgent =
         "Mozilla/5.0 (Linux; Android 7.0; SM-G950U Build/NRD90M) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36";
       break;
+    case "mobile-galaxy-s23":
+      width = 384;
+      height = 854;
+      userAgent =
+        "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36";
+      break;
     case "mobile-pixel-5":
       width = 393;
       height = 851;
       userAgent =
         "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36";
       break;
+    case "mobile-pixel-7":
+      width = 412;
+      height = 915;
+      userAgent =
+        "Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36";
+      break;
+    case "mobile-oneplus":
+      width = 412;
+      height = 869;
+      userAgent =
+        "Mozilla/5.0 (Linux; Android 12; OnePlus 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36";
+      break;
+    case "mobile-browser-desktop":
+      width = 480;
+      height = 700;
+      userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36";
+      break;
+
+    // Tablets
+    case "tablet-ipad":
+    case "mobile-ipad":
+      width = 768;
+      height = 1024;
+      userAgent =
+        "Mozilla/5.0 (iPad; CPU OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15A5341f Safari/604.1";
+      break;
+    case "tablet-ipad-pro":
+      width = 834;
+      height = 1194;
+      userAgent =
+        "Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1";
+      break;
+    case "tablet-ipad-pro-13":
+      width = 1024;
+      height = 1366;
+      userAgent =
+        "Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1";
+      break;
+    case "tablet-android":
+      width = 800;
+      height = 1280;
+      userAgent =
+        "Mozilla/5.0 (Linux; Android 11; Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      break;
+    case "tablet-samsung":
+      width = 1200;
+      height = 1600;
+      userAgent =
+        "Mozilla/5.0 (Linux; Android 12; SM-X906B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      break;
+
+    // Desktop
+    case "desktop":
+      width = 1000;
+      height = 700;
+      userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      break;
     case "desktop-mini":
       width = 800;
       height = 600;
+      userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      break;
+    case "desktop-hd":
+      width = 1366;
+      height = 768;
+      userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      break;
+    case "desktop-full-hd":
+      width = 1920;
+      height = 1080;
+      userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      break;
+    case "desktop-2k":
+      width = 2560;
+      height = 1440;
       userAgent =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
       break;
@@ -991,8 +1104,48 @@ function createDeviceWindow(uid, service, options = {}) {
       userAgent =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
       break;
+    case "desktop-ultrawide":
+      width = 2560;
+      height = 1080;
+      userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      break;
+    case "desktop-4k":
+      width = 3840;
+      height = 2160;
+      userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      break;
+
+    // Special Modes
+    case "compact":
+      width = 600;
+      height = 400;
+      userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      break;
+    case "square":
+      width = 700;
+      height = 700;
+      userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      break;
+    case "portrait":
+      width = 600;
+      height = 900;
+      userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      break;
+    case "landscape":
+      width = 900;
+      height = 600;
+      userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      break;
+
     default:
       width = 1000;
+      height = 700;
       userAgent =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
       break;
@@ -1013,7 +1166,7 @@ function createDeviceWindow(uid, service, options = {}) {
 
   win.webContents.on("page-title-updated", (e) => {
     e.preventDefault(); // 🔒 cegah perubahan title
-    win.setTitle(deviceName + " - Starbox V1.2.1103"); // 🔄 pastikan title tetap sesuai device
+    win.setTitle(deviceName + " - Starbox V1.2.251105"); // 🔄 pastikan title tetap sesuai device
   });
   win.once("ready-to-show", () => {
     if (autoShow) {
@@ -1392,6 +1545,45 @@ ipcMain.on("automation-monitor-update", async (event, uid, payload = {}) => {
       err?.message
     );
   }
+});
+
+ipcMain.on("monitor-trigger-fetch-pending", (_event, uid) => {
+  if (!uid) return;
+
+  // Cek apakah device sedang running (window exists dan tidak destroyed)
+  const deviceWindow = deviceWindows[uid];
+  if (!deviceWindow || deviceWindow.isDestroyed()) {
+    console.log(`⚠️ Device ${uid} tidak sedang berjalan, skip fetch pending`);
+    return;
+  }
+
+  console.log(`⏰ Monitor meminta fetch pending untuk UID ${uid} (device sedang running)`);
+
+  // Kirim event ke semua window untuk trigger fetch pending
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed() && win.webContents) {
+      win.webContents.send("trigger-fetch-pending", uid);
+    }
+  });
+});
+
+ipcMain.on("monitor-control-automation", (_event, uid, state) => {
+  if (!uid || !state) return;
+
+  console.log(`🎮 Monitor meminta kontrol automation untuk UID ${uid}: ${state}`);
+
+  // Kirim event ke semua window untuk mengontrol automation
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed() && win.webContents) {
+      win.webContents.send("control-automation", uid, state);
+    }
+  });
+});
+
+ipcMain.handle("is-device-running", (_event, uid) => {
+  if (!uid) return false;
+  const deviceWindow = deviceWindows[uid];
+  return deviceWindow && !deviceWindow.isDestroyed();
 });
 
 ipcMain.handle("load-devices", () => {

@@ -25,7 +25,20 @@ invoke: ipcRenderer.invoke,
   getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
   ensureMonitorWindow: (uid) => ipcRenderer.send('ensure-monitor-window', uid),
   closeMonitorWindow: (uid) => ipcRenderer.send('close-monitor-window', uid),
-  updateAutomationMonitor: (uid, payload) => ipcRenderer.send('automation-monitor-update', uid, payload)
-
-  
+  updateAutomationMonitor: (uid, payload) => ipcRenderer.send('automation-monitor-update', uid, payload),
+  isDeviceRunning: (uid) => ipcRenderer.invoke('is-device-running', uid),
+  onTriggerFetchPending: (callback) => {
+    ipcRenderer.on('trigger-fetch-pending', (event, uid) => {
+      if (typeof callback === 'function') {
+        callback(uid);
+      }
+    });
+  },
+  onControlAutomation: (callback) => {
+    ipcRenderer.on('control-automation', (event, uid, state) => {
+      if (typeof callback === 'function') {
+        callback(uid, state);
+      }
+    });
+  }
 });

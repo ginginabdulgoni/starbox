@@ -195,6 +195,7 @@ function getOrCreateAutomationSession(deviceOrUid) {
       connectionLog: [],
       fetchToastMessage: null,
       isSending: false,
+      fetchTimer: null, // Timer individual untuk fetch per device
     };
     automationSessions.set(uid, session);
   }
@@ -271,6 +272,13 @@ function restorePrimaryAutomationSession() {
 
 function removeAutomationSession(uid) {
   if (!uid) return;
+
+  // Stop timer individual sebelum hapus session
+  const session = automationSessions.get(uid);
+  if (session) {
+    stopDeviceFetchTimer(session);
+  }
+
   automationSessions.delete(uid);
   automationTargetOrder = automationTargetOrder.filter((item) => item !== uid);
   if (automationPrimaryUid === uid) {
@@ -743,6 +751,25 @@ async function refreshAutomationMessagesForSession(session, options = {}) {
   if (!session) return;
   const { silent = false } = options;
 
+  // Cek apakah automation sedang paused
+  if (session.isPaused) {
+    if (!silent) {
+      console.log(`⏸ Automation untuk ${session.uid} sedang paused, skip fetch`);
+    }
+    return;
+  }
+
+  // Cek apakah device sedang running sebelum fetch
+  if (window.electronAPI?.isDeviceRunning) {
+    const isRunning = await window.electronAPI.isDeviceRunning(session.uid);
+    if (!isRunning) {
+      if (!silent) {
+        console.log(`⚠️ Device ${session.uid} tidak sedang running, skip fetch pending`);
+      }
+      return;
+    }
+  }
+
   if (!session.pendingUrl) {
     setSessionMessages(session, []);
     updateSessionMonitorMeta(session, {
@@ -772,6 +799,10 @@ async function refreshAutomationMessagesForSession(session, options = {}) {
     mergeAutomationMessages(messages, session);
     const timestamp = new Date().toISOString();
     session.fetchToastMessage = null;
+
+    // Schedule countdown berikutnya setelah fetch berhasil
+    scheduleNextAutomationFetch(Date.now(), session);
+
     broadcastAutomationMonitor(session, {
       lastFetch: timestamp,
       error: null,
@@ -788,6 +819,10 @@ async function refreshAutomationMessagesForSession(session, options = {}) {
       showToast(message, 3500, "error");
     }
     session.fetchToastMessage = message;
+
+    // Schedule countdown berikutnya meski fetch gagal (retry otomatis)
+    scheduleNextAutomationFetch(Date.now(), session);
+
     broadcastAutomationMonitor(session, {
       error: message,
       typing: false,
@@ -1373,6 +1408,40 @@ async function sendAutomationQueue(options = {}) {
   return sendAutomationQueueForSession(session, options);
 }
 
+// Stop fetch timer untuk device tertentu
+function stopDeviceFetchTimer(session) {
+  if (session && session.fetchTimer) {
+    clearInterval(session.fetchTimer);
+    session.fetchTimer = null;
+    console.log(`⏹️ Fetch timer stopped for device ${session.uid}`);
+  }
+}
+
+// Start fetch timer untuk device tertentu (interval independen per device)
+function startDeviceFetchTimer(session) {
+  if (!session || !session.pendingUrl) return;
+
+  // Stop timer lama jika ada
+  stopDeviceFetchTimer(session);
+
+  // Set countdown awal sebelum fetch pertama
+  scheduleNextAutomationFetch(Date.now(), session);
+
+  // Jalankan fetch pertama kali langsung
+  refreshAutomationMessagesForSession(session, { silent: true }).catch((err) =>
+    console.error(`Initial fetch error for ${session.uid}:`, err)
+  );
+
+  // Set timer untuk fetch berikutnya (akan berulang otomatis)
+  session.fetchTimer = setInterval(() => {
+    refreshAutomationMessagesForSession(session, { silent: true }).catch(
+      (err) => console.error(`Fetch error for ${session.uid}:`, err)
+    );
+  }, AUTOMATION_FETCH_INTERVAL_MS);
+
+  console.log(`▶️ Fetch timer started for device ${session.uid} (interval: ${AUTOMATION_FETCH_INTERVAL_MS / 1000}s)`);
+}
+
 function stopAutomationLoop() {
   if (automationTimer) {
     clearInterval(automationTimer);
@@ -1382,6 +1451,12 @@ function stopAutomationLoop() {
     clearInterval(automationFetchTimer);
     automationFetchTimer = null;
   }
+
+  // Stop semua timer individual per device
+  automationSessions.forEach((session) => {
+    stopDeviceFetchTimer(session);
+  });
+
   automationFetchRunning = false;
   automationSendRoundRunning = false;
   automationFetchRoundRunning = false;
@@ -1468,20 +1543,25 @@ async function runAutomationFetchRound() {
     );
     if (!order.length) return;
 
-    for (const uid of order) {
+    automationFetchRunning = true;
+
+    // Jalankan fetch untuk semua device secara PARALLEL (bersamaan)
+    const fetchPromises = order.map(async (uid) => {
       const session = automationSessions.get(uid);
-      if (!session) continue;
-      automationFetchRunning = true;
+      if (!session) return;
+
       scheduleNextAutomationFetch(Date.now(), session);
       try {
         await refreshAutomationMessagesForSession(session, { silent: true });
       } catch (err) {
-        console.error("Automation fetch loop error:", err);
-      } finally {
-        automationFetchRunning = false;
+        console.error(`Automation fetch error for ${uid}:`, err);
       }
-    }
+    });
+
+    // Tunggu semua fetch selesai secara bersamaan
+    await Promise.all(fetchPromises);
   } finally {
+    automationFetchRunning = false;
     automationFetchRoundRunning = false;
     restorePrimaryAutomationSession();
   }
@@ -1493,17 +1573,14 @@ function ensureAutomationLoop() {
     return;
   }
 
-  if (!automationFetchTimer) {
-    runAutomationFetchRound().catch((err) =>
-      console.error("Automation fetch loop error:", err)
-    );
-    automationFetchTimer = setInterval(() => {
-      runAutomationFetchRound().catch((err) =>
-        console.error("Automation fetch loop error:", err)
-      );
-    }, AUTOMATION_FETCH_INTERVAL_MS);
-  }
+  // Start individual fetch timer untuk setiap device
+  automationSessions.forEach((session) => {
+    if (session.pendingUrl && !session.fetchTimer) {
+      startDeviceFetchTimer(session);
+    }
+  });
 
+  // Keep send timer global (karena send berjalan sequential per design)
   if (!automationTimer) {
     automationTimer = setInterval(() => {
       runAutomationSendRound().catch((err) =>
@@ -1669,6 +1746,61 @@ window.addEventListener("DOMContentLoaded", () => {
     setDeviceState(uid, "active");
     loadAllDevices();
   });
+
+  // Listener untuk trigger fetch pending dari monitor
+  if (window.electronAPI?.onTriggerFetchPending) {
+    window.electronAPI.onTriggerFetchPending((uid) => {
+      console.log("⏰ Menerima trigger fetch pending untuk UID:", uid);
+      const session = automationSessions.get(uid);
+      if (session) {
+        syncPendingMessagesForSession(session, { silent: false })
+          .then(() => {
+            console.log("✅ Fetch pending berhasil untuk UID:", uid);
+          })
+          .catch((err) => {
+            console.error("❌ Fetch pending gagal untuk UID:", uid, err);
+          });
+      } else {
+        console.warn("⚠️ Session tidak ditemukan untuk UID:", uid);
+      }
+    });
+  }
+
+  // Listener untuk kontrol automation (play/pause/stop)
+  if (window.electronAPI?.onControlAutomation) {
+    window.electronAPI.onControlAutomation((uid, state) => {
+      console.log(`🎮 Menerima kontrol automation untuk UID ${uid}: ${state}`);
+      const session = automationSessions.get(uid);
+      if (!session) {
+        console.warn("⚠️ Session tidak ditemukan untuk UID:", uid);
+        return;
+      }
+
+      if (state === "running") {
+        // Resume automation: start timer jika belum berjalan
+        if (!session.fetchTimer) {
+          startDeviceFetchTimer(session);
+          console.log(`▶️ Automation resumed untuk ${uid}`);
+        }
+        session.isPaused = false;
+      } else if (state === "paused") {
+        // Pause automation: stop timer tapi jangan hapus session
+        stopDeviceFetchTimer(session);
+        session.isPaused = true;
+        console.log(`⏸ Automation paused untuk ${uid}`);
+      } else if (state === "stopped") {
+        // Stop automation: stop timer dan clear messages
+        stopDeviceFetchTimer(session);
+        session.isPaused = false;
+        clearNextAutomationFetch(session);
+        broadcastAutomationMonitor(session, {
+          typing: false,
+          activeId: null,
+        });
+        console.log(`⏹ Automation stopped untuk ${uid}`);
+      }
+    });
+  }
 });
 function restartDevice(uid, service) {
   // Close window by killing process (optional improvement: track PID)
