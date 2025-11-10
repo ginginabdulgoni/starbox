@@ -17,12 +17,22 @@ const serviceConfig = {
   shopee: {
     label: "Shopee",
     color: "#ee4d2d",
-    url: "https://shopee.co.id/buyer/login",
+    url: "https://shopee.co.id/",
   },
   shopee_affiliate: {
     label: "Shopee Affiliate",
     color: "#ee4d2d",
     url: "https://affiliate.shopee.co.id/",
+  },
+  android: {
+    label: "Android Emulator",
+    color: "#3DDC84",
+    url: null,
+  },
+  other: {
+    label: "Website Kustom",
+    color: "#f97316",
+    url: null,
   },
   default: {
     label: "Service",
@@ -36,6 +46,7 @@ const automationConfig = {
   service: "",
   pendingUrl: "",
   deviceName: "",
+  callbackUrl: "",
 };
 
 let automationMessages = [];
@@ -72,6 +83,762 @@ const automationConnectionStatus = {
 };
 
 const automationConnectionLog = [];
+
+let cachedDevices = [];
+const authState = {
+  isLoggedIn: false,
+  user: null,
+  deviceQuota: null,
+  serverDeviceCount: null,
+  guestServiceLimit: 2,
+  lastSyncedAt: null,
+  package: null,
+  isUnlimited: false,
+  packageExpiresAt: null,
+  allowsPrivateService: false,
+  allowsAndroidEmulator: false,
+  allowsIosSimulator: false,
+};
+
+const authModalState = {
+  activeTab: "login",
+};
+
+let phoneCodeOptionsLoaded = false;
+const DEFAULT_PHONE_CODE = "+62";
+const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
+let packageCountdownTimer = null;
+let systemPlatform =
+  typeof navigator !== "undefined" ? navigator.userAgent : null;
+let lastAuthDeviceSnapshot = {
+  loggedIn: authState.isLoggedIn,
+  unlimited: authState.isUnlimited,
+  limit: getServiceLimitValue(),
+};
+
+function getServiceLimitValue() {
+  if (authState.isLoggedIn) {
+    if (authState.isUnlimited) return Infinity;
+    if (
+      typeof authState.deviceQuota === "number" &&
+      authState.deviceQuota > 0
+    ) {
+      return authState.deviceQuota;
+    }
+  }
+  return authState.guestServiceLimit > 0 ? authState.guestServiceLimit : 2;
+}
+
+function getDeviceUniqueKey(device = {}) {
+  return (
+    device.uid ||
+    device.token ||
+    device.id ||
+    `${device.service || "service"}::${
+      device.name || device.deviceName || "device"
+    }::${device.created_at || device.createdAt || ""}`
+  );
+}
+
+function getDeviceCreatedAtValue(device = {}) {
+  const raw = device.created_at || device.createdAt || null;
+  const ts = Date.parse(raw || "");
+  return Number.isNaN(ts) ? Infinity : ts;
+}
+
+function partitionDevicesByLimit(devices = []) {
+  const limit = getServiceLimitValue();
+  if (limit === Infinity) {
+    return { visible: devices.slice(), hidden: [] };
+  }
+
+  const serviceBuckets = new Map();
+  devices.forEach((device) => {
+    const key = (device.service || "").toLowerCase();
+    if (!serviceBuckets.has(key)) {
+      serviceBuckets.set(key, []);
+    }
+    serviceBuckets.get(key).push(device);
+  });
+
+  const allowedKeys = new Set();
+  const hiddenDevices = [];
+  serviceBuckets.forEach((list) => {
+    list
+      .slice()
+      .sort((a, b) => getDeviceCreatedAtValue(a) - getDeviceCreatedAtValue(b))
+      .forEach((device, index) => {
+        const deviceKey = getDeviceUniqueKey(device);
+        if (index < limit) {
+          allowedKeys.add(deviceKey);
+        } else {
+          hiddenDevices.push(device);
+        }
+      });
+  });
+
+  const visibleDevices = devices.filter((device) =>
+    allowedKeys.has(getDeviceUniqueKey(device))
+  );
+  return { visible: visibleDevices, hidden: hiddenDevices };
+}
+
+function updateDeviceLimitInfo(hiddenDevices = []) {
+  const infoEl = document.getElementById("device-limit-info");
+  if (!infoEl) return;
+
+  if (!hiddenDevices.length) {
+    infoEl.textContent = "";
+    infoEl.style.display = "none";
+    return;
+  }
+
+  if (!authState.isLoggedIn) {
+    infoEl.textContent = `🔒 ${hiddenDevices.length} device disembunyikan. Silakan login untuk melihat semua device Anda.`;
+  } else if (!authState.isUnlimited) {
+    const limit = getServiceLimitValue();
+    infoEl.textContent = `⚠️ ${hiddenDevices.length} device lain tidak ditampilkan karena batas ${limit} device per layanan. Hapus device lama atau upgrade paket untuk melihat semuanya.`;
+  } else {
+    infoEl.textContent = "";
+    infoEl.style.display = "none";
+    return;
+  }
+
+  infoEl.style.display = "block";
+}
+
+function clearPackageCountdownTimer() {
+  if (packageCountdownTimer) {
+    clearInterval(packageCountdownTimer);
+    packageCountdownTimer = null;
+  }
+}
+
+function ensurePackageCountdownTimer() {
+  clearPackageCountdownTimer();
+  // Countdown tidak diperlukan lagi (masa aktif hanya tampil tanggal)
+}
+
+function getPackageExpiryText() {
+  if (!authState.packageExpiresAt) return "";
+  const expiryTs = Date.parse(authState.packageExpiresAt);
+  if (Number.isNaN(expiryTs)) return "";
+  const diff = expiryTs - Date.now();
+  if (diff <= 0) {
+    return "Sudah kedaluwarsa";
+  }
+  const formattedDate = new Date(expiryTs).toLocaleString();
+  return `Berlaku hingga ${formattedDate}`;
+}
+
+const REMEMBER_ME_KEY = "starboxRememberLogin";
+
+function getRememberedLogin() {
+  try {
+    const raw = localStorage.getItem(REMEMBER_ME_KEY);
+    if (!raw) return { remember: false, email: "" };
+    const parsed = JSON.parse(raw);
+    return {
+      remember: !!parsed.remember,
+      email: parsed.email || "",
+    };
+  } catch {
+    return { remember: false, email: "" };
+  }
+}
+
+function saveRememberedLogin(email, remember) {
+  try {
+    if (remember && email) {
+      localStorage.setItem(
+        REMEMBER_ME_KEY,
+        JSON.stringify({ remember: true, email })
+      );
+    } else {
+      localStorage.removeItem(REMEMBER_ME_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function applyRememberedLogin() {
+  const { remember, email } = getRememberedLogin();
+  const emailInput = document.getElementById("loginEmail");
+  const checkbox = document.getElementById("loginRememberMe");
+  if (checkbox) checkbox.checked = !!remember;
+  if (emailInput && remember && email) {
+    emailInput.value = email;
+  } else if (emailInput && !remember) {
+    emailInput.value = emailInput.value || "";
+  }
+}
+
+function toggleCustomServiceSection(show) {
+  const section = document.getElementById("customServiceSection");
+  if (section) {
+    section.style.display = show ? "block" : "none";
+  }
+}
+
+function toggleEditCustomServiceSection(show) {
+  const section = document.getElementById("editCustomServiceSection");
+  if (section) {
+    section.style.display = show ? "block" : "none";
+  }
+}
+
+function syncServiceAvailability() {
+  const serviceSelect = document.getElementById("deviceService");
+  const addModal = document.getElementById("addModal");
+  if (!serviceSelect || !addModal) return;
+
+  const androidOption = serviceSelect.querySelector('option[value="android"]');
+  const customOption = serviceSelect.querySelector('option[value="other"]');
+
+  const canUseAndroid = authState.isLoggedIn && authState.allowsAndroidEmulator;
+  const canUsePrivate = authState.isLoggedIn && authState.allowsPrivateService;
+
+  if (androidOption) {
+    androidOption.hidden = !canUseAndroid;
+    androidOption.disabled = !canUseAndroid;
+  }
+  if (customOption) {
+    customOption.hidden = !canUsePrivate;
+    customOption.disabled = !canUsePrivate;
+  }
+
+  if (serviceSelect.value === "android" && !canUseAndroid) {
+    serviceSelect.value = "wa";
+  }
+  if (serviceSelect.value === "other" && !canUsePrivate) {
+    serviceSelect.value = "wa";
+  }
+  toggleCustomServiceSection(serviceSelect.value === "other");
+}
+
+function updateIOSButtonVisibility() {
+  const button = document.getElementById("iosSimulatorButton");
+  if (!button) return;
+  const isMac =
+    (systemPlatform || "").toLowerCase().includes("darwin") ||
+    (systemPlatform || "").toLowerCase().includes("mac");
+  const canShow = authState.isLoggedIn && authState.allowsIosSimulator && isMac;
+  button.style.display = canShow ? "inline-flex" : "none";
+}
+
+function updateCachedDevices(list = []) {
+  cachedDevices = Array.isArray(list) ? list.slice() : [];
+  updateDeviceQuotaBanner();
+  updateAddDeviceQuotaHint();
+}
+
+function getServiceLabel(service) {
+  const key = (service || "").toLowerCase();
+  return serviceConfig[key]?.label || service || "Layanan";
+}
+
+function countDevicesByService(service) {
+  const key = (service || "").toLowerCase();
+  return cachedDevices.filter(
+    (device) => (device.service || "").toLowerCase() === key
+  ).length;
+}
+
+function canAddDeviceForService(service) {
+  const serviceLabel = getServiceLabel(service);
+  const count = countDevicesByService(service);
+
+  if (authState.isLoggedIn) {
+    if (authState.isUnlimited) {
+      return { allowed: true };
+    }
+    const limit =
+      typeof authState.deviceQuota === "number"
+        ? authState.deviceQuota
+        : authState.guestServiceLimit;
+    if (count >= limit) {
+      return {
+        allowed: false,
+        reason: `Kuota akun membatasi ${limit} device untuk ${serviceLabel}. Upgrade paket untuk menambah limit.`,
+      };
+    }
+    return { allowed: true };
+  }
+
+  const guestLimit =
+    typeof authState.guestServiceLimit === "number"
+      ? authState.guestServiceLimit
+      : 2;
+  if (count >= guestLimit) {
+    return {
+      allowed: false,
+      reason: `Mode tamu hanya mengizinkan ${guestLimit} device untuk ${serviceLabel}. Silakan login untuk menambah kuota.`,
+    };
+  }
+  return { allowed: true };
+}
+
+function updateDeviceQuotaBanner() {
+  const badge = document.getElementById("authQuotaBadge");
+  if (!badge) return;
+
+  if (authState.isLoggedIn) {
+    const used = cachedDevices.length;
+    if (authState.isUnlimited) {
+      badge.textContent = `Total device: ${used} (admin/unlimited, tanpa batas per layanan)`;
+    } else {
+      const limit = getServiceLimitValue();
+      badge.textContent = `Batas per layanan: ${limit} device • Total device saat ini ${used}`;
+    }
+  } else {
+    const limit =
+      typeof authState.guestServiceLimit === "number"
+        ? authState.guestServiceLimit
+        : 2;
+    badge.textContent = `Tamu: maks ${limit} device per layanan`;
+  }
+}
+
+function updateAuthHeaderUI() {
+  const authButton = document.getElementById("authButton");
+  const logoutButton = document.getElementById("logoutButton");
+  const statusLabel = document.getElementById("authStatusLabel");
+  const packageLabel = document.getElementById("authPackageLabel");
+
+  const guestLabel =
+    authState.guestServiceLimit > 0
+      ? `Mode tamu • ${authState.guestServiceLimit} device/layanan`
+      : "Mode tamu";
+
+  if (authButton) {
+    if (authState.isLoggedIn) {
+      const displayName =
+        authState.user?.name || authState.user?.email || "Pengguna";
+      authButton.innerHTML = `<i class="bi bi-person-badge"></i> Akun (${displayName})`;
+    } else {
+      authButton.innerHTML =
+        '<i class="bi bi-box-arrow-in-right"></i> Masuk / Daftar';
+    }
+  }
+
+  if (logoutButton) {
+    logoutButton.style.display = authState.isLoggedIn ? "inline-flex" : "none";
+  }
+
+  if (statusLabel) {
+    if (authState.isLoggedIn) {
+      const displayName =
+        authState.user?.name || authState.user?.email || "Pengguna";
+      const roleSuffix =
+        (authState.user?.role || "").toLowerCase() === "admin"
+          ? " (Admin)"
+          : "";
+      statusLabel.textContent = `Masuk sebagai ${displayName}${roleSuffix}`;
+    } else {
+      statusLabel.textContent = guestLabel;
+    }
+  }
+
+  if (packageLabel) {
+    if (!authState.isLoggedIn) {
+      packageLabel.style.display = "none";
+      packageLabel.textContent = "";
+    } else if ((authState.user?.role || "").toLowerCase() === "admin") {
+      packageLabel.style.display = "none";
+      packageLabel.textContent = "";
+    } else {
+      const pkgName = authState.package?.name || "Default";
+      const limit = getServiceLimitValue();
+      const limitText = authState.isUnlimited
+        ? "Unlimited per layanan"
+        : `${limit} device per layanan`;
+      const parts = [`Paket: ${pkgName} • ${limitText}`];
+      const expiryText = getPackageExpiryText();
+      if (expiryText) {
+        parts.push(expiryText);
+      }
+      packageLabel.textContent = parts.join(" • ");
+      packageLabel.style.display = "block";
+    }
+  }
+}
+
+function applyAuthSession(session = {}) {
+  const prevLoggedIn = authState.isLoggedIn;
+  const prevUnlimited = authState.isUnlimited;
+  const prevLimit = getServiceLimitValue();
+
+  authState.isLoggedIn = !!session.isLoggedIn;
+  authState.user = session.user || null;
+  authState.deviceQuota =
+    typeof session.deviceQuota === "number" ? session.deviceQuota : null;
+  authState.serverDeviceCount =
+    typeof session.serverDeviceCount === "number"
+      ? session.serverDeviceCount
+      : null;
+  authState.lastSyncedAt = session.lastSyncedAt || null;
+  authState.package = session.package || null;
+  authState.isUnlimited = !!session.isUnlimited;
+  authState.packageExpiresAt = session.packageExpiresAt || null;
+  authState.allowsPrivateService = !!(
+    session.allowsPrivateService ||
+    session.package?.allows_private_service ||
+    session.package?.allowsPrivateService
+  );
+  authState.allowsAndroidEmulator = !!(
+    session.allowsAndroidEmulator ||
+    session.package?.allows_android_emulator ||
+    session.package?.allowsAndroidEmulator
+  );
+  authState.allowsIosSimulator = !!(
+    session.allowsIosSimulator ||
+    session.package?.allows_ios_simulator ||
+    session.package?.allowsIosSimulator
+  );
+  if (typeof session.guestServiceLimit === "number") {
+    authState.guestServiceLimit = session.guestServiceLimit;
+  }
+  if (!authState.isUnlimited && typeof authState.deviceQuota !== "number") {
+    authState.deviceQuota = authState.guestServiceLimit;
+  }
+  if (!authState.isLoggedIn) {
+    authState.package = null;
+    authState.isUnlimited = false;
+    authState.deviceQuota = null;
+    authState.packageExpiresAt = null;
+    authState.allowsPrivateService = false;
+    authState.allowsAndroidEmulator = false;
+    authState.allowsIosSimulator = false;
+  }
+  ensurePackageCountdownTimer();
+  updateAuthHeaderUI();
+  updateDeviceQuotaBanner();
+  syncServiceAvailability();
+  updateAddDeviceQuotaHint();
+  updateIOSButtonVisibility();
+  const nextLimit = getServiceLimitValue();
+  const shouldReload =
+    prevLoggedIn !== authState.isLoggedIn ||
+    prevUnlimited !== authState.isUnlimited ||
+    prevLimit !== nextLimit;
+  if (shouldReload) {
+    if (typeof loadAllDevices === "function") {
+      loadAllDevices();
+    }
+  }
+  lastAuthDeviceSnapshot = {
+    loggedIn: authState.isLoggedIn,
+    unlimited: authState.isUnlimited,
+    limit: nextLimit,
+  };
+}
+
+async function initAuthFlow() {
+  if (!window.electronAPI?.auth) {
+    console.warn("Auth API tidak tersedia di preload.");
+    return;
+  }
+
+  try {
+    const session = await window.electronAPI.auth.getSession();
+    if (session) {
+      applyAuthSession(session);
+    }
+  } catch (err) {
+    console.error("⚠️ Gagal memuat sesi auth awal:", err);
+  }
+
+  window.electronAPI.auth.onSessionChanged((session) => {
+    applyAuthSession(session || {});
+  });
+}
+
+function openAuthModal(initialTab = "login") {
+  if (authState.isLoggedIn) {
+    openAccountModal();
+    return;
+  }
+  authModalState.activeTab = initialTab;
+  applyRememberedLogin();
+  loadPhoneCodesIntoSelect();
+  const modal = document.getElementById("authModal");
+  if (modal) {
+    modal.style.display = "flex";
+    switchAuthTab(initialTab);
+  }
+}
+
+function closeAuthModal() {
+  const modal = document.getElementById("authModal");
+  if (modal) {
+    modal.style.display = "none";
+  }
+  resetAuthForms();
+}
+
+function switchAuthTab(tab = "login") {
+  authModalState.activeTab = tab;
+  const loginForm = document.getElementById("authLoginForm");
+  const registerForm = document.getElementById("authRegisterForm");
+  const tabLogin = document.getElementById("authTabLogin");
+  const tabRegister = document.getElementById("authTabRegister");
+
+  const isLogin = tab === "register" ? false : true;
+  if (loginForm) loginForm.style.display = isLogin ? "block" : "none";
+  if (registerForm) registerForm.style.display = isLogin ? "none" : "block";
+  if (tabLogin) tabLogin.classList.toggle("active", isLogin);
+  if (tabRegister) tabRegister.classList.toggle("active", !isLogin);
+
+  if (isLogin) {
+    applyRememberedLogin();
+  }
+}
+
+function resetAuthForms() {
+  [
+    "loginEmail",
+    "loginPassword",
+    "registerName",
+    "registerEmail",
+    "registerPhoneCode",
+    "registerPhone",
+    "registerPassword",
+  ].forEach((id) => {
+    const element = document.getElementById(id);
+    if (element) element.value = "";
+  });
+}
+
+function setAuthFormLoading(buttonId, isLoading, defaultLabel) {
+  const btn = document.getElementById(buttonId);
+  if (!btn) return;
+  btn.disabled = isLoading;
+  btn.textContent = isLoading ? "Mohon tunggu..." : defaultLabel;
+}
+
+async function submitLoginForm(event) {
+  event?.preventDefault?.();
+  if (!window.electronAPI?.auth) return;
+
+  const email = document.getElementById("loginEmail")?.value.trim();
+  const password = document.getElementById("loginPassword")?.value || "";
+  const rememberMe =
+    document.getElementById("loginRememberMe")?.checked || false;
+
+  if (!email || !password) {
+    showToast("Email dan password wajib diisi.", 3500, "warning");
+    return;
+  }
+
+  try {
+    setAuthFormLoading("loginSubmitButton", true, "Masuk");
+    const result = await window.electronAPI.auth.login({
+      email,
+      password,
+    });
+    if (result.success) {
+      if (rememberMe) {
+        saveRememberedLogin(email, true);
+      } else {
+        saveRememberedLogin("", false);
+      }
+      showToast(result.message || "Berhasil login.", 3500, "success");
+      closeAuthModal();
+    } else {
+      if (!rememberMe) {
+        saveRememberedLogin("", false);
+      }
+      showToast(result.message || "Login gagal.", 4000, "error");
+    }
+  } catch (err) {
+    console.error("Login error:", err);
+    showToast("Terjadi kesalahan saat login.", 4000, "error");
+  } finally {
+    setAuthFormLoading("loginSubmitButton", false, "Masuk");
+  }
+}
+
+async function submitRegisterForm(event) {
+  event?.preventDefault?.();
+  if (!window.electronAPI?.auth) return;
+
+  const name = document.getElementById("registerName")?.value.trim();
+  const email = document.getElementById("registerEmail")?.value.trim();
+  let phoneCode = document.getElementById("registerPhoneCode")?.value.trim();
+  const phone = document.getElementById("registerPhone")?.value.trim();
+  const password = document.getElementById("registerPassword")?.value || "";
+
+  if (!name || !email || !password || !phoneCode || !phone) {
+    showToast(
+      "Lengkapi nama, email, password, kode negara, dan nomor telepon.",
+      3500,
+      "warning"
+    );
+    return;
+  }
+
+  if (phoneCode && !phoneCode.startsWith("+")) {
+    phoneCode = `+${phoneCode}`;
+  }
+
+  try {
+    setAuthFormLoading("registerSubmitButton", true, "Daftar");
+    const result = await window.electronAPI.auth.register({
+      name,
+      email,
+      phone_code: phoneCode,
+      phone,
+      password,
+    });
+
+    if (result.success) {
+      showToast(result.message || "Registrasi berhasil.", 3500, "success");
+      if (result.autoLogin) {
+        closeAuthModal();
+      } else {
+        switchAuthTab("login");
+        const loginEmail = document.getElementById("loginEmail");
+        if (loginEmail) loginEmail.value = email;
+      }
+    } else {
+      showToast(result.message || "Registrasi gagal.", 4000, "error");
+    }
+  } catch (err) {
+    console.error("Registrasi error:", err);
+    showToast("Terjadi kesalahan saat registrasi.", 4000, "error");
+  } finally {
+    setAuthFormLoading("registerSubmitButton", false, "Daftar");
+  }
+}
+
+function handleLogout() {
+  if (!window.electronAPI?.auth) return;
+  Swal.fire({
+    title: "Keluar dari akun?",
+    text: "Anda akan kembali ke mode tamu.",
+    icon: "question",
+    showCancelButton: true,
+    confirmButtonText: "Keluar",
+    cancelButtonText: "Batal",
+    confirmButtonColor: "#ef4444",
+  }).then((result) => {
+    if (!result.isConfirmed) return;
+    window.electronAPI.auth
+      .logout()
+      .then(() => {
+        showToast("Berhasil logout.", 3000, "success");
+        closeAccountModal();
+        closeAuthModal();
+      })
+      .catch((err) => {
+        console.error("Logout error:", err);
+        showToast("Gagal logout.", 3500, "error");
+      });
+  });
+}
+
+function populateAccountModal() {
+  const nameEl = document.getElementById("accountNameValue");
+  const emailEl = document.getElementById("accountEmailValue");
+  const phoneEl = document.getElementById("accountPhoneValue");
+  const pkgEl = document.getElementById("accountPackageValue");
+  const limitEl = document.getElementById("accountLimitValue");
+  const expiryEl = document.getElementById("accountExpiryValue");
+
+  const phoneCode = authState.user?.phone_code || "";
+  const phone = authState.user?.phone || "";
+  const formattedPhone =
+    phoneCode && phone ? `${phoneCode} ${phone}` : phone || "-";
+
+  if (nameEl) nameEl.textContent = authState.user?.name || "-";
+  if (emailEl) emailEl.textContent = authState.user?.email || "-";
+  if (phoneEl) phoneEl.textContent = formattedPhone;
+  if (pkgEl) pkgEl.textContent = authState.package?.name || "Default";
+  if (limitEl) {
+    limitEl.textContent = authState.isUnlimited
+      ? "Unlimited per layanan"
+      : `${getServiceLimitValue()} device per layanan`;
+  }
+  if (expiryEl) expiryEl.textContent = getPackageExpiryText() || "-";
+}
+
+function openAccountModal() {
+  const modal = document.getElementById("accountModal");
+  if (!modal) return;
+  if (!authState.isLoggedIn) {
+    openAuthModal("login");
+    return;
+  }
+  populateAccountModal();
+  modal.style.display = "flex";
+}
+
+function closeAccountModal() {
+  const modal = document.getElementById("accountModal");
+  if (modal) {
+    modal.style.display = "none";
+  }
+}
+
+function handleAuthButtonClick() {
+  if (authState.isLoggedIn) {
+    openAccountModal();
+  } else {
+    openAuthModal("login");
+  }
+}
+
+async function loadPhoneCodesIntoSelect() {
+  const select = document.getElementById("registerPhoneCode");
+  if (!select || phoneCodeOptionsLoaded) return;
+
+  try {
+    const response = await fetch("assets/country.json");
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const countries = await response.json();
+    if (!Array.isArray(countries)) {
+      throw new Error("Format country.json tidak valid");
+    }
+
+    select.innerHTML = '<option value="">Pilih kode negara</option>';
+    const sorted = countries
+      .filter((c) => c && c.phonecode)
+      .sort((a, b) => {
+        const nameA = (a.nicename || a.name || "").toLowerCase();
+        const nameB = (b.nicename || b.name || "").toLowerCase();
+        return nameA.localeCompare(nameB);
+      });
+
+    let defaultOptionFound = false;
+    sorted.forEach((country) => {
+      const code = `+${String(country.phonecode).trim()}`;
+      const emoji = country.emoji ? `${country.emoji} ` : "";
+      const labelName = country.nicename || country.name || country.iso || code;
+      const option = document.createElement("option");
+      option.value = code;
+      option.textContent = `${emoji}${labelName} (${code})`;
+      select.appendChild(option);
+      if (code === DEFAULT_PHONE_CODE) {
+        defaultOptionFound = true;
+      }
+    });
+
+    if (defaultOptionFound) {
+      select.value = DEFAULT_PHONE_CODE;
+    } else {
+      select.selectedIndex = 0;
+    }
+
+    phoneCodeOptionsLoaded = true;
+  } catch (err) {
+    console.error("⚠️ Gagal memuat daftar kode negara:", err);
+    select.innerHTML =
+      '<option value="">Gagal memuat kode negara. Coba ulangi.</option>';
+  }
+}
 
 function getActiveSession() {
   if (!automationConfig.targetUid) return null;
@@ -142,7 +909,9 @@ function updateSessionConnectionLog(session, newLog = []) {
   session.connectionLog = cloneConnectionLog(newLog);
   if (isSessionActive(session)) {
     automationConnectionLog.length = 0;
-    session.connectionLog.forEach((entry) => automationConnectionLog.push(entry));
+    session.connectionLog.forEach((entry) =>
+      automationConnectionLog.push(entry)
+    );
   }
 }
 
@@ -172,9 +941,7 @@ function createDefaultConnectionStatus() {
 }
 
 function cloneConnectionLog(source = []) {
-  return Array.isArray(source)
-    ? source.map((entry) => ({ ...entry }))
-    : [];
+  return Array.isArray(source) ? source.map((entry) => ({ ...entry })) : [];
 }
 
 function getOrCreateAutomationSession(deviceOrUid) {
@@ -188,6 +955,7 @@ function getOrCreateAutomationSession(deviceOrUid) {
       uid,
       service: "",
       pendingUrl: "",
+      callbackUrl: "",
       deviceName: "",
       messages: [],
       monitorMeta: createDefaultMonitorMeta(),
@@ -205,6 +973,9 @@ function getOrCreateAutomationSession(deviceOrUid) {
     session.pendingUrl = sanitizePendingUrl(
       deviceOrUid.pendingUrl || session.pendingUrl || ""
     );
+    session.callbackUrl = sanitizePendingUrl(
+      deviceOrUid.callbackUrl || session.callbackUrl || ""
+    );
     session.deviceName = deviceOrUid.name || session.deviceName || uid;
   }
 
@@ -218,6 +989,7 @@ function activateAutomationSession(uid) {
   automationConfig.targetUid = uid;
   automationConfig.service = session.service || "";
   automationConfig.pendingUrl = session.pendingUrl || "";
+  automationConfig.callbackUrl = session.callbackUrl || "";
   automationConfig.deviceName = session.deviceName || uid;
 
   syncActiveSessionState(session);
@@ -234,6 +1006,9 @@ function persistActiveAutomationSession() {
   session.service = automationConfig.service || session.service || "";
   session.pendingUrl = sanitizePendingUrl(
     automationConfig.pendingUrl || session.pendingUrl || ""
+  );
+  session.callbackUrl = sanitizePendingUrl(
+    automationConfig.callbackUrl || session.callbackUrl || ""
   );
   session.deviceName = automationConfig.deviceName || session.deviceName || uid;
   setSessionMessages(session, automationMessages);
@@ -350,8 +1125,7 @@ function updateAutomationConnection(state = {}, session = getActiveSession()) {
   if (!state || typeof state !== "object") return;
   if (!session) return;
 
-  const existing =
-    session.connectionStatus || createDefaultConnectionStatus();
+  const existing = session.connectionStatus || createDefaultConnectionStatus();
 
   const checkedAt = state.checkedAt || new Date().toISOString();
   const status = (state.status || existing.status || "idle").toLowerCase();
@@ -417,8 +1191,63 @@ function updateAutomationConnection(state = {}, session = getActiveSession()) {
 }
 
 function sanitizePendingUrl(url = "") {
-  const trimmed = (url || "").trim();
-  return trimmed.replace(/\/+$/, "");
+  return (url || "").trim().replace(/\/+$/, "");
+}
+
+function hasCustomPathInUrl(url = "") {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    const path = (parsed.pathname || "").replace(/\/+$/, "");
+    return Boolean(path && path !== "/");
+  } catch {
+    const withoutProtocol = url.replace(/^[a-z]+:\/\//i, "");
+    return withoutProtocol.includes("/");
+  }
+}
+
+function buildUrlWithDefaultPath(baseUrl = "", defaultPath = "") {
+  const sanitized = sanitizePendingUrl(baseUrl);
+  if (!sanitized) return "";
+  const normalizedPath = defaultPath
+    ? defaultPath.startsWith("/")
+      ? defaultPath
+      : `/${defaultPath}`
+    : "";
+  if (!normalizedPath) {
+    return sanitized;
+  }
+  if (hasCustomPathInUrl(sanitized)) {
+    return sanitized;
+  }
+  try {
+    const parsed = new URL(sanitized);
+    if (!parsed.pathname || parsed.pathname === "/") {
+      parsed.pathname = normalizedPath;
+    }
+    parsed.search = "";
+    parsed.hash = "";
+    let resolved = parsed.toString();
+    if (resolved.endsWith("/")) {
+      resolved = resolved.replace(/\/+$/, "");
+    }
+    return resolved;
+  } catch {
+    const trimmedBase = sanitized.replace(/\/+$/, "");
+    return `${trimmedBase}${normalizedPath}`;
+  }
+}
+
+function resolveAutomationPendingEndpoint(baseUrl = "") {
+  return buildUrlWithDefaultPath(baseUrl, "/schedule/getpendingmessage");
+}
+
+function resolveAutomationCallbackUrl(pendingUrl = "", callbackUrl = "") {
+  const override = sanitizePendingUrl(callbackUrl);
+  if (override) {
+    return buildUrlWithDefaultPath(override, "/schedule/updatestatusmessage");
+  }
+  return buildUrlWithDefaultPath(pendingUrl, "/schedule/updatestatusmessage");
 }
 
 function getAutomationQueueSnapshot(session = getActiveSession()) {
@@ -435,10 +1264,7 @@ function getAutomationQueueSnapshot(session = getActiveSession()) {
   });
 }
 
-function broadcastAutomationMonitor(
-  session = getActiveSession(),
-  extra = {}
-) {
+function broadcastAutomationMonitor(session = getActiveSession(), extra = {}) {
   if (!session || !window.electronAPI?.updateAutomationMonitor) {
     return;
   }
@@ -512,7 +1338,10 @@ function broadcastAutomationMonitor(
   }
 }
 
-async function fetchPendingMessagesForDevice(device, session = getActiveSession()) {
+async function fetchPendingMessagesForDevice(
+  device,
+  session = getActiveSession()
+) {
   if (!device?.pendingUrl) {
     updateAutomationConnection(
       {
@@ -529,7 +1358,8 @@ async function fetchPendingMessagesForDevice(device, session = getActiveSession(
   }
 
   const sanitizedUrl = sanitizePendingUrl(device.pendingUrl);
-  if (!sanitizedUrl) {
+  const requestUrl = resolveAutomationPendingEndpoint(sanitizedUrl);
+  if (!sanitizedUrl || !requestUrl) {
     updateAutomationConnection(
       {
         status: "idle",
@@ -543,8 +1373,6 @@ async function fetchPendingMessagesForDevice(device, session = getActiveSession(
     );
     return [];
   }
-
-  const requestUrl = `${sanitizedUrl}/schedule/getpendingmessage`;
   const getTimer = () =>
     typeof performance !== "undefined" && typeof performance.now === "function"
       ? performance.now()
@@ -639,7 +1467,10 @@ async function fetchPendingMessagesForDevice(device, session = getActiveSession(
 function mergeAutomationMessages(newItems = [], session = getActiveSession()) {
   if (!session) return;
   const previousMap = new Map(
-    (session.messages || []).map((item) => [String(item.id ?? item.phone), item])
+    (session.messages || []).map((item) => [
+      String(item.id ?? item.phone),
+      item,
+    ])
   );
 
   const merged = newItems
@@ -754,7 +1585,9 @@ async function refreshAutomationMessagesForSession(session, options = {}) {
   // Cek apakah automation sedang paused
   if (session.isPaused) {
     if (!silent) {
-      console.log(`⏸ Automation untuk ${session.uid} sedang paused, skip fetch`);
+      console.log(
+        `⏸ Automation untuk ${session.uid} sedang paused, skip fetch`
+      );
     }
     return;
   }
@@ -764,7 +1597,9 @@ async function refreshAutomationMessagesForSession(session, options = {}) {
     const isRunning = await window.electronAPI.isDeviceRunning(session.uid);
     if (!isRunning) {
       if (!silent) {
-        console.log(`⚠️ Device ${session.uid} tidak sedang running, skip fetch pending`);
+        console.log(
+          `⚠️ Device ${session.uid} tidak sedang running, skip fetch pending`
+        );
       }
       return;
     }
@@ -834,6 +1669,11 @@ async function refreshAutomationMessagesForSession(session, options = {}) {
   }
 }
 
+// Backward-compatible alias used by monitor triggers
+async function syncPendingMessagesForSession(session, options = {}) {
+  return refreshAutomationMessagesForSession(session, options);
+}
+
 async function syncAutomationSource(devices = [], options = {}) {
   const { silent = false } = options;
   const candidates = devices.filter(
@@ -870,6 +1710,9 @@ async function syncAutomationSource(devices = [], options = {}) {
     session.service = device.service || session.service || "";
     session.pendingUrl = sanitizePendingUrl(
       device.pendingUrl || session.pendingUrl || ""
+    );
+    session.callbackUrl = sanitizePendingUrl(
+      device.callbackUrl || session.callbackUrl || ""
     );
     session.deviceName = device.name || session.deviceName || device.uid;
     if (!silent && window.electronAPI?.ensureMonitorWindow) {
@@ -934,9 +1777,15 @@ async function loadSystemInfoBadge() {
   try {
     const info = await window.electronAPI.getSystemInfo();
     renderSystemInfoBadge(info);
+    systemPlatform =
+      info?.platform || info?.system || info?.release || navigator.userAgent;
+    updateIOSButtonVisibility();
   } catch (err) {
     console.error("⚠️ Gagal memuat system info:", err);
     renderSystemInfoBadge(null, err);
+    systemPlatform =
+      typeof navigator !== "undefined" ? navigator.userAgent : null;
+    updateIOSButtonVisibility();
   }
 }
 
@@ -1029,16 +1878,38 @@ function setDeviceState(uid, state) {
 
 async function renderDevices(devices) {
   const container = document.getElementById("device-list");
+  const limitInfo = document.getElementById("device-limit-info");
   if (!container) return;
 
   container.innerHTML = "";
+  const { visible: visibleDevices, hidden: hiddenDevices } =
+    partitionDevicesByLimit(devices);
+  updateDeviceLimitInfo(hiddenDevices);
+  if (limitInfo && !hiddenDevices.length && !visibleDevices.length) {
+    limitInfo.style.display = "none";
+  }
+
   const fragment = document.createDocumentFragment();
 
-  for (const device of devices) {
+  if (!visibleDevices.length) {
+    const emptyState = document.createElement("div");
+    emptyState.className = "device-empty-state";
+    emptyState.textContent =
+      "Belum ada device yang dapat ditampilkan untuk konfigurasi saat ini.";
+    fragment.appendChild(emptyState);
+  }
+
+  for (const device of visibleDevices) {
     const serviceKey = (device?.service || "").toLowerCase();
     const config = serviceConfig[serviceKey] || serviceConfig.default;
-    const serviceLabel = config.label || device.service || "Unknown";
-    const baseUrl = config.url || `https://${serviceKey}.com`;
+    const isCustomService = serviceKey === "other";
+    const displayUrl = device.customUrl || "";
+    const serviceLabel = isCustomService
+      ? displayUrl || config.label || "Website Kustom"
+      : config.label || device.service || "Unknown";
+    const baseUrl = isCustomService
+      ? displayUrl || "https://example.com"
+      : config.url || `https://${serviceKey}.com`;
     const faviconUrl = `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(
       baseUrl
     )}`;
@@ -1058,6 +1929,7 @@ async function renderDevices(devices) {
     deviceCard.dataset.status = initialStatus;
     deviceCard.dataset.autoSender = device.autoSender ? "true" : "false";
     deviceCard.dataset.pendingUrl = device.pendingUrl || "";
+    deviceCard.dataset.callbackUrl = device.callbackUrl || "";
     deviceCard.dataset.deviceName = device.name || "";
     deviceCard.style.setProperty("--device-accent", config.color || "#6b7280");
 
@@ -1132,10 +2004,7 @@ async function renderDevices(devices) {
         if (window.electronAPI?.focusDevice) {
           window.electronAPI.focusDevice(device.uid);
         }
-        if (
-          device.autoSender &&
-          window.electronAPI?.ensureMonitorWindow
-        ) {
+        if (device.autoSender && window.electronAPI?.ensureMonitorWindow) {
           window.electronAPI.ensureMonitorWindow(device.uid);
         }
         if (device.autoSender) {
@@ -1209,8 +2078,22 @@ async function renderDevices(devices) {
         setEditAutoSenderState(
           device.service,
           device.autoSender ?? false,
-          device.pendingUrl ?? ""
+          device.pendingUrl ?? "",
+          device.callbackUrl ?? ""
         );
+      }
+      const editCustomInput = document.getElementById("editCustomServiceUrl");
+      if (editCustomInput) {
+        editCustomInput.value = device.customUrl || "";
+      }
+      if (typeof window.refreshEditCustomServiceUI === "function") {
+        window.refreshEditCustomServiceUI();
+      } else {
+        const section = document.getElementById("editCustomServiceSection");
+        if (section) {
+          section.style.display =
+            (device.service || "").toLowerCase() === "other" ? "block" : "none";
+        }
       }
 
       openEditModal();
@@ -1242,7 +2125,9 @@ async function sendAutomationQueueForSession(session, options = {}) {
   if (!session.pendingUrl) {
     if (!silent) {
       showToast(
-        `Pending URL belum diatur untuk device ${session.deviceName || session.uid}.`,
+        `Pending URL belum diatur untuk device ${
+          session.deviceName || session.uid
+        }.`,
         3500,
         "warning"
       );
@@ -1254,7 +2139,9 @@ async function sendAutomationQueueForSession(session, options = {}) {
   if (normalizedService !== "wa") {
     if (!silent) {
       showToast(
-        `Automasi saat ini hanya mendukung device WhatsApp (device: ${session.deviceName || session.uid}).`,
+        `Automasi saat ini hanya mendukung device WhatsApp (device: ${
+          session.deviceName || session.uid
+        }).`,
         3500,
         "warning"
       );
@@ -1267,7 +2154,9 @@ async function sendAutomationQueueForSession(session, options = {}) {
   if (!["active", "running"].includes(currentStatus)) {
     if (!silent) {
       showToast(
-        `Jalankan device ${session.deviceName || session.uid} terlebih dahulu sebelum mengirim pesan.`,
+        `Jalankan device ${
+          session.deviceName || session.uid
+        } terlebih dahulu sebelum mengirim pesan.`,
         3500,
         "warning"
       );
@@ -1293,7 +2182,9 @@ async function sendAutomationQueueForSession(session, options = {}) {
     if (!pending.length) {
       if (!silent && !silentIfEmpty) {
         showToast(
-          `Semua pesan untuk ${session.deviceName || session.uid} sudah terkirim.`,
+          `Semua pesan untuk ${
+            session.deviceName || session.uid
+          } sudah terkirim.`,
           3000,
           "info"
         );
@@ -1322,19 +2213,26 @@ async function sendAutomationQueueForSession(session, options = {}) {
         ? Math.max(1, Math.floor(limit))
         : Infinity;
     const batch =
-      effectiveLimit === Infinity
-        ? pending
-        : pending.slice(0, effectiveLimit);
+      effectiveLimit === Infinity ? pending : pending.slice(0, effectiveLimit);
 
     if (!batch.length) {
       broadcastAutomationMonitor(session, { typing: false, activeId: null });
       return;
     }
 
+    const callbackUrl = resolveAutomationCallbackUrl(
+      session.pendingUrl,
+      session.callbackUrl
+    );
+
     const results = await window.electronAPI.sendWhatsappMessages(
       session.uid,
       batch,
-      { pendingUrl: session.pendingUrl, silent: true }
+      {
+        pendingUrl: session.pendingUrl,
+        callbackUrl,
+        silent: true,
+      }
     );
 
     if (Array.isArray(results) && results.length) {
@@ -1344,7 +2242,9 @@ async function sendAutomationQueueForSession(session, options = {}) {
       const updated = markAutomationStatus(results, session);
       if (updated && successCount > 0 && !silent) {
         showToast(
-          `Berhasil mengirim ${successCount} pesan untuk ${session.deviceName || session.uid}.`,
+          `Berhasil mengirim ${successCount} pesan untuk ${
+            session.deviceName || session.uid
+          }.`,
           3000,
           "success"
         );
@@ -1352,7 +2252,9 @@ async function sendAutomationQueueForSession(session, options = {}) {
       const failed = results.filter((item) => item.status !== "done");
       if (failed.length && !silent) {
         showToast(
-          `${failed.length} pesan gagal dikirim pada ${session.deviceName || session.uid}.`,
+          `${failed.length} pesan gagal dikirim pada ${
+            session.deviceName || session.uid
+          }.`,
           3000,
           "warning"
         );
@@ -1360,7 +2262,9 @@ async function sendAutomationQueueForSession(session, options = {}) {
       }
       if (!updated && successCount === 0 && !failed.length && !silent) {
         showToast(
-          `Tidak ada pesan yang diperbarui untuk ${session.deviceName || session.uid}.`,
+          `Tidak ada pesan yang diperbarui untuk ${
+            session.deviceName || session.uid
+          }.`,
           3000,
           "info"
         );
@@ -1368,7 +2272,9 @@ async function sendAutomationQueueForSession(session, options = {}) {
       broadcastAutomationMonitor(session);
     } else if (!silent) {
       showToast(
-        `Automasi selesai tanpa respons pesan untuk ${session.deviceName || session.uid}.`,
+        `Automasi selesai tanpa respons pesan untuk ${
+          session.deviceName || session.uid
+        }.`,
         3000,
         "warning"
       );
@@ -1382,7 +2288,9 @@ async function sendAutomationQueueForSession(session, options = {}) {
     if (!silent) {
       showToast(
         err.message ||
-          `Gagal menjalankan automasi WhatsApp untuk ${session.deviceName || session.uid}.`,
+          `Gagal menjalankan automasi WhatsApp untuk ${
+            session.deviceName || session.uid
+          }.`,
         4000,
         "error"
       );
@@ -1390,7 +2298,9 @@ async function sendAutomationQueueForSession(session, options = {}) {
     broadcastAutomationMonitor(session, {
       error:
         err?.message ||
-        `Gagal menjalankan automasi WhatsApp untuk ${session.deviceName || session.uid}.`,
+        `Gagal menjalankan automasi WhatsApp untuk ${
+          session.deviceName || session.uid
+        }.`,
       typing: false,
     });
   } finally {
@@ -1439,7 +2349,11 @@ function startDeviceFetchTimer(session) {
     );
   }, AUTOMATION_FETCH_INTERVAL_MS);
 
-  console.log(`▶️ Fetch timer started for device ${session.uid} (interval: ${AUTOMATION_FETCH_INTERVAL_MS / 1000}s)`);
+  console.log(
+    `▶️ Fetch timer started for device ${session.uid} (interval: ${
+      AUTOMATION_FETCH_INTERVAL_MS / 1000
+    }s)`
+  );
 }
 
 function stopAutomationLoop() {
@@ -1514,13 +2428,17 @@ async function runAutomationSendRound() {
 
     const orderLength = order.length;
     let startIndex = automationSendRoundIndex % orderLength;
-    const rotatedOrder = order.slice(startIndex).concat(order.slice(0, startIndex));
+    const rotatedOrder = order
+      .slice(startIndex)
+      .concat(order.slice(0, startIndex));
     const sessions = rotatedOrder
       .map((uid) => automationSessions.get(uid))
       .filter(Boolean);
 
     const results = await Promise.all(
-      sessions.map((session) => runAutomationTickForSession(session, { limit: 1 }))
+      sessions.map((session) =>
+        runAutomationTickForSession(session, { limit: 1 })
+      )
     );
 
     automationSendRoundIndex = (startIndex + 1) % orderLength;
@@ -1602,6 +2520,7 @@ async function loadAllDevices() {
     const devices = data.devices || [];
     console.log("📦 Daftar device:", devices);
     renderDevices(devices);
+    updateCachedDevices(devices);
     devices.forEach((device) => setDeviceState(device.uid, device.status));
     await syncAutomationSource(devices);
     if (automationSessions.size) {
@@ -1666,9 +2585,18 @@ function deleteDevice(uid) {
 
 function openModal() {
   document.getElementById("addModal").style.display = "block";
+  updateAddDeviceQuotaHint();
+  syncServiceAvailability();
+  toggleCustomServiceSection(
+    document.getElementById("deviceService")?.value === "other"
+  );
   if (typeof refreshAddAutoSenderUI === "function") {
     refreshAddAutoSenderUI();
   }
+  setTimeout(() => {
+    const input = document.getElementById("deviceName");
+    if (input) input.focus();
+  }, 50);
 }
 
 function closeModal() {
@@ -1677,13 +2605,59 @@ function closeModal() {
   const autoRunEl = document.getElementById("deviceAutoRun");
   const autoSenderEl = document.getElementById("deviceAutoSender");
   const pendingUrlEl = document.getElementById("devicePendingUrl");
+  const customUrlEl = document.getElementById("customServiceUrl");
+  const callbackEl = document.getElementById("deviceCallbackUrl");
+  const serviceSelect = document.getElementById("deviceService");
   if (nameEl) nameEl.value = "";
+  if (serviceSelect) serviceSelect.value = "wa";
   if (autoRunEl) autoRunEl.checked = false;
   if (autoSenderEl) autoSenderEl.checked = false;
   if (pendingUrlEl) pendingUrlEl.value = "";
+  if (customUrlEl) customUrlEl.value = "";
+  if (callbackEl) callbackEl.value = "";
+  toggleCustomServiceSection(false);
+  syncServiceAvailability();
+  updateAddDeviceQuotaHint();
   if (typeof refreshAddAutoSenderUI === "function") {
     refreshAddAutoSenderUI();
   }
+}
+
+function updateAddDeviceQuotaHint() {
+  const hint = document.getElementById("addDeviceQuotaHint");
+  const serviceSelect = document.getElementById("deviceService");
+  if (!hint || !serviceSelect) return;
+
+  const service = serviceSelect.value;
+  const label = getServiceLabel(service);
+  const count = countDevicesByService(service);
+  const guestLimit =
+    typeof authState.guestServiceLimit === "number"
+      ? authState.guestServiceLimit
+      : 2;
+  const quotaCheck = canAddDeviceForService(service);
+
+  let message = "";
+  if (quotaCheck.allowed) {
+    if (authState.isLoggedIn) {
+      if (authState.isUnlimited) {
+        message = `Akun admin/unlimited: bebas menambah device ${label}.`;
+      } else {
+        const accountLimit =
+          typeof authState.deviceQuota === "number"
+            ? authState.deviceQuota
+            : guestLimit;
+        message = `Kuota akun: ${count}/${accountLimit} device untuk ${label}.`;
+      }
+    } else {
+      message = `Mode tamu: ${count}/${guestLimit} device untuk ${label}.`;
+    }
+  } else {
+    message = quotaCheck.reason;
+  }
+
+  hint.textContent = message;
+  hint.classList.toggle("quota-warning", !quotaCheck.allowed);
 }
 
 async function submitDevice() {
@@ -1693,14 +2667,43 @@ async function submitDevice() {
   const autoRun = document.getElementById("deviceAutoRun").checked;
   const autoSenderCheckbox = document.getElementById("deviceAutoSender");
   const pendingUrlInput = document.getElementById("devicePendingUrl");
+  const customUrlInput = document.getElementById("customServiceUrl");
   const isWhatsApp = (service || "").toLowerCase() === "wa";
   const autoSenderEnabled = isWhatsApp && autoSenderCheckbox?.checked;
   const pendingUrl = autoSenderEnabled
     ? (pendingUrlInput?.value || "").trim()
     : "";
+  const customUrl =
+    service === "other" ? (customUrlInput?.value || "").trim() : "";
+  const callbackInput = document.getElementById("deviceCallbackUrl");
+  const callbackUrl = autoSenderEnabled
+    ? (callbackInput?.value || "").trim()
+    : "";
 
   if (!name) {
     showToast("Nama device wajib diisi.", 3000, "warning");
+    return;
+  }
+
+  if (service === "other") {
+    if (!customUrl) {
+      showToast("URL website kustom wajib diisi.", 3500, "warning");
+      return;
+    }
+    if (!/^https?:\/\//i.test(customUrl)) {
+      showToast(
+        "URL website harus diawali http:// atau https://.",
+        3500,
+        "warning"
+      );
+      return;
+    }
+  }
+
+  const quotaCheck = canAddDeviceForService(service);
+  if (!quotaCheck.allowed) {
+    showToast(quotaCheck.reason, 4000, "warning");
+    updateAddDeviceQuotaHint();
     return;
   }
 
@@ -1712,6 +2715,8 @@ async function submitDevice() {
       mode,
       autoSender: autoSenderEnabled,
       pendingUrl,
+      callbackUrl,
+      customUrl,
     });
     if (result.success) {
       showToast(`Device ${name} berhasil ditambahkan.`, 3000, "success");
@@ -1736,9 +2741,23 @@ async function submitDevice() {
 
 // Jalankan saat awal
 window.addEventListener("DOMContentLoaded", () => {
+  initAuthFlow();
+  applyRememberedLogin();
+  loadPhoneCodesIntoSelect();
   loadAllDevices();
   loadSystemInfoBadge();
   if (typeof refreshAddAutoSenderUI === "function") refreshAddAutoSenderUI();
+  const serviceSelect = document.getElementById("deviceService");
+  if (serviceSelect) {
+    serviceSelect.addEventListener("change", () => {
+      updateAddDeviceQuotaHint();
+      if (typeof refreshAddAutoSenderUI === "function") {
+        refreshAddAutoSenderUI();
+      }
+      toggleCustomServiceSection(serviceSelect.value === "other");
+    });
+  }
+  syncServiceAvailability();
 
   // Update status otomatis
   window.electronAPI.onDeviceStatusUpdated((uid) => {
@@ -1940,4 +2959,9 @@ Object.assign(window, {
   restartDevice,
   selectAllDevices,
   sendAutomationQueue,
+  handleAuthButtonClick,
+  openAuthModal,
+  closeAuthModal,
+  openAccountModal,
+  closeAccountModal,
 });

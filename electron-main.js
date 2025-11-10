@@ -1,37 +1,829 @@
 // electron-main.js
-const { app, BrowserWindow, ipcMain, screen, clipboard } = require("electron");
+const electron = require("electron");
+const app = electron.app;
+const BrowserWindow = electron.BrowserWindow;
+const ipcMain = electron.ipcMain;
+const screen = electron.screen;
+const clipboard = electron.clipboard;
+
 const Store = require("electron-store");
-const store = new Store();
 const { v4: uuidv4 } = require("uuid");
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
+const { machineIdSync } = require("node-machine-id");
+const AndroidManager = require("./android-manager");
+const iOSManager = require("./ios-manager");
+const { version: packageVersion } = require("./package.json");
 
-// KOREKSI: Menggunakan path temp yang cross-platform
-const tempDir = app.getPath("temp");
-fs.appendFileSync(
-  path.join(tempDir, "starbox-debug.log"),
-  `[${new Date().toISOString()}] ${process.argv.join(" ")}\n`
-);
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
 
-// Setup logging
-const userDataPath = app.getPath("userData");
-const logPath = path.join(userDataPath, "starbox.log");
-const logStream = fs.createWriteStream(logPath, { flags: "a" });
-console.log = (...args) => {
-  logStream.write(
-    `[LOG] ${new Date().toISOString()}: ${args
-      .map((a) => (typeof a === "object" ? JSON.stringify(a) : a))
-      .join(" ")}\n`
+const APP_VERSION = packageVersion || "dev";
+const APP_VERSION_LABEL = `V${APP_VERSION}`;
+const APP_BRAND_TITLE = `Starbox ${APP_VERSION_LABEL}`;
+const USER_AGENT_REPORT_URL =
+  process.env.STARBOX_USER_AGENT_URL ||
+  "http://starbox.test/api/report/user-agent";
+const SYSTEM_REPORT_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const MACHINE_ID_STORE_KEY = "systemMachineId";
+const AUTH_BASE_URL =
+  process.env.STARBOX_AUTH_BASE_URL || "http://starbox.test/api/auth";
+const AUTH_SESSION_STORE_KEY = "authSession";
+const GUEST_SERVICE_DEVICE_LIMIT = 2;
+
+const withBrandTitle = (label) =>
+  label ? `${label} - ${APP_BRAND_TITLE}` : APP_BRAND_TITLE;
+const withVersionSuffix = (label) =>
+  label ? `${label} ${APP_VERSION_LABEL}` : APP_BRAND_TITLE;
+
+// Setup logging and store (will be initialized after app is ready)
+let logStream = null;
+let store = null;
+let cachedMachineId = null;
+let systemReportTimer = null;
+let authSession = createEmptyAuthSession();
+let authRefreshTimer = null;
+
+// Initialize logging after app is ready
+function initializeLogging() {
+  // KOREKSI: Menggunakan path temp yang cross-platform
+  const tempDir = app.getPath("temp");
+  fs.appendFileSync(
+    path.join(tempDir, "starbox-debug.log"),
+    `[${new Date().toISOString()}] ${process.argv.join(" ")}\n`
   );
-};
-console.error = (...args) => {
-  logStream.write(
-    `[ERR] ${new Date().toISOString()}: ${args
+
+  // Setup paths globally
+  userDataPath = app.getPath("userData");
+  DB_PATH = path.join(userDataPath, "db", "devices.json");
+
+  // Setup logging
+  const logPath = path.join(userDataPath, "starbox.log");
+  logStream = fs.createWriteStream(logPath, { flags: "a" });
+
+  console.log = (...args) => {
+    const message = `[LOG] ${new Date().toISOString()}: ${args
       .map((a) => (typeof a === "object" ? JSON.stringify(a) : a))
-      .join(" ")}\n`
+      .join(" ")}\n`;
+    const trimmed = message.endsWith("\n") ? message.slice(0, -1) : message;
+    if (logStream) {
+      logStream.write(message);
+    }
+    if (originalConsoleLog) {
+      try {
+        originalConsoleLog(trimmed);
+      } catch {
+        process.stdout.write(message);
+      }
+    } else {
+      process.stdout.write(message);
+    }
+  };
+  console.error = (...args) => {
+    const message = `[ERR] ${new Date().toISOString()}: ${args
+      .map((a) => (typeof a === "object" ? JSON.stringify(a) : a))
+      .join(" ")}\n`;
+    const trimmed = message.endsWith("\n") ? message.slice(0, -1) : message;
+    if (logStream) {
+      logStream.write(message);
+    }
+    if (originalConsoleError) {
+      try {
+        originalConsoleError(trimmed);
+      } catch {
+        process.stderr.write(message);
+      }
+    } else {
+      process.stderr.write(message);
+    }
+  };
+
+  // Initialize store
+  store = new Store();
+  restoreAuthSessionFromStore();
+  scheduleAuthRefresh();
+
+  // Initialize managers
+  androidManager = new AndroidManager();
+  iosManager = new iOSManager();
+
+  console.log("✅ Paths and managers initialized");
+  console.log("   DB_PATH:", DB_PATH);
+  console.log("   Store:", store ? "Ready" : "Failed");
+  console.log("   Android Manager:", androidManager ? "Ready" : "Failed");
+  console.log("   iOS Manager:", iosManager ? "Ready" : "Failed");
+  if (authSession?.isLoggedIn && authSession?.user?.email) {
+    console.log(
+      `   Auth Session: Logged in as ${authSession.user.email} (kuota: ${
+        authSession.deviceQuota ?? "tanpa batas"
+      })`
+    );
+  } else {
+    console.log("   Auth Session: Guest mode");
+  }
+
+  startSystemInfoReporter();
+}
+
+function getPersistentMachineId() {
+  if (cachedMachineId) return cachedMachineId;
+
+  try {
+    cachedMachineId = machineIdSync();
+    return cachedMachineId;
+  } catch (err) {
+    console.warn(
+      "⚠️ Gagal membaca machineId native, fallback ke store:",
+      err?.message || err
+    );
+  }
+
+  if (!store) {
+    cachedMachineId = uuidv4();
+    return cachedMachineId;
+  }
+
+  try {
+    const storedId = store.get(MACHINE_ID_STORE_KEY);
+    if (storedId) {
+      cachedMachineId = storedId;
+      return cachedMachineId;
+    }
+  } catch (err) {
+    console.warn(
+      "⚠️ Gagal membaca machineId dari store, generate baru:",
+      err?.message || err
+    );
+  }
+
+  cachedMachineId = uuidv4();
+  try {
+    store.set(MACHINE_ID_STORE_KEY, cachedMachineId);
+  } catch (err) {
+    console.warn("⚠️ Gagal menyimpan machineId ke store:", err?.message || err);
+  }
+  return cachedMachineId;
+}
+
+function collectNetworkInfo() {
+  const summary = {
+    macAddresses: [],
+    ipAddresses: [],
+  };
+
+  try {
+    const interfaces = os.networkInterfaces?.() || {};
+    Object.entries(interfaces).forEach(([name, configs]) => {
+      if (!Array.isArray(configs)) return;
+
+      configs.forEach((config) => {
+        if (!config) return;
+
+        if (config.mac && config.mac !== "00:00:00:00:00:00") {
+          summary.macAddresses.push(config.mac);
+        }
+
+        if (config.address) {
+          if (!config.internal) {
+            summary.ipAddresses.push(config.address);
+          }
+        }
+      });
+    });
+
+    summary.macAddresses = Array.from(new Set(summary.macAddresses));
+    summary.ipAddresses = Array.from(new Set(summary.ipAddresses));
+  } catch (err) {
+    console.warn("⚠️ Gagal membaca informasi jaringan:", err?.message || err);
+  }
+
+  return summary;
+}
+
+function readDeviceDetails() {
+  const fallback = { total: 0, devices: [] };
+  if (!DB_PATH) return fallback;
+
+  try {
+    if (!fs.existsSync(DB_PATH)) {
+      return fallback;
+    }
+
+    const raw = fs.readFileSync(DB_PATH, "utf8");
+    const data = JSON.parse(raw);
+    const devices = Array.isArray(data.devices) ? data.devices : [];
+
+    const sanitized = devices.map((device) => ({
+      uid: device.uid,
+      name: device.name,
+      service: device.service,
+      mode: device.mode,
+      status: device.status,
+      autoRun: device.autoRun,
+      autoSender: device.autoSender,
+      pendingUrl: device.pendingUrl,
+      customUrl: device.customUrl,
+      lastActiveAt: device.lastActiveAt || device.last_active_at,
+      createdAt: device.created_at || device.createdAt,
+    }));
+
+    return {
+      total: sanitized.length,
+      devices: sanitized,
+    };
+  } catch (err) {
+    console.warn("⚠️ Gagal membaca daftar device:", err?.message || err);
+    return fallback;
+  }
+}
+
+function buildDeviceSnapshot(device = {}) {
+  if (!device || typeof device !== "object") return null;
+  return {
+    uid: device.uid || device.token || null,
+    name: device.name || null,
+    service: device.service || null,
+    mode: device.mode || null,
+    autoRun: !!device.autoRun,
+    autoSender: !!device.autoSender,
+    status: device.status || null,
+    pendingUrl: device.pendingUrl || null,
+    callbackUrl: device.callbackUrl || null,
+    customUrl: device.customUrl || null,
+    created_at: device.created_at || device.createdAt || null,
+    updated_at: device.updated_at || device.updatedAt || null,
+  };
+}
+
+function buildSystemInfoPayload(context = {}) {
+  const cpuInfo = os.cpus?.() || [];
+  const cpuModel = cpuInfo[0]?.model || "unknown";
+  let username = "unknown";
+  try {
+    username = os.userInfo().username;
+  } catch {
+    // Ignore failures and keep unknown username
+  }
+
+  let localeInfo = { locale: null, timeZone: null };
+  try {
+    const resolved = Intl.DateTimeFormat().resolvedOptions();
+    localeInfo = {
+      locale: resolved.locale || null,
+      timeZone: resolved.timeZone || null,
+    };
+  } catch {
+    // Ignore Intl failures
+  }
+
+  const network = collectNetworkInfo();
+  const deviceDetails = readDeviceDetails();
+  const authSnapshot = sanitizeAuthSession();
+
+  const payload = {
+    timestamp: new Date().toISOString(),
+    appVersion: APP_VERSION,
+    userAgent: app.userAgentFallback || `Starbox/${APP_VERSION}`,
+    basic: {
+      platform: os.platform(),
+      release: os.release(),
+      hostname: os.hostname(),
+      username,
+      arch: os.arch(),
+      cpus: cpuModel,
+      cpuCores: cpuInfo.length,
+      totalMem: os.totalmem(),
+      freeMem: os.freemem(),
+      machineId: getPersistentMachineId(),
+      uptimeSeconds: os.uptime(),
+      loadAverage: os.loadavg(),
+      homeDir: os.homedir?.() || null,
+      tempDir: os.tmpdir?.() || null,
+      locale: localeInfo.locale,
+      timeZone: localeInfo.timeZone,
+      ipAddresses: network.ipAddresses,
+      macAddresses: network.macAddresses,
+    },
+    network,
+    devices: deviceDetails,
+    auth: authSnapshot,
+  };
+
+  if (context.eventType) {
+    payload.event = context.eventType;
+  }
+  if (context.accountSnapshot) {
+    payload.account = context.accountSnapshot;
+  }
+  if (context.meta) {
+    payload.meta = context.meta;
+  }
+  if (context.deviceChange) {
+    payload.deviceChange = context.deviceChange;
+  }
+
+  return payload;
+}
+
+async function sendSystemInfoReport(context = {}) {
+  if (!USER_AGENT_REPORT_URL) {
+    console.warn("⚠️ USER_AGENT_REPORT_URL kosong, skip kirim info sistem.");
+    return;
+  }
+
+  try {
+    const payload = buildSystemInfoPayload(context);
+    console.log(
+      "🧾 Payload info sistem Starbox (akan dikirim):",
+      JSON.stringify(payload, null, 2)
+    );
+    console.log(`📦 Total device terdeteksi: ${payload.devices.total || 0}`);
+    console.log("🎯 Endpoint laporan user-agent:", USER_AGENT_REPORT_URL);
+    const response = await fetch(USER_AGENT_REPORT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": payload.userAgent,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    console.log("📡 Info sistem dikirim ke endpoint Starbox.");
+  } catch (err) {
+    console.error(
+      "❌ Gagal mengirim info sistem:",
+      err?.message || err.toString()
+    );
+  }
+}
+
+function startSystemInfoReporter() {
+  if (systemReportTimer) {
+    clearInterval(systemReportTimer);
+    systemReportTimer = null;
+  }
+
+  // Kirim pertama kali segera setelah app siap
+  sendSystemInfoReport({ eventType: "startup" });
+  systemReportTimer = setInterval(
+    () => sendSystemInfoReport({ eventType: "heartbeat" }),
+    SYSTEM_REPORT_INTERVAL_MS
   );
-};
+}
+
+function createEmptyAuthSession() {
+  return {
+    isLoggedIn: false,
+    token: null,
+    refreshToken: null,
+    user: null,
+    deviceQuota: null,
+    serverDeviceCount: null,
+    lastSyncedAt: null,
+    package: null,
+    isUnlimited: false,
+    packageExpiresAt: null,
+    tokenExpiresAt: null,
+    allowsPrivateService: false,
+    allowsAndroidEmulator: false,
+    allowsIosSimulator: false,
+    raw: null,
+  };
+}
+
+function coerceNumber(value) {
+  if (value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function restoreAuthSessionFromStore() {
+  if (!store) {
+    authSession = createEmptyAuthSession();
+    return;
+  }
+
+  try {
+    const saved = store.get(AUTH_SESSION_STORE_KEY);
+    if (saved && typeof saved === "object") {
+      authSession = {
+        ...createEmptyAuthSession(),
+        ...saved,
+      };
+      authSession.isLoggedIn =
+        !!authSession.token && authSession.isLoggedIn !== false;
+    } else {
+      authSession = createEmptyAuthSession();
+    }
+  } catch (err) {
+    authSession = createEmptyAuthSession();
+    console.warn("⚠️ Gagal memulihkan sesi autentikasi:", err?.message || err);
+  }
+}
+
+function persistAuthSession() {
+  if (!store) return;
+  try {
+    const payload = { ...authSession };
+    delete payload.raw;
+    store.set(AUTH_SESSION_STORE_KEY, payload);
+  } catch (err) {
+    console.warn("⚠️ Gagal menyimpan sesi autentikasi:", err?.message || err);
+  }
+}
+
+function getGuestServiceLimit() {
+  return GUEST_SERVICE_DEVICE_LIMIT;
+}
+
+function getAccountDeviceQuota() {
+  if (!authSession || !authSession.isLoggedIn) return null;
+  if (
+    typeof authSession.deviceQuota === "number" &&
+    !Number.isNaN(authSession.deviceQuota)
+  ) {
+    return authSession.deviceQuota;
+  }
+  return null;
+}
+
+function clearAuthRefreshTimer() {
+  if (authRefreshTimer) {
+    clearTimeout(authRefreshTimer);
+    authRefreshTimer = null;
+  }
+}
+
+function scheduleAuthRefresh() {
+  clearAuthRefreshTimer();
+  if (
+    !authSession ||
+    !authSession.isLoggedIn ||
+    !authSession.refreshToken ||
+    !authSession.tokenExpiresAt
+  ) {
+    return;
+  }
+
+  const expiresAt = Date.parse(authSession.tokenExpiresAt);
+  if (Number.isNaN(expiresAt)) return;
+
+  const now = Date.now();
+  const msUntilExpiry = expiresAt - now;
+  if (msUntilExpiry <= 0) {
+    refreshAuthToken().catch((err) => {
+      console.error("❌ Refresh token gagal:", err?.message || err);
+    });
+    return;
+  }
+
+  const refreshDelay = Math.max(30 * 1000, msUntilExpiry - 60 * 1000);
+  authRefreshTimer = setTimeout(() => {
+    refreshAuthToken().catch((err) => {
+      console.error("❌ Refresh token gagal:", err?.message || err);
+    });
+  }, refreshDelay);
+}
+
+async function refreshAuthToken() {
+  if (!authSession?.refreshToken) {
+    console.warn("⚠️ Refresh token tidak tersedia.");
+    return;
+  }
+  try {
+    console.log("🔄 Menyegarkan token autentikasi menggunakan refresh token...");
+    const data = await callAuthEndpoint("refresh", {
+      refresh_token: authSession.refreshToken,
+    });
+    const overrides = {
+      email: authSession.user?.email,
+      packageExpiresAt:
+        data.package_expires_at ||
+        data.packageExpiresAt ||
+        authSession.packageExpiresAt,
+      tokenExpiresAt:
+        data.token_expires_at ||
+        data.tokenExpiresAt ||
+        (data.expires_in
+          ? new Date(
+              Date.now() + Number(data.expires_in || 0) * 1000
+            ).toISOString()
+          : null),
+      expiresIn: data.expires_in || data.expiresIn || null,
+    };
+    applyAuthSessionFromPayload(data, overrides);
+    console.log("✅ Token berhasil diperbarui.");
+  } catch (err) {
+    console.error("❌ Gagal memperbarui token autentikasi:", err);
+    clearAuthSession();
+  }
+}
+
+function sanitizeAuthSession() {
+  const { token, refreshToken, raw, ...rest } = authSession || {};
+  const sanitizedUser = rest?.user ? { ...rest.user } : null;
+  const sanitizedPackage = rest?.package ? { ...rest.package } : null;
+  return {
+    ...rest,
+    user: sanitizedUser,
+    package: sanitizedPackage,
+    tokenExpiresAt: rest?.tokenExpiresAt || null,
+    packageExpiresAt: rest?.packageExpiresAt || null,
+    allowsPrivateService: !!rest?.allowsPrivateService,
+    allowsAndroidEmulator: !!rest?.allowsAndroidEmulator,
+    allowsIosSimulator: !!rest?.allowsIosSimulator,
+    hasToken: !!token,
+    isLoggedIn: !!(rest?.isLoggedIn && token),
+    isUnlimited: !!rest?.isUnlimited,
+    guestServiceLimit: getGuestServiceLimit(),
+  };
+}
+
+function broadcastAuthSessionUpdate() {
+  const payload = sanitizeAuthSession();
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win || win.isDestroyed()) return;
+    try {
+      win.webContents.send("auth-session-updated", payload);
+    } catch (err) {
+      console.warn(
+        "⚠️ Gagal mengirim pembaruan sesi auth:",
+        err?.message || err
+      );
+    }
+  });
+}
+
+function buildAuthSessionFromResponse(payload = {}, overrides = {}) {
+  const baseUser =
+    payload.user ||
+    payload.account ||
+    payload.profile ||
+    payload.data?.user ||
+    overrides.user ||
+    {};
+  const packageSource =
+    payload.package ||
+    payload.data?.package ||
+    baseUser.package ||
+    payload.subscription ||
+    payload.plan ||
+    null;
+  const normalizedPackage = packageSource
+    ? {
+        id: packageSource.id ?? null,
+        name: packageSource.name || packageSource.title || null,
+        device_limit: coerceNumber(
+          packageSource.device_limit ?? packageSource.limit
+        ),
+        is_unlimited:
+          packageSource.is_unlimited === true ||
+          packageSource.isUnlimited === true ||
+          packageSource.unlimited === true,
+        price_display:
+          packageSource.price_display ||
+          packageSource.priceDisplay ||
+          packageSource.price ||
+          null,
+        allows_private_service:
+          packageSource.allows_private_service === true ||
+          packageSource.allowsPrivateService === true,
+        allows_android_emulator:
+          packageSource.allows_android_emulator === true ||
+          packageSource.allowsAndroidEmulator === true,
+        allows_ios_simulator:
+          packageSource.allows_ios_simulator === true ||
+          packageSource.allowsIosSimulator === true,
+      }
+    : null;
+  const packageExpiresAt =
+    overrides.packageExpiresAt ||
+    payload.package_expires_at ||
+    payload.packageExpiresAt ||
+    baseUser.package_expires_at ||
+    baseUser.packageExpiresAt ||
+    normalizedPackage?.expires_at ||
+    normalizedPackage?.expiresAt ||
+    null;
+  const expiresInSeconds = Number(
+    overrides.expiresIn ??
+      payload.expires_in ??
+      payload.expiresIn ??
+      payload.data?.expires_in ??
+      payload.data?.expiresIn
+  );
+  let tokenExpiresAt =
+    overrides.tokenExpiresAt ||
+    (Number.isFinite(expiresInSeconds)
+      ? new Date(Date.now() + expiresInSeconds * 1000).toISOString()
+      : null);
+
+  const token =
+    payload.token ||
+    payload.accessToken ||
+    payload.access_token ||
+    payload.data?.token ||
+    payload.data?.accessToken ||
+    payload.data?.access_token ||
+    null;
+
+  const refreshToken =
+    payload.refreshToken ||
+    payload.refresh_token ||
+    payload.data?.refreshToken ||
+    payload.data?.refresh_token ||
+    null;
+
+  const deviceQuotaCandidates = [
+    coerceNumber(payload.deviceQuota),
+    coerceNumber(payload.maxDevices),
+    coerceNumber(payload.device_limit),
+    coerceNumber(payload.devices_limit),
+    coerceNumber(baseUser.deviceQuota),
+    coerceNumber(baseUser.device_limit),
+    coerceNumber(normalizedPackage?.device_limit),
+  ].filter((value) => typeof value === "number");
+
+  let finalQuota =
+    deviceQuotaCandidates.length > 0 ? deviceQuotaCandidates[0] : null;
+
+  const serverDeviceCount =
+    coerceNumber(payload.totalDevices) ??
+    coerceNumber(payload.deviceCount) ??
+    coerceNumber(payload.devices_count) ??
+    coerceNumber(baseUser.devices_count) ??
+    null;
+
+  const user = {
+    id:
+      baseUser.id ||
+      baseUser.user_id ||
+      baseUser.uid ||
+      overrides.userId ||
+      null,
+    name:
+      baseUser.name ||
+      baseUser.full_name ||
+      baseUser.fullName ||
+      baseUser.username ||
+      overrides.name ||
+      null,
+    email: baseUser.email || overrides.email || null,
+    phone:
+      baseUser.phone ||
+      baseUser.phone_number ||
+      payload.phone ||
+      payload.phone_number ||
+      overrides.phone ||
+      null,
+    phone_code:
+      overrides.phone_code ||
+      overrides.phonecode ||
+      baseUser.phone_code ||
+      baseUser.phonecode ||
+      payload.phone_code ||
+      payload.phonecode ||
+      null,
+    role: baseUser.role || null,
+  };
+
+  let isUnlimited = false;
+  if ((user.role || "").toLowerCase() === "admin") {
+    isUnlimited = true;
+    finalQuota = null;
+  } else if (normalizedPackage?.is_unlimited) {
+    isUnlimited = true;
+    finalQuota = null;
+  } else if (typeof finalQuota !== "number") {
+    finalQuota = getGuestServiceLimit();
+  }
+
+  const allowsPrivateService =
+    typeof overrides.allowsPrivateService === "boolean"
+      ? overrides.allowsPrivateService
+      : Boolean(
+          normalizedPackage?.allows_private_service ||
+            normalizedPackage?.allowsPrivateService ||
+            payload.allows_private_service ||
+            payload.package_allows_private_service ||
+            payload.user?.allows_private_service ||
+            baseUser.allows_private_service
+        );
+
+  const allowsAndroidEmulator =
+    typeof overrides.allowsAndroidEmulator === "boolean"
+      ? overrides.allowsAndroidEmulator
+      : Boolean(
+          normalizedPackage?.allows_android_emulator ||
+            normalizedPackage?.allowsAndroidEmulator ||
+            payload.allows_android_emulator ||
+            payload.package_allows_android_emulator ||
+            payload.user?.allows_android_emulator ||
+            baseUser.allows_android_emulator
+        );
+
+  const allowsIosSimulator =
+    typeof overrides.allowsIosSimulator === "boolean"
+      ? overrides.allowsIosSimulator
+      : Boolean(
+          normalizedPackage?.allows_ios_simulator ||
+            normalizedPackage?.allowsIosSimulator ||
+            payload.allows_ios_simulator ||
+            payload.package_allows_ios_simulator ||
+            payload.user?.allows_ios_simulator ||
+            baseUser.allows_ios_simulator
+        );
+
+  return {
+    ...createEmptyAuthSession(),
+    isLoggedIn: !!token,
+    token,
+    refreshToken,
+    user,
+    deviceQuota:
+      typeof finalQuota === "number" && !isUnlimited ? finalQuota : null,
+    isUnlimited,
+    package: normalizedPackage,
+    packageExpiresAt,
+    tokenExpiresAt,
+    allowsPrivateService,
+    allowsAndroidEmulator,
+    allowsIosSimulator,
+    serverDeviceCount:
+      typeof serverDeviceCount === "number" ? serverDeviceCount : null,
+    lastSyncedAt: new Date().toISOString(),
+    raw: payload,
+  };
+}
+
+function applyAuthSessionFromPayload(payload, overrides = {}) {
+  authSession = buildAuthSessionFromResponse(payload, overrides);
+  if (!authSession.token) {
+    authSession.isLoggedIn = false;
+  }
+  persistAuthSession();
+  broadcastAuthSessionUpdate();
+  scheduleAuthRefresh();
+  return sanitizeAuthSession();
+}
+
+function clearAuthSession() {
+  clearAuthRefreshTimer();
+  authSession = createEmptyAuthSession();
+  persistAuthSession();
+  broadcastAuthSessionUpdate();
+  return sanitizeAuthSession();
+}
+
+async function callAuthEndpoint(pathSuffix, payload = {}, options = {}) {
+  const normalizedBase = AUTH_BASE_URL.replace(/\/$/, "");
+  const normalizedPath = String(pathSuffix || "").replace(/^\//, "");
+  const endpoint = `${normalizedBase}/${normalizedPath}`;
+  const headers = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+  };
+
+  let response = null;
+  try {
+    response = await fetch(endpoint, {
+      method: options.method || "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    const networkError = new Error(
+      err?.message || "Tidak dapat menghubungi server Starbox."
+    );
+    networkError.code = "NETWORK_ERROR";
+    throw networkError;
+  }
+
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    const message =
+      (data && (data.message || data.error)) ||
+      `Request gagal (${response.status})`;
+    const error = new Error(message);
+    error.status = response.status;
+    error.details = data;
+    throw error;
+  }
+
+  return data || {};
+}
 
 // Parsing argumen
 let runDeviceFlag = false;
@@ -75,9 +867,27 @@ const services = {
     url: "https://affiliate.shopee.co.id/",
     icon: "shopee-affiliate-icon.png",
   },
+  android: {
+    name: "Android Emulator",
+    url: "android-emulator.html", // Will be loaded as file
+    icon: "android-icon.png",
+    isLocalFile: true,
+  },
+  other: {
+    name: "Website Kustom",
+    url: "",
+    icon: "starbox.png",
+  },
 };
 
-const DB_PATH = path.join(userDataPath, "db", "devices.json");
+// Global paths (will be initialized after app is ready)
+let userDataPath = null;
+let DB_PATH = null;
+
+// Manager instances
+let androidManager = null;
+let iosManager = null;
+
 const deviceWindows = {}; // Untuk melacak window yang terbuka
 const monitorWindows = {}; // Untuk melacak window monitor automasi
 const monitorWindowState = {
@@ -239,12 +1049,28 @@ function syncMonitorWindowLayout(monitor, options = {}) {
 const AUTO_SENDER_SERVICES = new Set(["wa"]);
 
 function normalizeDeviceRecord(device) {
-  if (!device || !device.token) return false;
-  if (!device.uid) {
-    device.uid = device.token;
+  if (!device) return false;
+  let modified = false;
+  if (device.token) {
+    if (!device.uid) {
+      device.uid = device.token;
+      modified = true;
+    }
+    delete device.token;
+    modified = true;
   }
-  delete device.token;
-  return true;
+  if (typeof device.customUrl !== "string") {
+    device.customUrl = device.customUrl ? String(device.customUrl) : "";
+    modified = true;
+  }
+  if (device.pendingUrl) {
+    const sanitized = sanitizePendingUrl(device.pendingUrl);
+    if (sanitized !== device.pendingUrl) {
+      device.pendingUrl = sanitized;
+      modified = true;
+    }
+  }
+  return modified;
 }
 
 function normalizeDeviceList(data) {
@@ -288,6 +1114,67 @@ function sanitizePendingUrl(url = "") {
     .replace(/\/+$/, "");
 }
 
+function hasCustomPathInUrl(url = "") {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    const path = (parsed.pathname || "").replace(/\/+$/, "");
+    return Boolean(path && path !== "/");
+  } catch {
+    const withoutProtocol = url.replace(/^[a-z]+:\/\//i, "");
+    return withoutProtocol.includes("/");
+  }
+}
+
+function buildUrlWithDefaultPath(baseUrl = "", defaultPath = "") {
+  const sanitized = sanitizePendingUrl(baseUrl);
+  if (!sanitized) return "";
+  const normalizedPath = defaultPath
+    ? defaultPath.startsWith("/")
+      ? defaultPath
+      : `/${defaultPath}`
+    : "";
+  if (!normalizedPath) {
+    return sanitized;
+  }
+  if (hasCustomPathInUrl(sanitized)) {
+    return sanitized;
+  }
+  try {
+    const parsed = new URL(sanitized);
+    if (!parsed.pathname || parsed.pathname === "/") {
+      parsed.pathname = normalizedPath;
+    }
+    parsed.search = "";
+    parsed.hash = "";
+    let resolved = parsed.toString();
+    if (resolved.endsWith("/")) {
+      resolved = resolved.replace(/\/+$/, "");
+    }
+    return resolved;
+  } catch {
+    const trimmedBase = sanitized.replace(/\/+$/, "");
+    return `${trimmedBase}${normalizedPath}`;
+  }
+}
+
+function resolveAutomationCallbackUrl(pendingUrl = "", callbackUrl = "") {
+  const override = sanitizePendingUrl(callbackUrl);
+  if (override) {
+    return buildUrlWithDefaultPath(override, "/updatestatusmessage");
+  }
+  return buildUrlWithDefaultPath(pendingUrl, "/updatestatusmessage");
+}
+
+function sanitizeCustomUrl(url = "") {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (!/^https?:\/\//i.test(value)) {
+    return "";
+  }
+  return value;
+}
+
 function normalizeAutomationPriority(value) {
   const num = Number(value);
   if (Number.isFinite(num)) {
@@ -299,44 +1186,71 @@ function normalizeAutomationPriority(value) {
 function installInputGuards(win) {
   if (win.__starboxInputGuardInstalled) return;
   win.__starboxInputGuardInstalled = true;
+  win.__inputGuardEnabled =
+    win.__inputGuardEnabled === undefined ? true : win.__inputGuardEnabled;
 
   win.webContents.on("before-input-event", (event, input) => {
-    if (input?.isTrusted) {
+    if (win.__inputGuardEnabled !== false && input?.isTrusted) {
       event.preventDefault();
     }
   });
 
   const injectGuards = () => {
+    const currentState = win.__inputGuardEnabled !== false;
     win.webContents
       .executeJavaScript(
         `
       (function () {
-        if (window.__starboxGuardApplied) return;
-        window.__starboxGuardApplied = true;
+        if (window.__starboxGuardInjected) {
+          if (window.__starboxSetGuardState) {
+            window.__starboxSetGuardState(${currentState ? "true" : "false"});
+          } else {
+            window.__starboxGuardEnabled = ${currentState ? "true" : "false"};
+          }
+          return;
+        }
+        window.__starboxGuardInjected = true;
+        window.__starboxGuardEnabled = ${currentState ? "true" : "false"};
 
-        const disablePointer = () => {
-          if (document.body) {
+        const applyPointerState = () => {
+          if (!document.body) return;
+          if (window.__starboxGuardEnabled) {
             document.body.style.pointerEvents = 'none';
             document.body.style.userSelect = 'none';
             document.body.style.cursor = 'default';
+          } else {
+            document.body.style.pointerEvents = '';
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
           }
         };
 
-        disablePointer();
+        applyPointerState();
 
-        const observer = new MutationObserver(disablePointer);
+        const observer = new MutationObserver(() => {
+          if (window.__starboxGuardEnabled) {
+            applyPointerState();
+          }
+        });
         observer.observe(document.documentElement, { childList: true, subtree: true });
 
         const cancelEvent = (event) => {
+          if (!window.__starboxGuardEnabled) return;
           if (event.isTrusted) {
             event.stopPropagation();
             event.preventDefault();
           }
         };
 
+        const guardOptions = { capture: true, passive: false };
         ['contextmenu', 'wheel', 'touchstart', 'touchend'].forEach(evt => {
-          window.addEventListener(evt, cancelEvent, true);
+          window.addEventListener(evt, cancelEvent, guardOptions);
         });
+
+        window.__starboxSetGuardState = function(enabled) {
+          window.__starboxGuardEnabled = !!enabled;
+          applyPointerState();
+        };
       })();
     `
       )
@@ -346,6 +1260,29 @@ function installInputGuards(win) {
   win.webContents.on("dom-ready", injectGuards);
   win.webContents.on("did-finish-load", injectGuards);
   win.webContents.on("did-navigate", injectGuards);
+}
+
+function getWindowInputGuardState(win) {
+  if (!win || win.isDestroyed()) return null;
+  return win.__inputGuardEnabled !== false;
+}
+
+function setWindowInputGuardState(win, enabled) {
+  if (!win || win.isDestroyed()) return;
+  const desired = !!enabled;
+  win.__inputGuardEnabled = desired;
+  installInputGuards(win);
+  win.webContents
+    .executeJavaScript(
+      `
+      if (window.__starboxSetGuardState) {
+        window.__starboxSetGuardState(${desired ? "true" : "false"});
+      } else {
+        window.__starboxGuardEnabled = ${desired ? "true" : "false"};
+      }
+    `
+    )
+    .catch(() => {});
 }
 
 function normalizePhoneNumber(phone = "") {
@@ -459,7 +1396,7 @@ async function ensureMonitorWindow(uid, parentWindow) {
   const monitorOptions = {
     width: metrics.width,
     height: metrics.height,
-    title: "WA Auto Sender Monitor",
+    title: withBrandTitle("WA Auto Sender Monitor"),
     frame: true,
     resizable: true,
     minimizable: true,
@@ -655,6 +1592,13 @@ async function sendAutomationMonitorPayload(
     "deviceName" in remaining ? remaining.deviceName : undefined;
   const pendingUrlOverride =
     "pendingUrl" in remaining ? remaining.pendingUrl : undefined;
+  const inputGuardEnabled =
+    "inputGuardEnabled" in remaining
+      ? remaining.inputGuardEnabled
+      : getWindowInputGuardState(parentWindow);
+  if ("inputGuardEnabled" in remaining) {
+    delete remaining.inputGuardEnabled;
+  }
 
   delete remaining.activeId;
   delete remaining.typing;
@@ -672,6 +1616,8 @@ async function sendAutomationMonitorPayload(
       typeof pendingUrlOverride === "string"
         ? pendingUrlOverride
         : config.pendingUrl || parentWindow.__pendingUrl || "",
+    autoSenderEnabled: !!config.autoSender,
+    inputGuardEnabled,
     queue: sanitizedQueue,
     counts: normalizedCounts,
     activeId,
@@ -695,12 +1641,10 @@ async function sendWhatsappMessages(uid, queue = [], options = {}) {
     autoShow: shouldFocusWindow,
   });
 
-  const sanitizedPendingUrl = sanitizePendingUrl(
-    options.pendingUrl || config.pendingUrl || ""
+  const updateStatusUrl = resolveAutomationCallbackUrl(
+    options.pendingUrl || config.pendingUrl || "",
+    options.callbackUrl || config.callbackUrl || ""
   );
-  const updateStatusUrl = sanitizedPendingUrl
-    ? `${sanitizedPendingUrl}/schedule/updatestatusmessage`
-    : null;
 
   const normalizedQueue = queue
     .map((item) => ({
@@ -949,12 +1893,14 @@ function updateDeviceStatus(uid, status) {
 
 function createDeviceWindow(uid, service, options = {}) {
   const { autoShow = true } = options;
-  const selected = services[service] || services.wa;
+  const serviceKey = (service || "").toLowerCase();
+  const selected = services[serviceKey] || services.wa;
 
   let deviceName = selected.name;
   let mode = "desktop";
   let autoSenderEnabled = false;
   let pendingUrl = "";
+  let customUrl = "";
 
   const config = getDeviceConfig(uid);
   if (config) {
@@ -964,6 +1910,7 @@ function createDeviceWindow(uid, service, options = {}) {
       config.autoSender && allowAutoSenderForService(config.service || service)
     );
     pendingUrl = autoSenderEnabled ? config.pendingUrl || "" : "";
+    customUrl = config.customUrl || "";
   }
 
   const isMobile = mode?.startsWith("mobile");
@@ -1154,19 +2101,21 @@ function createDeviceWindow(uid, service, options = {}) {
   const win = new BrowserWindow({
     width: width,
     height: height,
-    title: deviceName,
+    title: withBrandTitle(deviceName),
     autoHideMenuBar: true,
     icon: getAssetPath(selected.icon),
     show: false,
     webPreferences: {
       contextIsolation: true,
+      nodeIntegration: false,
+      preload: path.join(app.getAppPath(), "preload.cjs"),
       partition: `persist:${uid}`,
     },
   });
 
   win.webContents.on("page-title-updated", (e) => {
     e.preventDefault(); // 🔒 cegah perubahan title
-    win.setTitle(deviceName + " - Starbox V1.2.251105"); // 🔄 pastikan title tetap sesuai device
+    win.setTitle(withBrandTitle(deviceName)); // 🔄 pastikan title tetap sesuai device
   });
   win.once("ready-to-show", () => {
     if (autoShow) {
@@ -1185,9 +2134,33 @@ function createDeviceWindow(uid, service, options = {}) {
     }
   });
 
-  win.loadURL(selected.url, {
-    userAgent,
-  });
+  // Load URL or local file based on service type
+  if (serviceKey === "other") {
+    const targetUrl = sanitizeCustomUrl(customUrl);
+    if (!targetUrl) {
+      console.error(
+        `❌ Device ${uid} menggunakan layanan custom tanpa URL yang valid.`
+      );
+      win.loadURL("about:blank");
+    } else {
+      win.loadURL(targetUrl, {
+        userAgent,
+      });
+    }
+  } else if (selected.isLocalFile) {
+    // For local HTML files like android-emulator.html
+    const fileUrl = `${selected.url}?uid=${encodeURIComponent(uid)}`;
+    win.loadFile(fileUrl.split("?")[0]).then(() => {
+      // Navigate to include query params
+      const fullPath = path.join(__dirname, selected.url);
+      win.loadURL(`file://${fullPath}?uid=${encodeURIComponent(uid)}`);
+    });
+  } else {
+    // For web URLs
+    win.loadURL(selected.url, {
+      userAgent,
+    });
+  }
 
   if (autoSenderEnabled) {
     installInputGuards(win);
@@ -1231,7 +2204,7 @@ function createMainWindow() {
   const mainWindow = new BrowserWindow({
     width: 1200, // ukuran default, tetap diperlukan untuk inisialisasi
     height: 800,
-    title: "Starbox Emulator",
+    title: withVersionSuffix("Starbox Emulator"),
     autoHideMenuBar: true,
     icon: getAssetPath("starbox.png"),
     webPreferences: {
@@ -1258,9 +2231,183 @@ ipcMain.on("load-config", (event) => {
   event.returnValue = store.get("config") || {};
 });
 
+ipcMain.handle("auth-get-session", () => sanitizeAuthSession());
+
+ipcMain.handle("auth-logout", () => {
+  clearAuthSession();
+  return { success: true };
+});
+
+ipcMain.handle("auth-login", async (_event, credentials = {}) => {
+  const email = (credentials.email || "").trim();
+  const password = credentials.password || "";
+
+  if (!email || !password) {
+    return {
+      success: false,
+      message: "Email dan password wajib diisi.",
+    };
+  }
+
+  try {
+    const data = await callAuthEndpoint("login", {
+      email,
+      password,
+    });
+    const overrides = {
+      email,
+      expiresIn: data.expires_in || data.expiresIn || null,
+      packageExpiresAt:
+        data.package_expires_at || data.packageExpiresAt || null,
+    };
+    const session = applyAuthSessionFromPayload(data, overrides);
+    console.log(
+      "📦 Paket aktif:",
+      JSON.stringify(
+        {
+          name: session.package?.name || "Default",
+          device_limit: session.package?.device_limit ?? session.deviceQuota,
+          allows_private_service: session.allowsPrivateService,
+          allows_android_emulator: session.allowsAndroidEmulator,
+          allows_ios_simulator: session.allowsIosSimulator,
+          expires_at: session.packageExpiresAt,
+        },
+        null,
+        2
+      )
+    );
+    const displayName = session.user?.name || session.user?.email || email;
+    sendSystemInfoReport({
+      eventType: "login",
+      accountSnapshot: session,
+    });
+    return {
+      success: true,
+      session,
+      message: `Berhasil login sebagai ${displayName}.`,
+    };
+  } catch (err) {
+    console.error("❌ Login gagal:", err?.message || err);
+    return {
+      success: false,
+      message:
+        err?.message || "Login gagal. Periksa koneksi atau kredensial Anda.",
+      details: err?.details || null,
+    };
+  }
+});
+
+ipcMain.handle("auth-register", async (_event, payload = {}) => {
+  const name = (payload.name || "").trim();
+  const email = (payload.email || "").trim();
+  const password = payload.password || "";
+  const phoneCode = (payload.phone_code || payload.phonecode || "").trim();
+  const phone = (payload.phone || "").trim();
+
+  if (!name || !email || !password || !phoneCode || !phone) {
+    return {
+      success: false,
+      message:
+        "Nama, email, password, kode telepon, dan nomor telepon wajib diisi.",
+    };
+  }
+
+  try {
+    const data = await callAuthEndpoint("register", {
+      name,
+      email,
+      password,
+      password_confirmation: password,
+      phone_code: phoneCode,
+      phone,
+    });
+
+    const hasToken = !!(
+      data?.token ||
+      data?.accessToken ||
+      data?.access_token ||
+      data?.data?.token ||
+      data?.data?.accessToken ||
+      data?.data?.access_token
+    );
+
+    let session = sanitizeAuthSession();
+    if (hasToken) {
+      session = applyAuthSessionFromPayload(data, {
+        email,
+        name,
+        phone_code: phoneCode,
+        phone,
+        expiresIn: data.expires_in || data.expiresIn || null,
+        packageExpiresAt:
+          data.package_expires_at || data.packageExpiresAt || null,
+      });
+      console.log(
+        "📦 Paket aktif (registrasi):",
+        JSON.stringify(
+          {
+            name: session.package?.name || "Default",
+            device_limit: session.package?.device_limit ?? session.deviceQuota,
+            allows_private_service: session.allowsPrivateService,
+            allows_android_emulator: session.allowsAndroidEmulator,
+            allows_ios_simulator: session.allowsIosSimulator,
+            expires_at: session.packageExpiresAt,
+          },
+          null,
+          2
+        )
+      );
+
+      sendSystemInfoReport({
+        eventType: "login",
+        accountSnapshot: session,
+      });
+    }
+
+    const message =
+      data?.message ||
+      (hasToken
+        ? "Registrasi berhasil dan Anda sudah login."
+        : "Registrasi berhasil. Silakan login untuk melanjutkan.");
+
+    return {
+      success: true,
+      session,
+      autoLogin: hasToken,
+      message,
+    };
+  } catch (err) {
+    console.error("❌ Registrasi gagal:", err?.message || err);
+    return {
+      success: false,
+      message:
+        err?.message || "Registrasi gagal. Silakan coba lagi beberapa saat.",
+      details: err?.details || null,
+    };
+  }
+});
+
+function ensureAndroidManagerReady() {
+  if (!androidManager) {
+    androidManager = new AndroidManager();
+  }
+  return androidManager;
+}
+
+function sendAndroidProgress(sender, channel, uid, payload = {}) {
+  if (!sender || typeof sender.isDestroyed !== "function") return;
+  if (sender.isDestroyed()) return;
+  try {
+    sender.send(channel, { uid, ...payload });
+  } catch (err) {
+    console.warn(`⚠️ Gagal mengirim event ${channel}:`, err.message);
+  }
+}
+
 // IPC Handlers
 ipcMain.handle("add-device", (event, payload = {}) => {
-  const { name, service, autoRun, mode, autoSender, pendingUrl } = payload;
+  const { name, service, autoRun, mode, autoSender, pendingUrl, customUrl } =
+    payload;
 
   const dbDir = path.dirname(DB_PATH);
   if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
@@ -1287,12 +2434,59 @@ ipcMain.handle("add-device", (event, payload = {}) => {
   const devices = data.devices;
 
   const serviceKey = (service || "").toLowerCase();
-  const sameServiceCount = devices.filter((d) => d.service === service).length;
-  if (sameServiceCount >= 3) {
-    return {
-      success: false,
-      message: `❌ Maksimal 3 device diperbolehkan untuk service '${service}'.`,
-    };
+  const sameServiceCount = devices.filter(
+    (d) => (d.service || "").toLowerCase() === serviceKey
+  ).length;
+  const serviceLabel = services[serviceKey]?.name || service || "layanan ini";
+
+  if (serviceKey === "android") {
+    if (
+      !authSession?.isLoggedIn ||
+      !authSession?.allowsAndroidEmulator
+    ) {
+      return {
+        success: false,
+        message:
+          "❌ Layanan Android Emulator tidak tersedia untuk paket Anda. Silakan upgrade paket.",
+      };
+    }
+  }
+
+  if (serviceKey === "other") {
+    if (
+      !authSession?.isLoggedIn ||
+      !authSession?.allowsPrivateService
+    ) {
+      return {
+        success: false,
+        message:
+          "❌ Fitur website kustom hanya tersedia pada paket tertentu. Silakan login dengan akun yang mendukung fitur ini.",
+      };
+    }
+  }
+
+  if (!authSession?.isLoggedIn) {
+    const guestLimit = getGuestServiceLimit();
+    if (sameServiceCount >= guestLimit) {
+      return {
+        success: false,
+        message: `❌ Pengguna tamu hanya boleh memiliki ${guestLimit} device untuk ${serviceLabel}. Silakan login untuk menambah kuota.`,
+      };
+    }
+  } else if (!authSession?.isUnlimited) {
+    const rawLimit = getAccountDeviceQuota();
+    const accountLimit =
+      typeof rawLimit === "number" ? rawLimit : getGuestServiceLimit();
+    if (
+      typeof accountLimit === "number" &&
+      accountLimit >= 0 &&
+      sameServiceCount >= accountLimit
+    ) {
+      return {
+        success: false,
+        message: `❌ Kuota akun Anda hanya mengizinkan ${accountLimit} device untuk ${serviceLabel}. Upgrade paket untuk menambah limit.`,
+      };
+    }
   }
 
   const enableAutoSender =
@@ -1300,6 +2494,15 @@ ipcMain.handle("add-device", (event, payload = {}) => {
   const normalizedPendingUrl = enableAutoSender
     ? (pendingUrl || "").trim()
     : "";
+  const normalizedCustomUrl =
+    serviceKey === "other" ? sanitizeCustomUrl(customUrl) : "";
+  if (serviceKey === "other" && !normalizedCustomUrl) {
+    return {
+      success: false,
+      message:
+        "❌ Layanan custom membutuhkan URL website yang valid (harus diawali http:// atau https://).",
+    };
+  }
 
   const newDevice = {
     uid: uuidv4(),
@@ -1312,10 +2515,21 @@ ipcMain.handle("add-device", (event, payload = {}) => {
     mode: mode || "desktop",
     autoSender: enableAutoSender,
     pendingUrl: normalizedPendingUrl,
+    customUrl: normalizedCustomUrl,
+    callbackUrl: enableAutoSender
+      ? sanitizePendingUrl(payload.callbackUrl || "")
+      : "",
   };
 
   devices.push(newDevice);
   fs.writeFileSync(DB_PATH, JSON.stringify({ devices }, null, 2));
+  sendSystemInfoReport({
+    eventType: "device:add",
+    deviceChange: {
+      action: "add",
+      device: buildDeviceSnapshot(newDevice),
+    },
+  });
 
   return {
     success: true,
@@ -1347,6 +2561,7 @@ ipcMain.handle("edit-device", (event, payload = {}) => {
     if (index !== -1) {
       const device = data.devices[index];
       const allowAuto = allowAutoSenderForService(device.service);
+      const serviceKey = (device.service || "").toLowerCase();
 
       device.name = payload.name;
       device.autoRun = !!payload.autoRun;
@@ -1355,8 +2570,39 @@ ipcMain.handle("edit-device", (event, payload = {}) => {
       device.pendingUrl = device.autoSender
         ? (payload.pendingUrl || "").trim()
         : "";
+      if (device.autoSender) {
+        device.callbackUrl = sanitizePendingUrl(
+          payload.callbackUrl || device.callbackUrl || ""
+        );
+      } else {
+        device.callbackUrl = "";
+      }
+      if (serviceKey === "other") {
+        const rawCustomUrl =
+          typeof payload.customUrl === "string"
+            ? payload.customUrl
+            : device.customUrl;
+        const nextCustomUrl = sanitizeCustomUrl(rawCustomUrl);
+        if (!nextCustomUrl) {
+          return {
+            success: false,
+            message:
+              "URL website kustom harus diisi dengan alamat valid (http/https).",
+          };
+        }
+        device.customUrl = nextCustomUrl;
+      } else if (device.customUrl) {
+        device.customUrl = "";
+      }
 
       fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+      sendSystemInfoReport({
+        eventType: "device:edit",
+        deviceChange: {
+          action: "edit",
+          device: buildDeviceSnapshot(device),
+        },
+      });
       return { success: true };
     } else {
       if (normalized) {
@@ -1516,6 +2762,30 @@ ipcMain.on("monitor-toggle-content", (event, isHidden) => {
   });
 });
 
+// Open iOS Simulator window
+ipcMain.on("open-ios-simulator", () => {
+  console.log("📱 Opening iOS Simulator window...");
+
+  const iosWindow = new BrowserWindow({
+    width: 900,
+    height: 700,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, "preload.cjs"),
+    },
+    title: withVersionSuffix("iOS Simulator Manager"),
+    icon: path.join(__dirname, "assets", "icon.png"),
+  });
+
+  iosWindow.loadFile("ios-simulator.html");
+
+  // Open DevTools in development
+  if (process.env.NODE_ENV !== "production") {
+    iosWindow.webContents.openDevTools();
+  }
+});
+
 ipcMain.handle("monitor-copy-text", (_event, rawValue = "") => {
   const value =
     typeof rawValue === "string"
@@ -1557,7 +2827,9 @@ ipcMain.on("monitor-trigger-fetch-pending", (_event, uid) => {
     return;
   }
 
-  console.log(`⏰ Monitor meminta fetch pending untuk UID ${uid} (device sedang running)`);
+  console.log(
+    `⏰ Monitor meminta fetch pending untuk UID ${uid} (device sedang running)`
+  );
 
   // Kirim event ke semua window untuk trigger fetch pending
   BrowserWindow.getAllWindows().forEach((win) => {
@@ -1570,7 +2842,9 @@ ipcMain.on("monitor-trigger-fetch-pending", (_event, uid) => {
 ipcMain.on("monitor-control-automation", (_event, uid, state) => {
   if (!uid || !state) return;
 
-  console.log(`🎮 Monitor meminta kontrol automation untuk UID ${uid}: ${state}`);
+  console.log(
+    `🎮 Monitor meminta kontrol automation untuk UID ${uid}: ${state}`
+  );
 
   // Kirim event ke semua window untuk mengontrol automation
   BrowserWindow.getAllWindows().forEach((win) => {
@@ -1578,6 +2852,20 @@ ipcMain.on("monitor-control-automation", (_event, uid, state) => {
       win.webContents.send("control-automation", uid, state);
     }
   });
+});
+
+ipcMain.handle("set-input-guard-state", (_event, uid, enabled) => {
+  if (!uid) return { success: false };
+  const win = deviceWindows[uid];
+  if (!win || win.isDestroyed()) {
+    return { success: false, message: "Window device tidak ditemukan." };
+  }
+  setWindowInputGuardState(win, enabled);
+  const current = getWindowInputGuardState(win);
+  console.log(
+    `🖱️ Input guard untuk ${uid} kini ${current ? "AKTIF" : "NONAKTIF"}`
+  );
+  return { success: true, enabled: current };
 });
 
 ipcMain.handle("is-device-running", (_event, uid) => {
@@ -1639,6 +2927,10 @@ ipcMain.handle("load-devices", () => {
 
     if (!("pendingUrl" in device)) {
       device.pendingUrl = "";
+      modifiedAny = true;
+    }
+    if (!("callbackUrl" in device)) {
+      device.callbackUrl = "";
       modifiedAny = true;
     }
   });
@@ -1708,6 +3000,13 @@ ipcMain.handle("delete-device", (event, uid) => {
       fs.rmSync(sessionPath, { recursive: true, force: true });
       console.log(`🗑️ Folder sesi ${uid} dihapus`);
     }
+    sendSystemInfoReport({
+      eventType: "device:delete",
+      deviceChange: {
+        action: "delete",
+        device: buildDeviceSnapshot(deviceToDelete),
+      },
+    });
     return { success: true };
   }
 
@@ -1755,6 +3054,282 @@ ipcMain.handle("get-system-info", () => {
   }
 });
 
+// ============================================
+// Android Emulator IPC Handlers
+// ============================================
+
+ipcMain.handle("android-check-installation", () => {
+  try {
+    const manager = ensureAndroidManagerReady();
+    const installed = manager.isInstalled();
+    const downloadSize = manager.getEstimatedDownloadSize();
+    return { success: true, installed, downloadSize };
+  } catch (err) {
+    console.error("❌ android-check-installation gagal:", err);
+    return { success: false, installed: false, error: err.message };
+  }
+});
+
+ipcMain.handle("android-download", async (event, uid) => {
+  const manager = ensureAndroidManagerReady();
+  const sender = event.sender;
+  const relayProgress = (payload = {}) =>
+    sendAndroidProgress(sender, "android-download-progress", uid, payload);
+  try {
+    await manager.downloadAndSetup(relayProgress);
+    return { success: true };
+  } catch (err) {
+    relayProgress({
+      phase: "error",
+      message: err?.message || "Download gagal",
+    });
+    console.error("❌ android-download gagal:", err);
+    throw err;
+  }
+});
+
+ipcMain.handle("android-start", async (event, uid, options = {}) => {
+  const manager = ensureAndroidManagerReady();
+  const sender = event.sender;
+  const progressCallback = (payload = {}) =>
+    sendAndroidProgress(sender, "android-start-progress", uid, payload);
+  try {
+    const result = await manager.startEmulator("StarBox_Default", {
+      ...(options || {}),
+      progressCallback,
+    });
+    return result;
+  } catch (err) {
+    progressCallback({
+      phase: "error",
+      message: err?.message || "Gagal memulai emulator",
+    });
+    console.error("❌ android-start gagal:", err);
+    throw err;
+  }
+});
+
+ipcMain.handle("android-stop", async () => {
+  try {
+    const manager = ensureAndroidManagerReady();
+    return await manager.stopEmulator();
+  } catch (err) {
+    console.error("❌ android-stop gagal:", err);
+    throw err;
+  }
+});
+
+// ============================================
+// iOS Simulator IPC Handlers
+// ============================================
+
+ipcMain.handle("ios-check-availability", () => {
+  try {
+    if (!iosManager) {
+      return {
+        success: false,
+        available: false,
+        error: "iOS Manager not initialized",
+      };
+    }
+    const available = iosManager.isAvailable();
+    console.log(`📱 iOS Simulator availability check: ${available}`);
+    return { success: true, available };
+  } catch (err) {
+    console.error("❌ iOS availability check failed:", err);
+    return { success: false, available: false, error: err.message };
+  }
+});
+
+ipcMain.handle("ios-get-devices", () => {
+  try {
+    if (!iosManager) {
+      return { success: false, error: "iOS Manager not initialized" };
+    }
+    const devices = iosManager.getDevices();
+    console.log(`📱 Found ${devices.length} iOS simulators`);
+    return { success: true, devices };
+  } catch (err) {
+    console.error("❌ Failed to get iOS devices:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("ios-boot", async (event, udid) => {
+  try {
+    if (!iosManager) {
+      return { success: false, error: "iOS Manager not initialized" };
+    }
+    console.log(`📱 Booting iOS simulator: ${udid}`);
+
+    const result = await iosManager.bootDevice(udid, (progress) => {
+      event.sender.send("ios-boot-progress", progress);
+    });
+
+    console.log(`✅ iOS simulator booted successfully: ${udid}`);
+    return result;
+  } catch (err) {
+    console.error(`❌ Failed to boot iOS simulator ${udid}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("ios-shutdown", async (event, udid) => {
+  try {
+    if (!iosManager) {
+      return { success: false, error: "iOS Manager not initialized" };
+    }
+    console.log(`📱 Shutting down iOS simulator: ${udid}`);
+
+    const result = await iosManager.shutdownDevice(udid);
+
+    console.log(`✅ iOS simulator shut down successfully: ${udid}`);
+    return result;
+  } catch (err) {
+    console.error(`❌ Failed to shutdown iOS simulator ${udid}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("ios-shutdown-all", async () => {
+  try {
+    if (!iosManager) {
+      return { success: false, error: "iOS Manager not initialized" };
+    }
+    console.log("📱 Shutting down all iOS simulators");
+
+    const result = await iosManager.shutdownAll();
+
+    console.log("✅ All iOS simulators shut down");
+    return result;
+  } catch (err) {
+    console.error("❌ Failed to shutdown all iOS simulators:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("ios-install-app", async (event, udid, appPath) => {
+  try {
+    if (!iosManager) {
+      return { success: false, error: "iOS Manager not initialized" };
+    }
+    console.log(`📱 Installing app on iOS simulator ${udid}: ${appPath}`);
+
+    const result = await iosManager.installApp(udid, appPath);
+
+    console.log(`✅ App installed successfully on ${udid}`);
+    return result;
+  } catch (err) {
+    console.error(`❌ Failed to install app on ${udid}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("ios-launch-app", async (event, udid, bundleId) => {
+  try {
+    if (!iosManager) {
+      return { success: false, error: "iOS Manager not initialized" };
+    }
+    console.log(`📱 Launching app ${bundleId} on iOS simulator ${udid}`);
+
+    const result = await iosManager.launchApp(udid, bundleId);
+
+    console.log(`✅ App ${bundleId} launched successfully on ${udid}`);
+    return result;
+  } catch (err) {
+    console.error(`❌ Failed to launch app ${bundleId} on ${udid}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("ios-uninstall-app", async (event, udid, bundleId) => {
+  try {
+    if (!iosManager) {
+      return { success: false, error: "iOS Manager not initialized" };
+    }
+    console.log(`📱 Uninstalling app ${bundleId} from iOS simulator ${udid}`);
+
+    const result = await iosManager.uninstallApp(udid, bundleId);
+
+    console.log(`✅ App ${bundleId} uninstalled from ${udid}`);
+    return result;
+  } catch (err) {
+    console.error(`❌ Failed to uninstall app ${bundleId} from ${udid}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("ios-open-url", async (event, udid, url) => {
+  try {
+    if (!iosManager) {
+      return { success: false, error: "iOS Manager not initialized" };
+    }
+    console.log(`📱 Opening URL on iOS simulator ${udid}: ${url}`);
+
+    const result = await iosManager.openURL(udid, url);
+
+    console.log(`✅ URL opened successfully on ${udid}`);
+    return result;
+  } catch (err) {
+    console.error(`❌ Failed to open URL on ${udid}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("ios-get-screenshot", async (event, udid, outputPath) => {
+  try {
+    if (!iosManager) {
+      return { success: false, error: "iOS Manager not initialized" };
+    }
+    console.log(`📱 Taking screenshot from iOS simulator ${udid}`);
+
+    const result = await iosManager.getScreenshot(udid, outputPath);
+
+    console.log(`✅ Screenshot saved to ${outputPath}`);
+    return result;
+  } catch (err) {
+    console.error(`❌ Failed to take screenshot from ${udid}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("ios-erase-device", async (event, udid) => {
+  try {
+    if (!iosManager) {
+      return { success: false, error: "iOS Manager not initialized" };
+    }
+    console.log(`📱 Erasing iOS simulator ${udid}`);
+
+    const result = await iosManager.eraseDevice(udid);
+
+    console.log(`✅ iOS simulator ${udid} erased successfully`);
+    return result;
+  } catch (err) {
+    console.error(`❌ Failed to erase iOS simulator ${udid}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("ios-is-booted", (event, udid) => {
+  try {
+    if (!iosManager) {
+      return { success: false, error: "iOS Manager not initialized" };
+    }
+    const booted = iosManager.isBooted(udid);
+    return { success: true, booted };
+  } catch (err) {
+    console.error(
+      `❌ Failed to check if iOS simulator ${udid} is booted:`,
+      err
+    );
+    return { success: false, error: err.message };
+  }
+});
+
+// ============================================
+// End of iOS Simulator IPC Handlers
+// ============================================
+
 args.forEach((arg) => {
   if (arg === "--run-device") runDeviceFlag = true;
   else if (arg.startsWith("--uid=")) uid = arg.split("=")[1];
@@ -1762,6 +3337,9 @@ args.forEach((arg) => {
 });
 
 app.whenReady().then(() => {
+  // Initialize logging first
+  initializeLogging();
+
   // ⛔ Jalankan langsung CLI jika diminta
   if (runDeviceFlag && uid && service) {
     console.log(`🖥️ CLI mode: Jalankan device ${uid}`);
@@ -1807,6 +3385,14 @@ app.whenReady().then(() => {
   } catch (err) {
     console.error("❌ Gagal membaca atau menjalankan autoRun device:", err);
   }
+});
+
+app.on("before-quit", () => {
+  if (systemReportTimer) {
+    clearInterval(systemReportTimer);
+    systemReportTimer = null;
+  }
+  clearAuthRefreshTimer();
 });
 
 app.on("window-all-closed", () => {

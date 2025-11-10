@@ -46,6 +46,7 @@
       "!dist/**/*",
       "!sessions/**/*",
       "automation-monitor.html",
+      "android-emulator.html",
       "monitor-preload.cjs"
     ],
     "mac": {
@@ -123,7 +124,9 @@
     "electron-builder": "^24.6.0"
   },
   "dependencies": {
+    "adm-zip": "^0.5.16",
     "electron-store": "^8.1.0",
+    "node-machine-id": "^1.1.12",
     "tree-kill": "^1.2.2",
     "uuid": "^9.0.1"
   }

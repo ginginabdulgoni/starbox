@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Android Emulator</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 20px;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #1a1a2e;
+        color: #eee;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+      .container {
+        text-align: center;
+        max-width: 600px;
+      }
+      h1 {
+        color: #3ddc84;
+        margin-bottom: 10px;
+      }
+      .status {
+        background: #16213e;
+        padding: 20px;
+        border-radius: 10px;
+        margin: 20px 0;
+      }
+      .btn {
+        background: #3ddc84;
+        color: #000;
+        border: none;
+        padding: 12px 30px;
+        border-radius: 6px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        margin: 10px;
+        transition: background 0.2s ease;
+      }
+      .btn:hover {
+        background: #32c972;
+      }
+      .btn:disabled {
+        background: #555;
+        cursor: not-allowed;
+      }
+      .info {
+        margin-top: 20px;
+        padding: 15px;
+        background: #0f3460;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      .progress {
+        position: relative;
+        width: 100%;
+        height: 12px;
+        background: #16213e;
+        border-radius: 999px;
+        overflow: hidden;
+        margin: 16px 0;
+      }
+      .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #3ddc84, #1abc9c);
+        width: 0%;
+        border-radius: inherit;
+        transition: width 0.25s ease;
+      }
+      .progress-label {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 600;
+        color: #f8fafc;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+        pointer-events: none;
+      }
+      .log-container {
+        width: 100%;
+        max-width: 640px;
+        margin-top: 24px;
+        background: #0f172a;
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 12px;
+        padding: 12px 14px;
+      }
+      .log-header {
+        margin: 0;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: rgba(226, 232, 240, 0.8);
+      }
+      .log-body {
+        margin-top: 8px;
+        max-height: 220px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 0.75rem;
+        color: rgba(226, 232, 240, 0.75);
+      }
+      .log-entry {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        border-left: 2px solid rgba(148, 163, 184, 0.3);
+        padding-left: 8px;
+      }
+      .log-time {
+        font-family: monospace;
+        color: #38bdf8;
+        flex-shrink: 0;
+      }
+      .log-text {
+        flex: 1;
+        line-height: 1.3;
+      }
+      .log-entry[data-type="stderr"] .log-text {
+        color: #fca5a5;
+      }
+      .log-entry[data-type="stderr"] .log-time {
+        color: #f87171;
+      }
+      .log-entry[data-type="error"] .log-text {
+        color: #fda4af;
+        font-weight: 600;
+      }
+      .log-entry[data-type="success"] .log-text {
+        color: #bbf7d0;
+      }
+      .log-entry[data-type="warn"] .log-text {
+        color: #fde68a;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🤖 Android Emulator</h1>
+      <p id="device-name">Android Device</p>
+
+      <div class="status">
+        <h2 id="status-text">Initializing...</h2>
+        <div class="progress" id="progress-container" style="display:none;">
+          <div class="progress-bar" id="progress-bar"></div>
+          <span class="progress-label" id="progress-label">0%</span>
+        </div>
+        <p id="status-detail"></p>
+      </div>
+
+      <div>
+        <button class="btn" id="start-btn" disabled>Mulai Emulator</button>
+        <button class="btn" id="stop-btn" style="display:none;">Hentikan Emulator</button>
+      </div>
+
+      <div class="info" id="download-info" style="display:none;">
+        <p id="download-size-text"></p>
+      </div>
+
+      <div class="log-container">
+        <div class="log-header">Log Proses</div>
+        <div class="log-body" id="start-log"></div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        const params = new URLSearchParams(window.location.search);
+        const uid = params.get("uid") || "";
+        const deviceNameParam = params.get("deviceName") || "Android Device";
+        const sdkRootParam = params.get("sdkRoot") || "";
+
+        const statusText = document.getElementById("status-text");
+        const statusDetail = document.getElementById("status-detail");
+        const progressContainer = document.getElementById("progress-container");
+        const progressBar = document.getElementById("progress-bar");
+        const progressLabel = document.getElementById("progress-label");
+        const startBtn = document.getElementById("start-btn");
+        const stopBtn = document.getElementById("stop-btn");
+        const logBody = document.getElementById("start-log");
+        const deviceNameEl = document.getElementById("device-name");
+
+        const maxLogEntries = 80;
+        let bootWaitEntry = null;
+        let lastDownloadComponent = null;
+        let lastDownloadLogKey = "";
+        let initInterval = null;
+        let initTimeout = null;
+
+        deviceNameEl.textContent = deviceNameParam;
+
+        function clampProgress(value) {
+          if (typeof value !== "number" || Number.isNaN(value)) {
+            return null;
+          }
+          return Math.max(0, Math.min(100, value));
+        }
+
+        function resetLog() {
+          bootWaitEntry = null;
+          lastDownloadComponent = null;
+          lastDownloadLogKey = "";
+          if (logBody) {
+            logBody.innerHTML = "";
+          }
+        }
+
+        function appendLog(type, message) {
+          if (message == null) {
+            return null;
+          }
+          const text = String(message);
+          if (!text) {
+            return null;
+          }
+          if (!logBody) {
+            const logger = type === "error" ? console.error : console.log;
+            logger("[ANDROID LOG][" + (type || "info") + "] " + text);
+            return null;
+          }
+          const normalized = text.split("\r").join("\n");
+          const rawLines = normalized.split("\n");
+          const lines = [];
+          rawLines.forEach((line) => {
+            const trimmed = line.trim();
+            if (trimmed.length) {
+              lines.push(trimmed);
+            }
+          });
+          if (!lines.length) {
+            return null;
+          }
+          let lastEntry = null;
+          lines.forEach((line) => {
+            const entry = document.createElement("div");
+            entry.className = "log-entry";
+            if (type) {
+              entry.setAttribute("data-type", type);
+            }
+            const timeSpan = document.createElement("span");
+            timeSpan.className = "log-time";
+            timeSpan.textContent = "[" + new Date().toLocaleTimeString() + "]";
+            entry.appendChild(timeSpan);
+
+            const textSpan = document.createElement("span");
+            textSpan.className = "log-text";
+            textSpan.textContent = line;
+            entry.appendChild(textSpan);
+
+            entry.__textNode = textSpan;
+            entry.__timeNode = timeSpan;
+            logBody.appendChild(entry);
+            lastEntry = entry;
+          });
+
+          while (logBody.childElementCount > maxLogEntries) {
+            logBody.removeChild(logBody.firstChild);
+          }
+          logBody.scrollTop = logBody.scrollHeight;
+          return lastEntry;
+        }
+
+        function startInitializationWatch() {
+          clearInitializationWatch();
+          const startedAt = Date.now();
+          statusText.textContent = "Initializing...";
+          statusDetail.textContent = "Checking local emulator files...";
+
+          initInterval = setInterval(() => {
+            const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+            let hint = "Checking local emulator files...";
+            if (elapsed >= 20) {
+              hint = "Still waiting for response from main process...";
+            } else if (elapsed >= 10) {
+              hint = "Verifying installation (this may take a moment)...";
+            }
+            statusDetail.textContent = hint + " (" + elapsed + "s)";
+          }, 1000);
+
+          initTimeout = setTimeout(() => {
+            statusDetail.textContent =
+              "Taking longer than expected. Still waiting for installation status...";
+          }, 15000);
+        }
+
+        function clearInitializationWatch(message) {
+          if (initInterval) {
+            clearInterval(initInterval);
+            initInterval = null;
+          }
+          if (initTimeout) {
+            clearTimeout(initTimeout);
+            initTimeout = null;
+          }
+          if (typeof message === "string") {
+            statusDetail.textContent = message;
+          }
+        }
+
+        function handleDownloadProgress(data = {}) {
+          if (uid && data.uid && data.uid !== uid) {
+            return;
+          }
+
+          const phase = typeof data.phase === "string" ? data.phase.toLowerCase() : "";
+          const overallValue = data.overallProgress ?? data.progress ?? null;
+          const overall = clampProgress(overallValue);
+
+          if (phase === "prepare" || phase === "extract" || phase === "setup") {
+            if (data.message) {
+              const key = phase + ":" + data.message;
+              if (key !== lastDownloadLogKey) {
+                appendLog("info", data.message);
+                lastDownloadLogKey = key;
+              }
+            }
+          }
+
+          if (phase === "download" && data.component) {
+            if (data.component !== lastDownloadComponent) {
+              lastDownloadComponent = data.component;
+              appendLog("info", "Mengunduh " + data.component + "...");
+            }
+          }
+
+          if (phase === "error") {
+            appendLog("error", data.message || "Unduhan emulator gagal.");
+            progressContainer.style.display = "none";
+            statusText.textContent = "Unduhan Gagal";
+            statusDetail.textContent = data.message || "Error tidak diketahui";
+            startBtn.disabled = false;
+            return;
+          }
+
+          if (phase === "done") {
+            if (overall != null) {
+              progressBar.style.width = overall + "%";
+              progressLabel.textContent = Math.round(overall) + "%";
+            }
+            progressContainer.style.display = "none";
+            statusText.textContent = "Unduhan Selesai!";
+            statusDetail.textContent = data.message || "Memulai emulator...";
+            appendLog("success", data.message || "Proses unduhan emulator selesai.");
+            lastDownloadComponent = null;
+            lastDownloadLogKey = "done";
+            return;
+          }
+
+          if (progressContainer.style.display === "none") {
+            progressContainer.style.display = "block";
+          }
+
+          if (phase === "prepare") {
+            statusText.textContent = "Mempersiapkan unduhan...";
+          } else if (phase === "download") {
+            statusText.textContent = "Mengunduh Emulator...";
+          } else if (phase === "extract") {
+            statusText.textContent = "Mengekstrak Paket...";
+          } else if (phase === "setup") {
+            statusText.textContent = "Finalisasi Setup...";
+          }
+
+          if (overall != null) {
+            progressBar.style.width = overall + "%";
+            progressLabel.textContent = Math.round(overall) + "%";
+          }
+
+          let detail = data.message || "";
+          if (!detail && data.component) {
+            detail = data.component;
+          }
+          statusDetail.textContent = detail || "";
+        }
+
+        function handleStartProgress(data = {}) {
+          if (uid && data.uid && data.uid !== uid) {
+            return;
+          }
+
+          const phase = typeof data.phase === "string" ? data.phase.toLowerCase() : "";
+          const rawMessage = typeof data.message === "string" ? data.message.trim() : "";
+          const elapsedSeconds = Number.isFinite(data.elapsedMs)
+            ? Math.round(data.elapsedMs / 1000)
+            : null;
+
+          if (phase === "error" || phase === "boot-timeout") {
+            appendLog("error", rawMessage || "Terjadi kesalahan saat memulai emulator.");
+            statusText.textContent = "Gagal Memulai";
+            statusDetail.textContent = rawMessage || "Terjadi kesalahan saat memulai emulator.";
+            startBtn.disabled = false;
+            bootWaitEntry = null;
+            return;
+          }
+
+          if (phase === "permissions-warning") {
+            appendLog("warn", rawMessage || "Gagal memperbarui izin file emulator.");
+            statusDetail.textContent = rawMessage || "Gagal memperbarui izin file emulator.";
+            return;
+          }
+
+          if (phase === "spawn") {
+            appendLog("info", rawMessage || "Menjalankan proses emulator...");
+            statusText.textContent = "Memulai Emulator...";
+            statusDetail.textContent = rawMessage || "Menjalankan proses emulator...";
+            return;
+          }
+
+          if (phase === "boot-wait") {
+            let message = rawMessage || "Menunggu emulator selesai boot...";
+            if (typeof data.attempt === "number" && isFinite(data.attempt)) {
+              message += " (percobaan " + data.attempt + ")";
+            }
+            if (elapsedSeconds != null) {
+              message += " - " + elapsedSeconds + "s";
+            }
+            if (bootWaitEntry && bootWaitEntry.__textNode) {
+              bootWaitEntry.__textNode.textContent = message;
+              if (bootWaitEntry.__timeNode) {
+                bootWaitEntry.__timeNode.textContent =
+                  "[" + new Date().toLocaleTimeString() + "]";
+              }
+            } else {
+              bootWaitEntry = appendLog("info", message);
+            }
+            statusText.textContent = "Booting Android...";
+            statusDetail.textContent = message;
+            return;
+          }
+
+          if (phase === "boot-complete") {
+            bootWaitEntry = null;
+            appendLog("success", rawMessage || "Emulator berhasil boot.");
+            statusText.textContent = "Emulator Berjalan!";
+            statusDetail.textContent = rawMessage || "Emulator siap digunakan.";
+            return;
+          }
+
+          if (phase === "exit") {
+            bootWaitEntry = null;
+            appendLog("warn", rawMessage || "Emulator berhenti.");
+            statusDetail.textContent = rawMessage || "Emulator berhenti.";
+            startBtn.disabled = false;
+            startBtn.style.display = "inline-block";
+            stopBtn.style.display = "none";
+            return;
+          }
+
+          if (phase === "stdout" || phase === "stderr") {
+            appendLog(phase === "stderr" ? "stderr" : "stdout", rawMessage);
+            if (rawMessage) {
+              statusDetail.textContent = rawMessage.replace(/\s+/g, " ");
+            }
+            return;
+          }
+
+          if (rawMessage) {
+            appendLog("info", rawMessage);
+            statusDetail.textContent = rawMessage;
+          }
+        }
+
+        async function checkInstallation() {
+          startInitializationWatch();
+          appendLog("info", "Memeriksa status instalasi emulator...");
+          if (!electronAPI || !electronAPI.android) {
+            appendLog("error", "Bridge Electron tidak tersedia.");
+            statusDetail.textContent = "Bridge Electron tidak tersedia.";
+            startBtn.disabled = true;
+            clearInitializationWatch("Bridge Electron tidak tersedia.");
+            return;
+          }
+          try {
+            const result = await electronAPI.android.checkInstallation();
+            if (result.installed) {
+              statusText.textContent = "Siap Dimulai";
+              clearInitializationWatch("Emulator sudah terpasang");
+              startBtn.disabled = false;
+              startBtn.textContent = "Mulai Emulator";
+              document.getElementById("download-info").style.display = "none";
+              appendLog("success", "Emulator sudah terpasang. Klik Mulai untuk menjalankan.");
+            } else {
+              statusText.textContent = "Perlu Diunduh";
+              clearInitializationWatch("Klik tombol untuk mengunduh emulator");
+              startBtn.disabled = false;
+              startBtn.textContent = "Unduh & Mulai";
+
+              // Tampilkan info download dengan ukuran
+              const downloadInfo = document.getElementById("download-info");
+              const downloadSizeText = document.getElementById("download-size-text");
+              if (result.downloadSize) {
+                downloadSizeText.innerHTML = `<strong>Ukuran Download:</strong> ${result.downloadSize}`;
+              } else {
+                downloadSizeText.innerHTML = "<strong>Ukuran Download:</strong> ~800MB (estimasi)";
+              }
+              downloadInfo.style.display = "block";
+
+              appendLog(
+                "warn",
+                'Emulator belum terpasang. Klik "Unduh & Mulai" untuk mengunduh.'
+              );
+            }
+          } catch (err) {
+            statusText.textContent = "Error Inisialisasi";
+            const message = err && err.message ? err.message : "Gagal memeriksa status instalasi";
+            clearInitializationWatch(message);
+            startBtn.disabled = false;
+            appendLog("error", message);
+          }
+        }
+
+        async function startEmulator() {
+          startBtn.disabled = true;
+          resetLog();
+          appendLog("info", "Memeriksa instalasi emulator...");
+
+          if (!electronAPI || !electronAPI.android) {
+            appendLog("error", "Bridge Electron tidak tersedia.");
+            statusText.textContent = "Error Inisialisasi";
+            statusDetail.textContent = "Bridge Electron tidak tersedia.";
+            startBtn.disabled = false;
+            return;
+          }
+
+          let installCheck;
+          try {
+            installCheck = await electronAPI.android.checkInstallation();
+          } catch (err) {
+            const message = err && err.message ? err.message : "Gagal memeriksa status instalasi";
+            appendLog("error", message);
+            statusText.textContent = "Error Inisialisasi";
+            statusDetail.textContent = message;
+            startBtn.disabled = false;
+            return;
+          }
+
+          if (!installCheck.installed) {
+            statusText.textContent = "Mengunduh Emulator...";
+            statusDetail.textContent = "Mempersiapkan unduhan...";
+            progressContainer.style.display = "block";
+            progressBar.style.width = "0%";
+            progressLabel.textContent = "0%";
+            appendLog("info", "Emulator belum terpasang. Mengunduh komponen...");
+
+            try {
+              await electronAPI.android.download(uid);
+              statusText.textContent = "Unduhan Selesai!";
+              statusDetail.textContent = "Memulai emulator...";
+              progressContainer.style.display = "none";
+              appendLog("success", "Unduhan emulator selesai. Melanjutkan proses start...");
+            } catch (err) {
+              const message = err && err.message ? err.message : "Unduhan gagal";
+              statusText.textContent = "Unduhan Gagal";
+              statusDetail.textContent = message;
+              startBtn.disabled = false;
+              appendLog("error", message);
+              return;
+            }
+          } else {
+            appendLog("success", "Emulator sudah terpasang. Melanjutkan proses start...");
+          }
+
+          statusText.textContent = "Memulai Emulator...";
+          statusDetail.textContent = "Boot pertama: ~15 menit | Boot berikutnya: ~1 menit (Quick Boot)";
+          appendLog("info", "Menjalankan emulator...");
+
+          try {
+            const result = await electronAPI.android.start(uid, {});
+            if (result && result.success) {
+              statusText.textContent = "Emulator Berjalan!";
+              statusDetail.textContent = "Port: " + result.port;
+              startBtn.style.display = "none";
+              stopBtn.style.display = "inline-block";
+              appendLog("success", "Emulator berjalan pada port " + result.port);
+            } else {
+              const message =
+                (result && result.error) || "Gagal memulai emulator";
+              throw new Error(message);
+            }
+          } catch (err) {
+            const message = err && err.message ? err.message : "Gagal memulai emulator";
+            statusText.textContent = "Gagal Memulai";
+            statusDetail.textContent = message;
+            startBtn.disabled = false;
+            appendLog("error", message);
+          }
+        }
+
+        async function stopEmulator() {
+          stopBtn.disabled = true;
+          statusText.textContent = "Menghentikan...";
+          appendLog("info", "Menghentikan emulator...");
+
+          if (!electronAPI || !electronAPI.android) {
+            appendLog("error", "Bridge Electron tidak tersedia.");
+            statusDetail.textContent = "Bridge Electron tidak tersedia.";
+            stopBtn.disabled = false;
+            return;
+          }
+
+          try {
+            await electronAPI.android.stop(uid);
+            statusText.textContent = "Emulator Dihentikan";
+            statusDetail.textContent = "";
+            stopBtn.style.display = "none";
+            startBtn.style.display = "inline-block";
+            startBtn.disabled = false;
+            appendLog("success", "Emulator berhasil dihentikan.");
+          } catch (err) {
+            const message = err && err.message ? err.message : "Gagal menghentikan emulator";
+            statusText.textContent = "Error Menghentikan";
+            statusDetail.textContent = message;
+            stopBtn.disabled = false;
+            appendLog("error", message);
+          }
+        }
+
+        startBtn.addEventListener("click", startEmulator);
+        stopBtn.addEventListener("click", stopEmulator);
+
+        const electronAPI = window.electronAPI;
+        if (electronAPI && electronAPI.android) {
+          appendLog("success", "Bridge Electron tersedia.");
+          electronAPI.android.onDownloadProgress(handleDownloadProgress);
+          electronAPI.android.onStartProgress(handleStartProgress);
+          if (!uid) {
+            appendLog("error", "UID perangkat tidak ditemukan di query parameter.");
+            statusDetail.textContent = "UID perangkat tidak ditemukan.";
+            startBtn.disabled = true;
+            return;
+          }
+          startInitializationWatch();
+          if (sdkRootParam) {
+            appendLog("info", "SDK Root: " + sdkRootParam);
+          }
+          checkInstallation();
+        } else {
+          appendLog("error", "Electron API tidak tersedia di renderer.");
+          statusDetail.textContent = "Bridge Electron tidak tersedia.";
+        }
+      })();
+    </script>
+  </body>
+</html>

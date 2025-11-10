@@ -115,6 +115,28 @@
         color: #6ee7b7;
       }
 
+      #guardToggleButton[data-state="locked"] {
+        background: rgba(248, 113, 113, 0.15);
+        border-color: rgba(248, 113, 113, 0.4);
+        color: #fca5a5;
+      }
+
+      #guardToggleButton[data-state="locked"]:hover {
+        background: rgba(248, 113, 113, 0.25);
+        border-color: rgba(248, 113, 113, 0.6);
+      }
+
+      #guardToggleButton[data-state="unlocked"] {
+        background: rgba(52, 211, 153, 0.18);
+        border-color: rgba(52, 211, 153, 0.5);
+        color: #6ee7b7;
+      }
+
+      #guardToggleButton[data-state="unlocked"]:hover {
+        background: rgba(52, 211, 153, 0.28);
+        border-color: rgba(52, 211, 153, 0.7);
+      }
+
       #stopButton {
         background: rgba(248, 113, 113, 0.15);
         border-color: rgba(248, 113, 113, 0.4);
@@ -481,6 +503,16 @@
       </div>
       <div class="header-actions" style="display: flex; gap: 8px;">
         <button
+          id="guardToggleButton"
+          class="header-action control-btn"
+          type="button"
+          title="Kunci/Buka mouse & keyboard"
+          data-state="locked"
+          style="display: none"
+        >
+          Buka Input
+        </button>
+        <button
           id="playPauseButton"
           class="header-action control-btn"
           type="button"
@@ -590,6 +622,7 @@
       const copyTokenButton = document.getElementById("copyTokenButton");
       const playPauseButton = document.getElementById("playPauseButton");
       const stopButton = document.getElementById("stopButton");
+      const guardToggleButton = document.getElementById("guardToggleButton");
       const automationStatusLabel = document.getElementById("automationStatus");
       const statusIndicator = document.querySelector(".status-indicator");
 
@@ -625,6 +658,8 @@
         service: "",
         uid: "",
         pendingUrl: "",
+        inputGuardEnabled: true,
+        autoSender: false,
         counts: { total: 0, pending: 0, done: 0 },
         connection: { ...defaultConnectionState },
         nextFetchAt: null,
@@ -844,6 +879,26 @@
         });
       }
 
+      function updateGuardToggleButton() {
+        if (!guardToggleButton) return;
+        if (!window.monitorAPI?.setInputGuardState) {
+          guardToggleButton.style.display = "none";
+          return;
+        }
+        if (!monitorState.uid || !monitorState.autoSender) {
+          guardToggleButton.style.display = "none";
+          return;
+        }
+        guardToggleButton.style.display = "inline-flex";
+        const locked = monitorState.inputGuardEnabled !== false;
+        guardToggleButton.dataset.state = locked ? "locked" : "unlocked";
+        guardToggleButton.textContent = locked ? "Buka Input" : "Kunci Input";
+        guardToggleButton.title = locked
+          ? "Izinkan mouse & keyboard sementara (mode manual)."
+          : "Aktifkan kembali blokir mouse & keyboard agar automation stabil.";
+        guardToggleButton.disabled = false;
+      }
+
       function updateMeta() {
         const queue = monitorState.queue || [];
         const counts = monitorState.counts || {};
@@ -927,6 +982,7 @@
             copyTokenButton.textContent = "Salin";
           }
         }
+        updateGuardToggleButton();
         if (integrationVendorLabel) {
           integrationVendorLabel.textContent = "Vendor: StarBox";
         }
@@ -1029,6 +1085,14 @@
 
         if ("pendingUrl" in payload) {
           monitorState.pendingUrl = payload.pendingUrl || "";
+        }
+
+        if ("inputGuardEnabled" in payload) {
+          monitorState.inputGuardEnabled =
+            payload.inputGuardEnabled !== false;
+        }
+        if ("autoSenderEnabled" in payload) {
+          monitorState.autoSender = !!payload.autoSenderEnabled;
         }
 
         if ("nextFetchAt" in payload) {
@@ -1182,6 +1246,35 @@
           if (confirm("Hentikan automation sepenuhnya? Fetch dan pengiriman akan dihentikan.")) {
             updateAutomationState("stopped");
           }
+        });
+      }
+
+      if (guardToggleButton) {
+        guardToggleButton.addEventListener("click", async () => {
+          if (
+            !monitorState.uid ||
+            !monitorState.autoSender ||
+            !window.monitorAPI?.setInputGuardState
+          )
+            return;
+          const nextState = !(monitorState.inputGuardEnabled !== false);
+          guardToggleButton.disabled = true;
+          try {
+            const result = await window.monitorAPI.setInputGuardState(
+              monitorState.uid,
+              nextState
+            );
+            if (result && typeof result.enabled === "boolean") {
+              monitorState.inputGuardEnabled = !!result.enabled;
+            } else {
+              monitorState.inputGuardEnabled = nextState;
+            }
+          } catch (err) {
+            console.warn("Gagal mengubah status input guard:", err);
+            monitorState.inputGuardEnabled = !nextState;
+          }
+          guardToggleButton.disabled = false;
+          updateGuardToggleButton();
         });
       }
 

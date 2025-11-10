@@ -73,14 +73,27 @@ function updateIndexHtml(newVersion) {
 
   // Regex untuk mengganti versi di footer seperti "StarBox v1.2.1103"
   const footerVersionRegex = /(StarBox\s+v|Starbox\s+v)(\d+\.\d+\.\d+)/gi;
+  const titleVersionRegex = /(<title>\s*StarBox\s+v)(\d+\.\d+\.\d+)([^<]*<\/title>)/i;
+
+  let updated = false;
 
   if (footerVersionRegex.test(content)) {
     content = content.replace(footerVersionRegex, (match, prefix) => {
       return `${prefix}${newVersion}`;
     });
+    updated = true;
+  }
 
+  if (titleVersionRegex.test(content)) {
+    content = content.replace(titleVersionRegex, (match, prefix, _oldVersion, suffix) => {
+      return `${prefix}${newVersion}${suffix}`;
+    });
+    updated = true;
+  }
+
+  if (updated) {
     fs.writeFileSync(indexPath, content, 'utf8');
-    console.log(`✅ index.html footer updated with version ${newVersion}`);
+    console.log(`✅ index.html updated with version ${newVersion}`);
   } else {
     console.log(`ℹ️  No version string found in index.html to update`);
   }

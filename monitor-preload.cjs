@@ -11,5 +11,6 @@ contextBridge.exposeInMainWorld('monitorAPI', {
   toggleWidth: () => ipcRenderer.send('monitor-toggle-width'),
   copyText: (value) => ipcRenderer.invoke('monitor-copy-text', value),
   triggerFetchPending: (uid) => ipcRenderer.send('monitor-trigger-fetch-pending', uid),
-  controlAutomation: (uid, state) => ipcRenderer.send('monitor-control-automation', uid, state)
+  controlAutomation: (uid, state) => ipcRenderer.send('monitor-control-automation', uid, state),
+  setInputGuardState: (uid, enabled) => ipcRenderer.invoke('set-input-guard-state', uid, enabled)
 });

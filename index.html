@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StarBox – MultiService Emulator</title>
+    <title>StarBox v1.2.251105 – MultiService Emulator</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
@@ -14,18 +14,51 @@
 
   <body>
     <header>
-      <h1>StarBox</h1>
-      <nav>
-        <button onclick="openModal()">
-          <i class="bi bi-plus-circle"></i> Tambah Device
-        </button>
-        <!-- <button onclick="openSettings()">
+      <div class="header-left">
+        <h1>StarBox</h1>
+        <nav>
+          <button onclick="openModal()">
+            <i class="bi bi-plus-circle"></i> Tambah Device
+          </button>
+          <button
+            id="iosSimulatorButton"
+            onclick="openIOSSimulator()"
+            style="display: none"
+          >
+            <i class="bi bi-phone"></i> iOS Simulator
+          </button>
+          <!-- <button onclick="openSettings()">
       <i class="bi bi-gear-fill"></i> Pengaturan
     </button> -->
-        <button onclick="openAbout()">
-          <i class="bi bi-info-circle"></i> About Us
-        </button>
-      </nav>
+          <button onclick="openAbout()">
+            <i class="bi bi-info-circle"></i> About Us
+          </button>
+        </nav>
+      </div>
+      <div class="header-auth">
+        <div class="auth-meta">
+          <span id="authStatusLabel" class="auth-status"
+            >Mode tamu • 2 device/layanan</span
+          >
+          <span id="authQuotaBadge" class="auth-quota"
+            >Tamu: maks 2 device per layanan</span
+          >
+          <span id="authPackageLabel" class="auth-package"></span>
+        </div>
+        <div class="auth-actions">
+          <button id="authButton" onclick="handleAuthButtonClick()">
+            <i class="bi bi-box-arrow-in-right"></i> Masuk / Daftar
+          </button>
+          <button
+            id="logoutButton"
+            class="secondary"
+            onclick="handleLogout()"
+            style="display: none"
+          >
+            <i class="bi bi-box-arrow-right"></i> Keluar
+          </button>
+        </div>
+      </div>
     </header>
 
     <div class="toolbar">
@@ -70,6 +103,13 @@
       </span>
     </div>
 
+    <div
+      id="device-limit-info"
+      class="device-limit-info"
+      role="status"
+      aria-live="polite"
+    ></div>
+
     <div id="device-list">Loading...</div>
 
     <div id="aboutModal" class="modal">
@@ -83,13 +123,15 @@
         </p>
         <p>
           Emulator ringan untuk multi-login layanan seperti WhatsApp, Telegram,
-          Gmail, dll.
+          Gmail, dan Android Emulator.
         </p>
 
         <h4>Layanan Didukung</h4>
         <ul>
           <li>✅ WhatsApp, Telegram, Gmail</li>
           <li>✅ Shopee, Shopee Affiliate</li>
+          <li>✅ Android Emulator</li>
+          <li>✅ iOS Simulator (NEW! - 5-10 detik boot time)</li>
           <li>⏳ Notion, Tokopedia, Instagram (segera)</li>
         </ul>
 
@@ -146,7 +188,16 @@
           <option value="gmail">Gmail</option>
           <option value="shopee">Shopee</option>
           <option value="shopee_affiliate">Shopee Affiliate</option>
+          <option value="android" data-requires-feature="android">
+            Android Emulator
+          </option>
+          <option value="other" data-requires-feature="private" hidden>
+            Website (Custom URL)
+          </option>
         </select>
+        <p id="addDeviceQuotaHint" class="quota-hint">
+          Mode tamu: maks 2 device per layanan.
+        </p>
 
         <div
           id="deviceAutoSenderSection"
@@ -168,10 +219,12 @@
               id="devicePendingUrl"
               placeholder="https://test.mywifi.web.id"
             />
-            <p id="deviceAutoSenderNote" class="auto-sender-note">
-              Catatan: Saat fitur ini aktif, mouse dan keyboard pada jendela
-              WhatsApp akan dibatasi agar bot dapat mengirim pesan otomatis.
-            </p>
+            <label for="deviceCallbackUrl">URL Callback (opsional)</label>
+            <input
+              type="text"
+              id="deviceCallbackUrl"
+              placeholder="Kosongkan untuk gunakan default /schedule/updatestatusmessage"
+            />
           </div>
         </div>
 
@@ -179,11 +232,17 @@
         <select id="deviceMode" class="mode-select">
           <optgroup label="📱 Mobile Phones">
             <option value="mobile-iphone">📱 iPhone 13/14 (390x844)</option>
-            <option value="mobile-iphone-pro">📱 iPhone 14 Pro Max (430x932)</option>
+            <option value="mobile-iphone-pro">
+              📱 iPhone 14 Pro Max (430x932)
+            </option>
             <option value="mobile-iphone-se">📱 iPhone SE (375x667)</option>
-            <option value="mobile-android">🤖 Android Standard (393x851)</option>
+            <option value="mobile-android">
+              🤖 Android Standard (393x851)
+            </option>
             <option value="mobile-galaxy-s8">📱 Galaxy S8 (360x740)</option>
-            <option value="mobile-galaxy-s23">📱 Galaxy S23 Ultra (384x854)</option>
+            <option value="mobile-galaxy-s23">
+              📱 Galaxy S23 Ultra (384x854)
+            </option>
             <option value="mobile-pixel-5">📱 Pixel 5 (393x851)</option>
             <option value="mobile-pixel-7">📱 Pixel 7 Pro (412x915)</option>
             <option value="mobile-oneplus">📱 OnePlus (412x869)</option>
@@ -191,9 +250,13 @@
           <optgroup label="📘 Tablets">
             <option value="tablet-ipad">📘 iPad (768x1024)</option>
             <option value="tablet-ipad-pro">📘 iPad Pro 11" (834x1194)</option>
-            <option value="tablet-ipad-pro-13">📘 iPad Pro 13" (1024x1366)</option>
+            <option value="tablet-ipad-pro-13">
+              📘 iPad Pro 13" (1024x1366)
+            </option>
             <option value="tablet-android">🔷 Android Tablet (800x1280)</option>
-            <option value="tablet-samsung">🔷 Samsung Tab S8 (1600x2560)</option>
+            <option value="tablet-samsung">
+              🔷 Samsung Tab S8 (1600x2560)
+            </option>
           </optgroup>
           <optgroup label="💻 Desktop">
             <option value="desktop">🖥️ Desktop Standard (1000x700)</option>
@@ -216,6 +279,19 @@
           </optgroup>
         </select>
 
+        <div
+          id="customServiceSection"
+          class="custom-service-section"
+          style="display: none"
+        >
+          <label for="customServiceUrl">URL Website</label>
+          <input
+            type="text"
+            id="customServiceUrl"
+            placeholder="https://contoh-website.com"
+          />
+        </div>
+
         <label style="margin-top: 10px">
           <input type="checkbox" id="deviceAutoRun" />
           Auto Run saat aplikasi dibuka
@@ -225,6 +301,124 @@
           <button onclick="submitDevice()">
             <i class="bi bi-plus-circle"></i> Simpan Device
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="authModal" class="modal">
+      <div class="modal-content auth-modal-content">
+        <span class="close" onclick="closeAuthModal()">&times;</span>
+        <h3>Akses Akun Starbox</h3>
+        <p class="auth-subtitle">
+          Masuk untuk menambah kuota device sesuai paket akun Anda.
+        </p>
+        <div class="auth-tabs">
+          <button
+            id="authTabLogin"
+            class="auth-tab active"
+            onclick="switchAuthTab('login')"
+          >
+            Login
+          </button>
+          <button
+            id="authTabRegister"
+            class="auth-tab"
+            onclick="switchAuthTab('register')"
+          >
+            Register
+          </button>
+        </div>
+
+        <div id="authLoginForm" class="auth-form">
+          <label for="loginEmail">Email</label>
+          <input type="email" id="loginEmail" placeholder="nama@starbox.app" />
+
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" placeholder="••••••••" />
+
+          <label class="remember-me">
+            <input type="checkbox" id="loginRememberMe" />
+            Ingat saya
+          </label>
+
+          <button
+            id="loginSubmitButton"
+            class="auth-primary-btn"
+            onclick="submitLoginForm(event)"
+          >
+            <i class="bi bi-box-arrow-in-right"></i> Masuk
+          </button>
+        </div>
+
+        <div id="authRegisterForm" class="auth-form" style="display: none">
+          <label for="registerName">Nama Lengkap</label>
+          <input type="text" id="registerName" placeholder="Nama Lengkap" />
+
+          <label for="registerEmail">Email</label>
+          <input
+            type="email"
+            id="registerEmail"
+            placeholder="nama@starbox.app"
+          />
+
+          <label for="registerPhoneCode">Kode Negara</label>
+          <select id="registerPhoneCode">
+            <option value="">Memuat kode negara...</option>
+          </select>
+
+          <label for="registerPhone">Nomor Telepon</label>
+          <input type="text" id="registerPhone" placeholder="81234567890" />
+
+          <label for="registerPassword">Password</label>
+          <input
+            type="password"
+            id="registerPassword"
+            placeholder="Minimal 6 karakter"
+          />
+
+          <button
+            id="registerSubmitButton"
+            class="auth-primary-btn"
+            onclick="submitRegisterForm(event)"
+          >
+            <i class="bi bi-person-plus"></i> Daftar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="accountModal" class="modal">
+      <div class="modal-content account-modal">
+        <span class="close" onclick="closeAccountModal()">&times;</span>
+        <h3>Detail Akun</h3>
+        <div class="account-info">
+          <div class="account-info-row">
+            <span>Nama</span>
+            <strong id="accountNameValue">-</strong>
+          </div>
+          <div class="account-info-row">
+            <span>Email</span>
+            <strong id="accountEmailValue">-</strong>
+          </div>
+          <div class="account-info-row">
+            <span>Telepon</span>
+            <strong id="accountPhoneValue">-</strong>
+          </div>
+          <div class="account-info-row">
+            <span>Paket</span>
+            <strong id="accountPackageValue">-</strong>
+          </div>
+          <div class="account-info-row">
+            <span>Limit per layanan</span>
+            <strong id="accountLimitValue">-</strong>
+          </div>
+          <div class="account-info-row">
+            <span>Masa aktif</span>
+            <strong id="accountExpiryValue">-</strong>
+          </div>
+        </div>
+        <div class="account-actions">
+          <button class="danger" onclick="handleLogout()">Keluar</button>
         </div>
       </div>
     </div>
@@ -266,11 +460,17 @@
         <select id="editMode" class="mode-select">
           <optgroup label="📱 Mobile Phones">
             <option value="mobile-iphone">📱 iPhone 13/14 (390x844)</option>
-            <option value="mobile-iphone-pro">📱 iPhone 14 Pro Max (430x932)</option>
+            <option value="mobile-iphone-pro">
+              📱 iPhone 14 Pro Max (430x932)
+            </option>
             <option value="mobile-iphone-se">📱 iPhone SE (375x667)</option>
-            <option value="mobile-android">🤖 Android Standard (393x851)</option>
+            <option value="mobile-android">
+              🤖 Android Standard (393x851)
+            </option>
             <option value="mobile-galaxy-s8">📱 Galaxy S8 (360x740)</option>
-            <option value="mobile-galaxy-s23">📱 Galaxy S23 Ultra (384x854)</option>
+            <option value="mobile-galaxy-s23">
+              📱 Galaxy S23 Ultra (384x854)
+            </option>
             <option value="mobile-pixel-5">📱 Pixel 5 (393x851)</option>
             <option value="mobile-pixel-7">📱 Pixel 7 Pro (412x915)</option>
             <option value="mobile-oneplus">📱 OnePlus (412x869)</option>
@@ -278,9 +478,13 @@
           <optgroup label="📘 Tablets">
             <option value="tablet-ipad">📘 iPad (768x1024)</option>
             <option value="tablet-ipad-pro">📘 iPad Pro 11" (834x1194)</option>
-            <option value="tablet-ipad-pro-13">📘 iPad Pro 13" (1024x1366)</option>
+            <option value="tablet-ipad-pro-13">
+              📘 iPad Pro 13" (1024x1366)
+            </option>
             <option value="tablet-android">🔷 Android Tablet (800x1280)</option>
-            <option value="tablet-samsung">🔷 Samsung Tab S8 (1600x2560)</option>
+            <option value="tablet-samsung">
+              🔷 Samsung Tab S8 (1600x2560)
+            </option>
           </optgroup>
           <optgroup label="💻 Desktop">
             <option value="desktop">🖥️ Desktop Standard (1000x700)</option>
@@ -304,6 +508,19 @@
         </select>
 
         <div
+          id="editCustomServiceSection"
+          class="custom-service-section"
+          style="display: none"
+        >
+          <label for="editCustomServiceUrl">URL Website</label>
+          <input
+            type="text"
+            id="editCustomServiceUrl"
+            placeholder="https://contoh-website.com"
+          />
+        </div>
+
+        <div
           id="editAutoSenderSection"
           class="auto-sender-section"
           style="display: none"
@@ -323,10 +540,12 @@
               id="editPendingUrl"
               placeholder="https://test.mywifi.web.id"
             />
-            <p id="editAutoSenderNote" class="auto-sender-note">
-              Catatan: Saat fitur ini aktif, mouse dan keyboard pada jendela
-              WhatsApp akan dibatasi agar bot dapat mengirim pesan otomatis.
-            </p>
+            <label for="editCallbackUrl">URL Callback (opsional)</label>
+            <input
+              type="text"
+              id="editCallbackUrl"
+              placeholder="Kosongkan untuk gunakan default /updatestatusmessage"
+            />
           </div>
         </div>
 
@@ -440,6 +659,47 @@
 
       function closeAbout() {
         document.getElementById("aboutModal").style.display = "none";
+      }
+
+      function isMacPlatform() {
+        const platform = navigator.platform || "";
+        const userAgent = navigator.userAgent || "";
+        const vendor = navigator.vendor || "";
+        const macPattern = /mac|darwin|os x/i;
+
+        if (macPattern.test(platform)) return true;
+        if (macPattern.test(userAgent)) return true;
+        if (macPattern.test(vendor)) return true;
+
+        const electronPlatform =
+          typeof window !== "undefined" &&
+          window.process &&
+          window.process.platform;
+        if (electronPlatform && electronPlatform.toLowerCase() === "darwin") {
+          return true;
+        }
+
+        if (window.electronAPI?.platform) {
+          return String(window.electronAPI.platform).toLowerCase() === "darwin";
+        }
+
+        return false;
+      }
+
+      document.addEventListener("DOMContentLoaded", () => {
+        const iosButton = document.getElementById("iosSimulatorButton");
+        if (iosButton) {
+          iosButton.style.display = isMacPlatform() ? "inline-flex" : "none";
+        }
+      });
+
+      function openIOSSimulator() {
+        // Open iOS Simulator window using electronAPI
+        if (window.electronAPI && window.electronAPI.send) {
+          window.electronAPI.send("open-ios-simulator");
+        } else {
+          console.error("electronAPI not available");
+        }
       }
 
       function submitDevice() {
@@ -722,18 +982,17 @@
         const section = document.getElementById("deviceAutoSenderSection");
         const checkbox = document.getElementById("deviceAutoSender");
         const options = document.getElementById("deviceAutoSenderOptions");
-        const note = document.getElementById("deviceAutoSenderNote");
+        const callbackInput = document.getElementById("deviceCallbackUrl");
         const allowed = window.canUseAutoSender(service);
         if (!section) return;
         section.style.display = allowed ? "block" : "none";
         if (!allowed) {
           if (checkbox) checkbox.checked = false;
           if (options) options.style.display = "none";
-          if (note) note.style.display = "none";
+          if (callbackInput) callbackInput.value = "";
         } else {
           const checked = checkbox?.checked;
           if (options) options.style.display = checked ? "block" : "none";
-          if (note) note.style.display = checked ? "block" : "none";
         }
       };
 
@@ -742,27 +1001,42 @@
         if (!section) return;
         const checkbox = document.getElementById("editAutoSender");
         const options = document.getElementById("editAutoSenderOptions");
-        const note = document.getElementById("editAutoSenderNote");
+        const callbackInput = document.getElementById("editCallbackUrl");
         const allowed = window.canUseAutoSender(window.currentEditService);
         section.style.display = allowed ? "block" : "none";
         if (!allowed) {
           if (checkbox) checkbox.checked = false;
           if (options) options.style.display = "none";
-          if (note) note.style.display = "none";
+          if (callbackInput) callbackInput.value = "";
         } else {
           const checked = checkbox?.checked;
           if (options) options.style.display = checked ? "block" : "none";
-          if (note) note.style.display = checked ? "block" : "none";
         }
       };
 
-      window.setEditAutoSenderState = function (service, enabled, url) {
+      window.setEditAutoSenderState = function (
+        service,
+        enabled,
+        url,
+        callbackUrl
+      ) {
         window.currentEditService = service || "";
         const checkbox = document.getElementById("editAutoSender");
         const pendingInput = document.getElementById("editPendingUrl");
+        const callbackInput = document.getElementById("editCallbackUrl");
         if (checkbox) checkbox.checked = !!enabled;
         if (pendingInput) pendingInput.value = url || "";
+        if (callbackInput) callbackInput.value = callbackUrl || "";
         window.refreshEditAutoSenderUI();
+        window.refreshEditCustomServiceUI();
+      };
+
+      window.refreshEditCustomServiceUI = function () {
+        const section = document.getElementById("editCustomServiceSection");
+        if (!section) return;
+        const show =
+          (window.currentEditService || "").toLowerCase() === "other";
+        section.style.display = show ? "block" : "none";
       };
 
       const addServiceEl = document.getElementById("deviceService");
@@ -781,12 +1055,16 @@
 
       window.refreshAddAutoSenderUI();
       window.refreshEditAutoSenderUI();
+      window.refreshEditCustomServiceUI();
 
       function openEditModal() {
         const modal = document.getElementById("editModal");
         if (modal) modal.style.display = "flex";
         if (typeof window.refreshEditAutoSenderUI === "function") {
           window.refreshEditAutoSenderUI();
+        }
+        if (typeof window.refreshEditCustomServiceUI === "function") {
+          window.refreshEditCustomServiceUI();
         }
         setTimeout(() => {
           const nameInput = document.getElementById("editDeviceName");
@@ -801,9 +1079,14 @@
         window.currentEditService = null;
         const autoSenderEl = document.getElementById("editAutoSender");
         const pendingEl = document.getElementById("editPendingUrl");
+        const customEl = document.getElementById("editCustomServiceUrl");
+        const callbackEl = document.getElementById("editCallbackUrl");
         if (autoSenderEl) autoSenderEl.checked = false;
         if (pendingEl) pendingEl.value = "";
+        if (callbackEl) callbackEl.value = "";
         window.refreshEditAutoSenderUI();
+        if (customEl) customEl.value = "";
+        window.refreshEditCustomServiceUI();
       }
 
       function saveEditDevice() {
@@ -812,6 +1095,7 @@
         const mode = document.getElementById("editMode").value;
         const autoSenderEl = document.getElementById("editAutoSender");
         const pendingEl = document.getElementById("editPendingUrl");
+        const customEl = document.getElementById("editCustomServiceUrl");
 
         if (!name || !window.currentEditUID) return;
 
@@ -821,6 +1105,34 @@
         const pendingUrl = autoSenderEnabled
           ? (pendingEl?.value || "").trim()
           : "";
+        const customUrl =
+          (window.currentEditService || "").toLowerCase() === "other"
+            ? (customEl?.value || "").trim()
+            : "";
+        const callbackUrlInput = document.getElementById("editCallbackUrl");
+        const callbackUrl =
+          autoSenderEnabled && callbackUrlInput
+            ? callbackUrlInput.value.trim()
+            : "";
+
+        if (
+          (window.currentEditService || "").toLowerCase() === "other" &&
+          !customUrl
+        ) {
+          showToast("URL website kustom wajib diisi.", 3500, "warning");
+          return;
+        }
+        if (
+          (window.currentEditService || "").toLowerCase() === "other" &&
+          !/^https?:\/\//i.test(customUrl)
+        ) {
+          showToast(
+            "URL website harus diawali http:// atau https://.",
+            3500,
+            "warning"
+          );
+          return;
+        }
 
         const updatedDevice = {
           uid: window.currentEditUID,
@@ -830,6 +1142,12 @@
           autoSender: autoSenderEnabled,
           pendingUrl,
         };
+        if ((window.currentEditService || "").toLowerCase() === "other") {
+          updatedDevice.customUrl = customUrl;
+        }
+        if (autoSenderEnabled) {
+          updatedDevice.callbackUrl = callbackUrl;
+        }
 
         window.electronAPI.editDevice(updatedDevice).then((res) => {
           if (res.success) {
@@ -894,13 +1212,18 @@
       width: calc(100% - 40px);
       background-color: var(--color-medium-purple);
       color: var(--color-text-light);
-      text-align: center;
       padding: 14px 24px;
       font-size: 0.85rem;
       border-top: 1px solid var(--color-light-purple);
       border-radius: 12px;
       box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25);
       z-index: 1000;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      text-align: left;
+      flex-wrap: wrap;
     "
   >
     <span class="footer-left"

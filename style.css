@@ -48,19 +48,75 @@ footer a:hover {
     color: var(--color-accent-purple);
   }
 
-  .header-actions {
+  .header-left {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 24px;
   }
 
-  .header-actions nav {
+  .header-left nav {
     display: flex;
     align-items: center;
   }
 
-  .header-actions nav button:first-child {
+  .header-left nav button:first-child {
     margin-left: 0;
+  }
+
+  .header-auth {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  .auth-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    font-size: 0.78rem;
+    color: rgba(226, 232, 240, 0.85);
+    line-height: 1.3;
+  }
+
+  .auth-status {
+    font-weight: 600;
+  }
+
+  .auth-quota {
+    font-size: 0.75rem;
+    opacity: 0.9;
+  }
+
+  .auth-package {
+    font-size: 0.75rem;
+    color: rgba(226, 232, 240, 0.75);
+    display: none;
+  }
+
+  .device-limit-info {
+    margin: 0 30px 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: rgba(234, 179, 8, 0.15);
+    border: 1px solid rgba(234, 179, 8, 0.35);
+    color: #fde68a;
+    font-size: 0.9rem;
+    display: none;
+  }
+
+  .auth-actions {
+    display: flex;
+    gap: 10px;
+  }
+
+  .auth-actions button.secondary {
+    background: rgba(148, 163, 184, 0.25);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+  }
+
+  .auth-actions button.secondary:hover {
+    background: rgba(148, 163, 184, 0.4);
   }
 
   .system-info-badge {
@@ -92,13 +148,6 @@ footer a:hover {
     margin-top: 8px;
   }
 
-  .auto-sender-note {
-    margin: 0;
-    font-size: 0.78rem;
-    color: rgba(226, 232, 240, 0.7);
-    font-style: italic;
-  }
-
   nav button {
     background: linear-gradient(90deg, var(--color-accent-purple), #9333ea);
     border: none;
@@ -117,19 +166,39 @@ footer a:hover {
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
   }
 
+  .auth-actions button {
+    background: linear-gradient(90deg, var(--color-accent-purple), #9333ea);
+    border: none;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s ease-in-out;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  }
+
+  .auth-actions button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+  }
+
   /* --- Toolbar --- */
 footer {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .footer-left {
+  flex: 1 1 auto;
   text-align: left;
 }
 
 .footer-right {
+  margin-left: auto;
   text-align: right;
 }
 
@@ -188,6 +257,70 @@ footer a:hover {
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 20px;
     margin: 0 30px 30px;
+  }
+
+  .device-empty-state {
+    grid-column: 1 / -1;
+    padding: 24px;
+    border: 1px dashed rgba(148, 163, 184, 0.4);
+    border-radius: 12px;
+    text-align: center;
+    color: rgba(226, 232, 240, 0.75);
+    font-size: 0.95rem;
+  }
+
+  .account-modal {
+    max-width: 460px;
+  }
+
+  .account-info {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .account-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    font-size: 0.95rem;
+  }
+
+  .account-info-row strong {
+    color: #fff;
+  }
+
+  .account-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+  }
+
+  .account-actions button {
+    flex: 0 0 auto;
+    padding: 10px 18px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+    transition: opacity 0.2s ease;
+  }
+
+  .account-actions button.secondary {
+    background: rgba(148, 163, 184, 0.2);
+    color: #e2e8f0;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+  }
+
+  .account-actions button.danger {
+    background: linear-gradient(90deg, #ef4444, #dc2626);
+    color: #fff;
+  }
+
+  .account-actions button:hover {
+    opacity: 0.9;
   }
 
 /* --- Device Card --- */
@@ -584,6 +717,8 @@ input[type="checkbox"].circle-checkbox:checked::after {
   }
 
   input[type="text"],
+  input[type="email"],
+  input[type="password"],
   select {
     width: calc(100% - 20px); /* Adjust for padding */
     padding: 12px;
@@ -596,6 +731,8 @@ input[type="checkbox"].circle-checkbox:checked::after {
   }
 
   input[type="text"]:focus,
+  input[type="email"]:focus,
+  input[type="password"]:focus,
   select:focus {
     outline: none;
     border-color: var(--color-accent-purple);
@@ -620,6 +757,91 @@ input[type="checkbox"].circle-checkbox:checked::after {
   .modal-content button:hover {
     transform: translateY(-2px);
     box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+  }
+
+  .auth-modal-content {
+    max-width: 420px;
+    position: relative;
+  }
+
+  .auth-tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  .auth-tab {
+    flex: 1;
+    padding: 10px 0;
+    background: rgba(148, 163, 184, 0.12);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 999px;
+    color: rgba(226, 232, 240, 0.85);
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s ease;
+  }
+
+  .auth-tab.active {
+    background: linear-gradient(90deg, var(--color-accent-purple), #9333ea);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 6px 16px rgba(76, 29, 149, 0.35);
+  }
+
+  .auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .remember-me {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+    margin-top: 8px;
+    color: rgba(226, 232, 240, 0.8);
+  }
+
+  .remember-me input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--color-accent-purple);
+  }
+
+  .custom-service-section {
+    margin-top: 14px;
+  }
+
+  .auth-form button {
+    margin-top: 16px;
+  }
+
+  .auth-primary-btn {
+    background: linear-gradient(90deg, #10b981, #059669);
+  }
+
+  .auth-primary-btn:hover {
+    box-shadow: 0 8px 18px rgba(5, 150, 105, 0.4);
+  }
+
+  .auth-subtitle {
+    margin-top: -10px;
+    font-size: 0.9rem;
+    color: rgba(226, 232, 240, 0.75);
+    text-align: center;
+  }
+
+  .quota-hint {
+    font-size: 0.8rem;
+    color: rgba(226, 232, 240, 0.75);
+    margin: 6px 0 12px;
+  }
+
+  .quota-hint.quota-warning {
+    color: var(--color-danger);
+    font-weight: 600;
   }
 
   /* --- About Modal Specifics --- */
