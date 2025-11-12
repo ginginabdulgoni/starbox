@@ -5,12 +5,14 @@ const BrowserWindow = electron.BrowserWindow;
 const ipcMain = electron.ipcMain;
 const screen = electron.screen;
 const clipboard = electron.clipboard;
+const net = electron.net;
 
 const Store = require("electron-store");
 const { v4: uuidv4 } = require("uuid");
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
+const { pathToFileURL } = require("url");
 const { machineIdSync } = require("node-machine-id");
 const AndroidManager = require("./android-manager");
 const iOSManager = require("./ios-manager");
@@ -22,15 +24,93 @@ const originalConsoleError = console.error;
 const APP_VERSION = packageVersion || "dev";
 const APP_VERSION_LABEL = `V${APP_VERSION}`;
 const APP_BRAND_TITLE = `Starbox ${APP_VERSION_LABEL}`;
+const IS_DEV_BUILD =
+  process.env.NODE_ENV === "development" ||
+  (!app.isPackaged && process.env.NODE_ENV !== "production");
+const SHOULD_MIRROR_CONSOLE = IS_DEV_BUILD;
+const DEFAULT_API_BASE_URL = IS_DEV_BUILD
+  ? "http://starbox.test"
+  : "https://starbox.weagate.com";
 const USER_AGENT_REPORT_URL =
   process.env.STARBOX_USER_AGENT_URL ||
-  "http://starbox.test/api/report/user-agent";
+  `${DEFAULT_API_BASE_URL}/api/report/user-agent`;
 const SYSTEM_REPORT_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const MACHINE_ID_STORE_KEY = "systemMachineId";
 const AUTH_BASE_URL =
-  process.env.STARBOX_AUTH_BASE_URL || "http://starbox.test/api/auth";
+  process.env.STARBOX_AUTH_BASE_URL || `${DEFAULT_API_BASE_URL}/api/auth`;
 const AUTH_SESSION_STORE_KEY = "authSession";
 const GUEST_SERVICE_DEVICE_LIMIT = 2;
+
+function logDev(...args) {
+  if (global.__starboxDevLog) {
+    global.__starboxDevLog(...args);
+  }
+}
+
+function generateAvdName(uid = "") {
+  const base =
+    (uid || uuidv4())
+      .toString()
+      .replace(/[^a-zA-Z0-9]+/g, "")
+      .slice(0, 12) || `AVD${Date.now()}`;
+  return `StarBox_${base}`;
+}
+
+const DEFAULT_ANDROID_SPEC = Object.freeze({
+  id: "balanced",
+  label: "Balanced • 2 Core • 1.5 GB",
+  memoryMb: 1536,
+  cores: 2,
+  resolution: "720x1280",
+  density: 265,
+});
+
+function normalizeAndroidSpecInput(spec) {
+  const normalized = { ...DEFAULT_ANDROID_SPEC };
+  if (!spec || typeof spec !== "object") {
+    return normalized;
+  }
+  if (spec.id) normalized.id = String(spec.id).slice(0, 32);
+  if (spec.label) normalized.label = String(spec.label).slice(0, 64);
+  const memory = parseInt(spec.memoryMb, 10);
+  if (Number.isFinite(memory)) {
+    normalized.memoryMb = Math.min(Math.max(memory, 512), 4096);
+  }
+  const cores = parseInt(spec.cores, 10);
+  if (Number.isFinite(cores)) {
+    normalized.cores = Math.min(Math.max(cores, 1), 8);
+  }
+  if (spec.resolution) {
+    const match = String(spec.resolution)
+      .toLowerCase()
+      .match(/(\d+)\s*x\s*(\d+)/);
+    if (match) {
+      normalized.resolution = `${match[1]}x${match[2]}`;
+    }
+  }
+  const density = parseInt(spec.density, 10);
+  if (Number.isFinite(density)) {
+    normalized.density = Math.min(Math.max(density, 120), 640);
+  }
+  return normalized;
+}
+
+function ensureAndroidSpec(device) {
+  if (!device || (device.service || "").toLowerCase() !== "android") {
+    return false;
+  }
+  const nextSpec = normalizeAndroidSpecInput(device.androidSpec);
+  const prev = device.androidSpec || {};
+  const changed =
+    !prev ||
+    ["id", "label", "memoryMb", "cores", "resolution", "density"].some(
+      (key) => prev[key] !== nextSpec[key]
+    );
+  if (changed) {
+    device.androidSpec = nextSpec;
+  }
+  return changed;
+}
 
 const withBrandTitle = (label) =>
   label ? `${label} - ${APP_BRAND_TITLE}` : APP_BRAND_TITLE;
@@ -70,14 +150,16 @@ function initializeLogging() {
     if (logStream) {
       logStream.write(message);
     }
-    if (originalConsoleLog) {
-      try {
-        originalConsoleLog(trimmed);
-      } catch {
+    if (SHOULD_MIRROR_CONSOLE) {
+      if (originalConsoleLog) {
+        try {
+          originalConsoleLog(trimmed);
+        } catch {
+          process.stdout.write(message);
+        }
+      } else {
         process.stdout.write(message);
       }
-    } else {
-      process.stdout.write(message);
     }
   };
   console.error = (...args) => {
@@ -88,14 +170,16 @@ function initializeLogging() {
     if (logStream) {
       logStream.write(message);
     }
-    if (originalConsoleError) {
-      try {
-        originalConsoleError(trimmed);
-      } catch {
+    if (SHOULD_MIRROR_CONSOLE) {
+      if (originalConsoleError) {
+        try {
+          originalConsoleError(trimmed);
+        } catch {
+          process.stderr.write(message);
+        }
+      } else {
         process.stderr.write(message);
       }
-    } else {
-      process.stderr.write(message);
     }
   };
 
@@ -251,9 +335,37 @@ function buildDeviceSnapshot(device = {}) {
     pendingUrl: device.pendingUrl || null,
     callbackUrl: device.callbackUrl || null,
     customUrl: device.customUrl || null,
+    androidSpec: device.androidSpec
+      ? {
+          id: device.androidSpec.id,
+          label: device.androidSpec.label,
+          memoryMb: device.androidSpec.memoryMb,
+          cores: device.androidSpec.cores,
+          resolution: device.androidSpec.resolution,
+          density: device.androidSpec.density,
+        }
+      : null,
     created_at: device.created_at || device.createdAt || null,
     updated_at: device.updated_at || device.updatedAt || null,
   };
+
+  function devLog(...args) {
+    if (!IS_DEV_BUILD) return;
+    const message = args
+      .map((a) => (typeof a === "object" ? JSON.stringify(a, null, 2) : a))
+      .join(" ");
+    if (originalConsoleLog) {
+      try {
+        originalConsoleLog(`[DEV] ${message}`);
+      } catch {
+        process.stdout.write(`[DEV] ${message}\n`);
+      }
+    } else {
+      process.stdout.write(`[DEV] ${message}\n`);
+    }
+  }
+
+  global.__starboxDevLog = devLog;
 }
 
 function buildSystemInfoPayload(context = {}) {
@@ -280,6 +392,14 @@ function buildSystemInfoPayload(context = {}) {
   const network = collectNetworkInfo();
   const deviceDetails = readDeviceDetails();
   const authSnapshot = sanitizeAuthSession();
+  const macAddresses =
+    Array.isArray(network.macAddresses) && network.macAddresses.length
+      ? network.macAddresses
+      : null;
+  const ipAddresses =
+    Array.isArray(network.ipAddresses) && network.ipAddresses.length
+      ? network.ipAddresses
+      : null;
 
   const payload = {
     timestamp: new Date().toISOString(),
@@ -296,16 +416,19 @@ function buildSystemInfoPayload(context = {}) {
       totalMem: os.totalmem(),
       freeMem: os.freemem(),
       machineId: getPersistentMachineId(),
-      uptimeSeconds: os.uptime(),
+      uptimeSeconds: Math.round(os.uptime()),
       loadAverage: os.loadavg(),
       homeDir: os.homedir?.() || null,
       tempDir: os.tmpdir?.() || null,
       locale: localeInfo.locale,
       timeZone: localeInfo.timeZone,
-      ipAddresses: network.ipAddresses,
-      macAddresses: network.macAddresses,
+      ipAddresses,
+      macAddresses,
     },
-    network,
+    network: {
+      macAddresses,
+      ipAddresses,
+    },
     devices: deviceDetails,
     auth: authSnapshot,
   };
@@ -334,24 +457,21 @@ async function sendSystemInfoReport(context = {}) {
 
   try {
     const payload = buildSystemInfoPayload(context);
-    console.log(
+    logDev(
       "🧾 Payload info sistem Starbox (akan dikirim):",
       JSON.stringify(payload, null, 2)
     );
-    console.log(`📦 Total device terdeteksi: ${payload.devices.total || 0}`);
+    logDev(`📦 Total device terdeteksi: ${payload.devices.total || 0}`);
     console.log("🎯 Endpoint laporan user-agent:", USER_AGENT_REPORT_URL);
-    const response = await fetch(USER_AGENT_REPORT_URL, {
+    await requestJson({
+      url: USER_AGENT_REPORT_URL,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "User-Agent": payload.userAgent,
       },
-      body: JSON.stringify(payload),
+      body: payload,
     });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
 
     console.log("📡 Info sistem dikirim ke endpoint Starbox.");
   } catch (err) {
@@ -496,7 +616,9 @@ async function refreshAuthToken() {
     return;
   }
   try {
-    console.log("🔄 Menyegarkan token autentikasi menggunakan refresh token...");
+    console.log(
+      "🔄 Menyegarkan token autentikasi menggunakan refresh token..."
+    );
     const data = await callAuthEndpoint("refresh", {
       refresh_token: authSession.refreshToken,
     });
@@ -784,45 +906,136 @@ async function callAuthEndpoint(pathSuffix, payload = {}, options = {}) {
   const normalizedBase = AUTH_BASE_URL.replace(/\/$/, "");
   const normalizedPath = String(pathSuffix || "").replace(/^\//, "");
   const endpoint = `${normalizedBase}/${normalizedPath}`;
-  const headers = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-    ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+  const method = options.method || "POST";
+  const requestOptions = {
+    url: endpoint,
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+    },
+    body: method === "GET" ? undefined : payload,
   };
+  if (method === "GET") {
+    delete requestOptions.headers["Content-Type"];
+  }
 
-  let response = null;
   try {
-    response = await fetch(endpoint, {
-      method: options.method || "POST",
-      headers,
-      body: JSON.stringify(payload),
-    });
+    const data = await requestJson(requestOptions);
+    return data || {};
   } catch (err) {
-    const networkError = new Error(
-      err?.message || "Tidak dapat menghubungi server Starbox."
-    );
-    networkError.code = "NETWORK_ERROR";
-    throw networkError;
+    if (!err?.status) {
+      const networkError = new Error(
+        err?.message || "Tidak dapat menghubungi server Starbox."
+      );
+      networkError.code = err?.code || "NETWORK_ERROR";
+      throw networkError;
+    }
+    throw err;
   }
+}
 
-  let data = null;
-  try {
-    data = await response.json();
-  } catch {
-    data = null;
+function requestJson(options = {}) {
+  const {
+    url,
+    method = "GET",
+    headers = {},
+    body = null,
+    timeoutMs = 20000,
+    expectJson = true,
+  } = options;
+  return new Promise((resolve, reject) => {
+    if (!url) {
+      reject(new Error("URL request kosong."));
+      return;
+    }
+    const request = net.request({ method, url });
+    const finalHeaders = {
+      Accept: headers.Accept || "application/json",
+      ...headers,
+    };
+    Object.entries(finalHeaders).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        request.setHeader(key, value);
+      }
+    });
+
+    let timer = null;
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        request.abort();
+        reject(new Error("Request timeout."));
+      }, timeoutMs);
+    }
+
+    request.on("response", (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => {
+        if (timer) clearTimeout(timer);
+        const rawBody = Buffer.concat(chunks).toString("utf8");
+        let parsed = rawBody;
+        if (expectJson) {
+          try {
+            parsed = rawBody ? JSON.parse(rawBody) : {};
+          } catch (err) {
+            console.warn("⚠️ Gagal parse JSON:", err?.message || err);
+            parsed = null;
+          }
+        }
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          resolve(parsed);
+        } else {
+          const error = new Error(
+            (parsed && (parsed.message || parsed.error)) ||
+              `Request gagal (${response.statusCode})`
+          );
+          error.status = response.statusCode;
+          error.details = parsed;
+          reject(error);
+        }
+      });
+    });
+
+    request.on("error", (err) => {
+      if (timer) clearTimeout(timer);
+      reject(err);
+    });
+
+    if (body !== null && body !== undefined) {
+      const payload =
+        typeof body === "string" || Buffer.isBuffer(body)
+          ? body
+          : JSON.stringify(body);
+      if (!finalHeaders["Content-Type"] && !finalHeaders["content-type"]) {
+        request.setHeader("Content-Type", "application/json");
+      }
+      request.write(payload);
+    }
+
+    request.end();
+  });
+}
+
+async function fetchLatestVersionInfo(channel = "stable") {
+  const normalizedBase = DEFAULT_API_BASE_URL.replace(/\/$/, "");
+  const normalizedChannel = encodeURIComponent(channel || "stable");
+  const endpoint = `${normalizedBase}/api/version?channel=${normalizedChannel}`;
+  const data = await requestJson({ url: endpoint, method: "GET" });
+  const payload =
+    data && typeof data === "object"
+      ? data.data && typeof data.data === "object"
+        ? data.data
+        : data
+      : null;
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Respons versi tidak valid.");
   }
-
-  if (!response.ok) {
-    const message =
-      (data && (data.message || data.error)) ||
-      `Request gagal (${response.status})`;
-    const error = new Error(message);
-    error.status = response.status;
-    error.details = data;
-    throw error;
+  if (!payload.channel) {
+    payload.channel = channel || "stable";
   }
-
-  return data || {};
+  return payload;
 }
 
 // Parsing argumen
@@ -841,7 +1054,8 @@ console.log("🧾 Parsed args:", { runDeviceFlag, uid, service });
 console.log("Main file jalan dari:", __dirname);
 
 // Mapping layanan
-const services = {
+const defaultServices = {
+  // 🌐 Komunikasi & Sosial
   wa: {
     name: "WhatsApp",
     url: "https://web.whatsapp.com",
@@ -852,11 +1066,25 @@ const services = {
     url: "https://web.telegram.org/k/",
     icon: "telegram-icon.webp",
   },
-  gmail: {
-    name: "Gmail",
-    url: "https://mail.google.com",
-    icon: "gmail-icon.png",
+  discord: {
+    name: "Discord",
+    url: "https://discord.com/app",
+    icon: "starbox.png",
   },
+  slack: { name: "Slack", url: "https://app.slack.com", icon: "starbox.png" },
+  messenger: {
+    name: "Messenger",
+    url: "https://www.messenger.com",
+    icon: "starbox.png",
+  },
+  line: { name: "LINE", url: "https://web.line.me", icon: "starbox.png" },
+  microsoft_teams: {
+    name: "Microsoft Teams",
+    url: "https://teams.microsoft.com",
+    icon: "starbox.png",
+  },
+
+  // 🛒 Marketplace
   shopee: {
     name: "Shopee",
     url: "https://shopee.co.id/buyer/login",
@@ -864,21 +1092,441 @@ const services = {
   },
   shopee_affiliate: {
     name: "Shopee Affiliate",
-    url: "https://affiliate.shopee.co.id/",
-    icon: "shopee-affiliate-icon.png",
-  },
-  android: {
-    name: "Android Emulator",
-    url: "android-emulator.html", // Will be loaded as file
-    icon: "android-icon.png",
-    isLocalFile: true,
-  },
-  other: {
-    name: "Website Kustom",
-    url: "",
+    url: "https://affiliate.shopee.co.id",
     icon: "starbox.png",
   },
+  tokopedia: {
+    name: "Tokopedia",
+    url: "https://www.tokopedia.com",
+    icon: "starbox.png",
+  },
+  tokopedia_seller: {
+    name: "Tokopedia Seller",
+    url: "https://seller.tokopedia.com",
+    icon: "starbox.png",
+  },
+  bukalapak: {
+    name: "Bukalapak",
+    url: "https://www.bukalapak.com",
+    icon: "starbox.png",
+  },
+  lazada: {
+    name: "Lazada",
+    url: "https://www.lazada.co.id",
+    icon: "starbox.png",
+  },
+  blibli: {
+    name: "Blibli",
+    url: "https://www.blibli.com",
+    icon: "starbox.png",
+  },
+
+  // 📱 Sosial Media
+  tiktok: {
+    name: "TikTok",
+    url: "https://www.tiktok.com/login",
+    icon: "starbox.png",
+  },
+  tiktok_affiliate: {
+    name: "TikTok Affiliate",
+    url: "https://affiliate.tiktok.com",
+    icon: "starbox.png",
+  },
+  youtube: {
+    name: "YouTube",
+    url: "https://www.youtube.com",
+    icon: "starbox.png",
+  },
+  youtube_studio: {
+    name: "YouTube Studio",
+    url: "https://studio.youtube.com",
+    icon: "starbox.png",
+  },
+  facebook: {
+    name: "Facebook",
+    url: "https://www.facebook.com",
+    icon: "starbox.png",
+  },
+  facebook_pages: {
+    name: "Facebook Pages",
+    url: "https://business.facebook.com/latest/home",
+    icon: "starbox.png",
+  },
+  instagram: {
+    name: "Instagram",
+    url: "https://www.instagram.com",
+    icon: "starbox.png",
+  },
+  twitter_x: { name: "Twitter / X", url: "https://x.com", icon: "starbox.png" },
+  threads: {
+    name: "Threads",
+    url: "https://www.threads.net",
+    icon: "starbox.png",
+  },
+  pinterest: {
+    name: "Pinterest",
+    url: "https://www.pinterest.com",
+    icon: "starbox.png",
+  },
+  linkedin: {
+    name: "LinkedIn",
+    url: "https://www.linkedin.com",
+    icon: "starbox.png",
+  },
+  snapchat: {
+    name: "Snapchat",
+    url: "https://web.snapchat.com",
+    icon: "starbox.png",
+  },
+  reddit: {
+    name: "Reddit",
+    url: "https://www.reddit.com",
+    icon: "starbox.png",
+  },
+
+  // 🧑‍💻 Developer & IT Tools
+  github: { name: "GitHub", url: "https://github.com", icon: "starbox.png" },
+  gitlab: { name: "GitLab", url: "https://gitlab.com", icon: "starbox.png" },
+  bitbucket: {
+    name: "Bitbucket",
+    url: "https://bitbucket.org",
+    icon: "starbox.png",
+  },
+  stackoverflow: {
+    name: "Stack Overflow",
+    url: "https://stackoverflow.com",
+    icon: "starbox.png",
+  },
+  dockerhub: {
+    name: "Docker Hub",
+    url: "https://hub.docker.com",
+    icon: "starbox.png",
+  },
+  cloudflare: {
+    name: "Cloudflare",
+    url: "https://dash.cloudflare.com",
+    icon: "starbox.png",
+  },
+  vercel: { name: "Vercel", url: "https://vercel.com", icon: "starbox.png" },
+  netlify: {
+    name: "Netlify",
+    url: "https://app.netlify.com",
+    icon: "starbox.png",
+  },
+  firebase: {
+    name: "Firebase Console",
+    url: "https://console.firebase.google.com",
+    icon: "starbox.png",
+  },
+  aws: {
+    name: "AWS Console",
+    url: "https://aws.amazon.com/console",
+    icon: "starbox.png",
+  },
+  digitalocean: {
+    name: "DigitalOcean",
+    url: "https://cloud.digitalocean.com",
+    icon: "starbox.png",
+  },
+
+  // 💼 Produktivitas & Kolaborasi
+  notion: { name: "Notion", url: "https://www.notion.so", icon: "starbox.png" },
+  clickup: {
+    name: "ClickUp",
+    url: "https://app.clickup.com",
+    icon: "starbox.png",
+  },
+  monday: {
+    name: "Monday.com",
+    url: "https://monday.com",
+    icon: "starbox.png",
+  },
+  asana: { name: "Asana", url: "https://app.asana.com", icon: "starbox.png" },
+  trello: { name: "Trello", url: "https://trello.com", icon: "starbox.png" },
+  airtable: {
+    name: "Airtable",
+    url: "https://airtable.com",
+    icon: "starbox.png",
+  },
+  google_docs: {
+    name: "Google Docs",
+    url: "https://docs.google.com/document/u/0/",
+    icon: "starbox.png",
+  },
+  google_sheets: {
+    name: "Google Sheets",
+    url: "https://docs.google.com/spreadsheets/u/0/",
+    icon: "starbox.png",
+  },
+  google_slides: {
+    name: "Google Slides",
+    url: "https://docs.google.com/presentation/u/0/",
+    icon: "starbox.png",
+  },
+  office_word: {
+    name: "Microsoft Word (Online)",
+    url: "https://www.office.com/launch/word",
+    icon: "starbox.png",
+  },
+  office_excel: {
+    name: "Microsoft Excel (Online)",
+    url: "https://www.office.com/launch/excel",
+    icon: "starbox.png",
+  },
+  office_powerpoint: {
+    name: "Microsoft PowerPoint (Online)",
+    url: "https://www.office.com/launch/powerpoint",
+    icon: "starbox.png",
+  },
+  dropbox_paper: {
+    name: "Dropbox Paper",
+    url: "https://paper.dropbox.com",
+    icon: "starbox.png",
+  },
+  notion: {
+    name: "Notion",
+    url: "https://www.notion.so",
+    icon: "starbox.png",
+  },
+  zoho_writer: {
+    name: "Zoho Writer",
+    url: "https://writer.zoho.com",
+    icon: "starbox.png",
+  },
+  zoho_sheet: {
+    name: "Zoho Sheet",
+    url: "https://sheet.zoho.com",
+    icon: "starbox.png",
+  },
+  obsidian: {
+    name: "Obsidian Publish",
+    url: "https://publish.obsidian.md",
+    icon: "starbox.png",
+  },
+  evernote: {
+    name: "Evernote",
+    url: "https://www.evernote.com/Login.action",
+    icon: "starbox.png",
+  },
+  miro: {
+    name: "Miro",
+    url: "https://miro.com/app/dashboard",
+    icon: "starbox.png",
+  },
+  figma: { name: "Figma", url: "https://www.figma.com", icon: "starbox.png" },
+  google_drive: {
+    name: "Google Drive",
+    url: "https://drive.google.com",
+    icon: "starbox.png",
+  },
+  google_calendar: {
+    name: "Google Calendar",
+    url: "https://calendar.google.com",
+    icon: "starbox.png",
+  },
+  google_meet: {
+    name: "Google Meet",
+    url: "https://meet.google.com",
+    icon: "starbox.png",
+  },
+  zoom: { name: "Zoom", url: "https://app.zoom.us", icon: "starbox.png" },
+  dropbox: {
+    name: "Dropbox",
+    url: "https://www.dropbox.com",
+    icon: "starbox.png",
+  },
+  onedrive: {
+    name: "OneDrive",
+    url: "https://onedrive.live.com",
+    icon: "starbox.png",
+  },
+  wetransfer: {
+    name: "WeTransfer",
+    url: "https://wetransfer.com",
+    icon: "starbox.png",
+  },
+  mega: { name: "Mega", url: "https://mega.nz", icon: "starbox.png" },
+
+  // 📈 Marketing & Analitik
+  google_analytics: {
+    name: "Google Analytics",
+    url: "https://analytics.google.com",
+    icon: "starbox.png",
+  },
+  meta_business: {
+    name: "Meta Business Suite",
+    url: "https://business.facebook.com",
+    icon: "starbox.png",
+  },
+  tiktok_ads: {
+    name: "TikTok Ads Manager",
+    url: "https://ads.tiktok.com",
+    icon: "starbox.png",
+  },
+  google_ads: {
+    name: "Google Ads",
+    url: "https://ads.google.com",
+    icon: "starbox.png",
+  },
+  mailchimp: {
+    name: "Mailchimp",
+    url: "https://mailchimp.com",
+    icon: "starbox.png",
+  },
+  buffer: { name: "Buffer", url: "https://buffer.com", icon: "starbox.png" },
+  hootsuite: {
+    name: "Hootsuite",
+    url: "https://www.hootsuite.com",
+    icon: "starbox.png",
+  },
+  ahrefs: { name: "Ahrefs", url: "https://ahrefs.com", icon: "starbox.png" },
+  activecampaign: {
+    name: "ActiveCampaign",
+    url: "https://www.activecampaign.com/login",
+    icon: "starbox.png",
+  },
+
+  // 🎨 Desain & Kreativitas
+  canva: { name: "Canva", url: "https://www.canva.com", icon: "starbox.png" },
+  fotor: { name: "Fotor", url: "https://www.fotor.com", icon: "starbox.png" },
+  pixlr: { name: "Pixlr", url: "https://pixlr.com", icon: "starbox.png" },
+  removebg: {
+    name: "Remove.bg",
+    url: "https://www.remove.bg",
+    icon: "starbox.png",
+  },
+  photopea: {
+    name: "Photopea",
+    url: "https://www.photopea.com",
+    icon: "starbox.png",
+  },
+  capcut: {
+    name: "CapCut Web",
+    url: "https://www.capcut.com",
+    icon: "starbox.png",
+  },
+  adobe_express: {
+    name: "Adobe Express",
+    url: "https://www.adobe.com/express",
+    icon: "starbox.png",
+  },
+
+  // 🧩 Infrastruktur & Monitoring
+  uptimerobot: {
+    name: "UptimeRobot",
+    url: "https://uptimerobot.com",
+    icon: "starbox.png",
+  },
+  patch: { name: "Patch", url: "https://patch.com", icon: "starbox.png" },
+
+  // 💻 Emulator Lokal
+  android: {
+    name: "Android Emulator",
+    url: "android-emulator.html",
+    icon: "starbox.png",
+    isLocalFile: true,
+  },
+
+  // 🧭 Default / Custom URL
+  other: { name: "Website Kustom", url: "", icon: "starbox.png" },
 };
+
+let services = { ...defaultServices };
+let cachedServiceCatalog = [];
+
+function sanitizeServiceSlug(value) {
+  return (value || "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function normalizeServiceUrl(value) {
+  if (!value) return "";
+  return value.toString().trim().replace(/\/+$/, "").toLowerCase();
+}
+
+async function refreshServicesFromServer() {
+  const endpoint = `${DEFAULT_API_BASE_URL}/api/services`;
+  let applied = 0;
+  const seenUrls = new Set();
+
+  try {
+    console.log("🌐 Memuat daftar layanan dari server:", endpoint);
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const items = Array.isArray(payload?.data) ? payload.data : [];
+    cachedServiceCatalog = items;
+    if (!items.length) {
+      console.log("ℹ️ Respons layanan kosong, memakai daftar bawaan.");
+      services = { ...defaultServices };
+      return;
+    }
+
+    const nextServices = { ...defaultServices };
+
+    items
+      .filter((item) => item && item.is_active !== false)
+      .forEach((item) => {
+        const slug = sanitizeServiceSlug(item.slug || item.id || item.name);
+        const serviceUrl = (item.url || "").trim();
+        if (!slug || !serviceUrl) return;
+
+        const normalizedUrl = normalizeServiceUrl(serviceUrl);
+        if (normalizedUrl && seenUrls.has(normalizedUrl)) {
+          console.log(
+            `ℹ️ Melewati layanan dengan URL duplikat: ${serviceUrl}`
+          );
+          return;
+        }
+
+        if (normalizedUrl) {
+          seenUrls.add(normalizedUrl);
+        }
+
+        const baseConfig = defaultServices[slug] || {};
+        const isLocal = Boolean(baseConfig.isLocalFile);
+
+        nextServices[slug] = {
+          ...baseConfig,
+          name: item.name || baseConfig.name || slug,
+          url: isLocal ? baseConfig.url : serviceUrl || baseConfig.url || "",
+          icon: baseConfig.icon || "starbox.png",
+          description: item.description || baseConfig.description,
+          category: item.category || baseConfig.category,
+          meta: item.meta || baseConfig.meta || null,
+          sortOrder: item.sort_order ?? baseConfig.sortOrder ?? null,
+          isLocalFile: baseConfig.isLocalFile || false,
+        };
+        applied += 1;
+      });
+
+    services = nextServices;
+    console.log(
+      `✅ Sinkron layanan selesai (${applied} layanan server diterapkan).`
+    );
+  } catch (err) {
+    services = { ...defaultServices };
+    cachedServiceCatalog = [];
+    console.error(
+      "⚠️ Gagal memuat layanan dari server, menggunakan daftar bawaan.",
+      err?.message || err
+    );
+  }
+}
 
 // Global paths (will be initialized after app is ready)
 let userDataPath = null;
@@ -1084,6 +1732,9 @@ function normalizeDeviceList(data) {
     if (normalizeDeviceRecord(device)) {
       modified = true;
     }
+    if (ensureAndroidSpec(device)) {
+      modified = true;
+    }
   });
   return modified;
 }
@@ -1093,11 +1744,22 @@ function getDeviceConfig(uid) {
   try {
     const raw = fs.readFileSync(DB_PATH, "utf8");
     const data = JSON.parse(raw);
-    const modified = normalizeDeviceList(data);
+    let modified = normalizeDeviceList(data);
+    const device =
+      data.devices?.find((d) => d.uid === uid || d.token === uid) || null;
+    if (device && (device.service || "").toLowerCase() === "android") {
+      if (!device.avdName) {
+        device.avdName = generateAvdName(device.uid || device.token || "");
+        modified = true;
+      }
+      if (ensureAndroidSpec(device)) {
+        modified = true;
+      }
+    }
     if (modified) {
       fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
     }
-    return data.devices?.find((d) => d.uid === uid || d.token === uid) || null;
+    return device;
   } catch (err) {
     console.warn("⚠️ getDeviceConfig gagal:", err.message);
     return null;
@@ -2099,12 +2761,15 @@ function createDeviceWindow(uid, service, options = {}) {
   }
 
   const win = new BrowserWindow({
-    width: width,
-    height: height,
+    width,
+    height,
     title: withBrandTitle(deviceName),
     autoHideMenuBar: true,
     icon: getAssetPath(selected.icon),
     show: false,
+    useContentSize: true,
+    fullscreenable: false,
+    simpleFullscreen: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -2113,11 +2778,24 @@ function createDeviceWindow(uid, service, options = {}) {
     },
   });
 
+  const enforceWindowSize = () => {
+    try {
+      win.setFullScreen(false);
+      if (typeof win.unmaximize === "function" && win.isMaximized()) {
+        win.unmaximize();
+      }
+      win.setContentSize(Math.round(width), Math.round(height));
+    } catch (err) {
+      console.warn("⚠️ Gagal menerapkan ukuran window:", err?.message || err);
+    }
+  };
+
   win.webContents.on("page-title-updated", (e) => {
     e.preventDefault(); // 🔒 cegah perubahan title
     win.setTitle(withBrandTitle(deviceName)); // 🔄 pastikan title tetap sesuai device
   });
   win.once("ready-to-show", () => {
+    enforceWindowSize();
     if (autoShow) {
       win.show();
       win.focus();
@@ -2128,11 +2806,15 @@ function createDeviceWindow(uid, service, options = {}) {
     }
   });
   win.webContents.once("did-finish-load", () => {
+    enforceWindowSize();
     if (autoShow) {
       win.show();
       win.focus();
     }
   });
+
+  win.on("show", enforceWindowSize);
+  win.on("restore", enforceWindowSize);
 
   // Load URL or local file based on service type
   if (serviceKey === "other") {
@@ -2213,7 +2895,7 @@ function createMainWindow() {
       preload: path.join(app.getAppPath(), "preload.cjs"),
     },
   });
-  mainWindow.maximize();
+  // mainWindow.maximize();
   mainWindow.setMenuBarVisibility(false);
 
   mainWindow.loadFile(path.join(__dirname, "index.html"));
@@ -2261,21 +2943,14 @@ ipcMain.handle("auth-login", async (_event, credentials = {}) => {
         data.package_expires_at || data.packageExpiresAt || null,
     };
     const session = applyAuthSessionFromPayload(data, overrides);
-    console.log(
-      "📦 Paket aktif:",
-      JSON.stringify(
-        {
-          name: session.package?.name || "Default",
-          device_limit: session.package?.device_limit ?? session.deviceQuota,
-          allows_private_service: session.allowsPrivateService,
-          allows_android_emulator: session.allowsAndroidEmulator,
-          allows_ios_simulator: session.allowsIosSimulator,
-          expires_at: session.packageExpiresAt,
-        },
-        null,
-        2
-      )
-    );
+    logDev("📦 Paket aktif:", {
+      name: session.package?.name || "Default",
+      device_limit: session.package?.device_limit ?? session.deviceQuota,
+      allows_private_service: session.allowsPrivateService,
+      allows_android_emulator: session.allowsAndroidEmulator,
+      allows_ios_simulator: session.allowsIosSimulator,
+      expires_at: session.packageExpiresAt,
+    });
     const displayName = session.user?.name || session.user?.email || email;
     sendSystemInfoReport({
       eventType: "login",
@@ -2342,21 +3017,14 @@ ipcMain.handle("auth-register", async (_event, payload = {}) => {
         packageExpiresAt:
           data.package_expires_at || data.packageExpiresAt || null,
       });
-      console.log(
-        "📦 Paket aktif (registrasi):",
-        JSON.stringify(
-          {
-            name: session.package?.name || "Default",
-            device_limit: session.package?.device_limit ?? session.deviceQuota,
-            allows_private_service: session.allowsPrivateService,
-            allows_android_emulator: session.allowsAndroidEmulator,
-            allows_ios_simulator: session.allowsIosSimulator,
-            expires_at: session.packageExpiresAt,
-          },
-          null,
-          2
-        )
-      );
+      logDev("📦 Paket aktif (registrasi):", {
+        name: session.package?.name || "Default",
+        device_limit: session.package?.device_limit ?? session.deviceQuota,
+        allows_private_service: session.allowsPrivateService,
+        allows_android_emulator: session.allowsAndroidEmulator,
+        allows_ios_simulator: session.allowsIosSimulator,
+        expires_at: session.packageExpiresAt,
+      });
 
       sendSystemInfoReport({
         eventType: "login",
@@ -2383,6 +3051,55 @@ ipcMain.handle("auth-register", async (_event, payload = {}) => {
       message:
         err?.message || "Registrasi gagal. Silakan coba lagi beberapa saat.",
       details: err?.details || null,
+    };
+  }
+});
+
+ipcMain.handle("get-service-catalog", () => cachedServiceCatalog);
+
+ipcMain.handle("resolve-asset-url", (_event, assetName) => {
+  if (!assetName) return null;
+  try {
+    const assetPath = getAssetPath(assetName);
+    return pathToFileURL(assetPath).toString();
+  } catch (err) {
+    console.error("⚠️ Gagal mengubah asset path:", err?.message || err);
+    return null;
+  }
+});
+
+ipcMain.handle("get-country-codes", async () => {
+  try {
+    const jsonPath = getAssetPath("country.json");
+    const raw = await fs.promises.readFile(jsonPath, "utf8");
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data)) {
+      throw new Error("Format country.json tidak valid");
+    }
+    return { success: true, data };
+  } catch (err) {
+    console.error("⚠️ Gagal memuat country.json:", err?.message || err);
+    return {
+      success: false,
+      message: err?.message || "Gagal memuat kode negara.",
+    };
+  }
+});
+
+ipcMain.handle("check-latest-version", async (_event, channel = "stable") => {
+  try {
+    const info = await fetchLatestVersionInfo(channel);
+    return {
+      success: true,
+      info,
+      currentVersion: APP_VERSION,
+      channel: info.channel || channel || "stable",
+    };
+  } catch (err) {
+    console.error("⚠️ Gagal memeriksa versi terbaru:", err?.message || err);
+    return {
+      success: false,
+      message: err?.message || "Gagal memeriksa versi terbaru.",
     };
   }
 });
@@ -2440,10 +3157,7 @@ ipcMain.handle("add-device", (event, payload = {}) => {
   const serviceLabel = services[serviceKey]?.name || service || "layanan ini";
 
   if (serviceKey === "android") {
-    if (
-      !authSession?.isLoggedIn ||
-      !authSession?.allowsAndroidEmulator
-    ) {
+    if (!authSession?.isLoggedIn || !authSession?.allowsAndroidEmulator) {
       return {
         success: false,
         message:
@@ -2453,10 +3167,7 @@ ipcMain.handle("add-device", (event, payload = {}) => {
   }
 
   if (serviceKey === "other") {
-    if (
-      !authSession?.isLoggedIn ||
-      !authSession?.allowsPrivateService
-    ) {
+    if (!authSession?.isLoggedIn || !authSession?.allowsPrivateService) {
       return {
         success: false,
         message:
@@ -2504,6 +3215,11 @@ ipcMain.handle("add-device", (event, payload = {}) => {
     };
   }
 
+  const normalizedAndroidSpec =
+    serviceKey === "android"
+      ? normalizeAndroidSpecInput(payload.androidSpec)
+      : null;
+
   const newDevice = {
     uid: uuidv4(),
     name,
@@ -2520,6 +3236,10 @@ ipcMain.handle("add-device", (event, payload = {}) => {
       ? sanitizePendingUrl(payload.callbackUrl || "")
       : "",
   };
+  if (serviceKey === "android") {
+    newDevice.avdName = generateAvdName(newDevice.uid);
+    newDevice.androidSpec = normalizedAndroidSpec;
+  }
 
   devices.push(newDevice);
   fs.writeFileSync(DB_PATH, JSON.stringify({ devices }, null, 2));
@@ -2591,6 +3311,10 @@ ipcMain.handle("edit-device", (event, payload = {}) => {
           };
         }
         device.customUrl = nextCustomUrl;
+      } else if (serviceKey === "android") {
+        device.androidSpec = normalizeAndroidSpecInput(
+          payload.androidSpec || device.androidSpec
+        );
       } else if (device.customUrl) {
         device.customUrl = "";
       }
@@ -2780,10 +3504,6 @@ ipcMain.on("open-ios-simulator", () => {
 
   iosWindow.loadFile("ios-simulator.html");
 
-  // Open DevTools in development
-  if (process.env.NODE_ENV !== "production") {
-    iosWindow.webContents.openDevTools();
-  }
 });
 
 ipcMain.handle("monitor-copy-text", (_event, rawValue = "") => {
@@ -2931,6 +3651,13 @@ ipcMain.handle("load-devices", () => {
     }
     if (!("callbackUrl" in device)) {
       device.callbackUrl = "";
+      modifiedAny = true;
+    }
+    if (
+      (device.service || "").toLowerCase() === "android" &&
+      !device.avdName
+    ) {
+      device.avdName = generateAvdName(device.uid || device.token || "");
       modifiedAny = true;
     }
   });
@@ -3093,10 +3820,15 @@ ipcMain.handle("android-start", async (event, uid, options = {}) => {
   const sender = event.sender;
   const progressCallback = (payload = {}) =>
     sendAndroidProgress(sender, "android-start-progress", uid, payload);
+  const config = getDeviceConfig(uid) || {};
+  const avdName =
+    (config.avdName && config.avdName.trim()) || generateAvdName(uid);
+  const spec = normalizeAndroidSpecInput(config.androidSpec);
   try {
-    const result = await manager.startEmulator("StarBox_Default", {
+    const result = await manager.startEmulator(avdName, {
       ...(options || {}),
       progressCallback,
+      spec,
     });
     return result;
   } catch (err) {
@@ -3336,9 +4068,11 @@ args.forEach((arg) => {
   else if (arg.startsWith("--service=")) service = arg.split("=")[1];
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Initialize logging first
   initializeLogging();
+
+  await refreshServicesFromServer();
 
   // ⛔ Jalankan langsung CLI jika diminta
   if (runDeviceFlag && uid && service) {

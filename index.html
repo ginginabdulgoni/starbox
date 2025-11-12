@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StarBox v1.2.251105 – MultiService Emulator</title>
+    <title>StarBox v1.2.251111 – MultiService Emulator</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
@@ -15,7 +15,20 @@
   <body>
     <header>
       <div class="header-left">
-        <h1>StarBox</h1>
+        <div class="header-brand">
+          <img
+            src="assets/starbox.png"
+            data-asset-src="starbox.png"
+            alt="Logo StarBox"
+            class="brand-logo"
+            width="48"
+            height="48"
+          />
+          <div class="brand-text">
+            <h1>StarBox</h1>
+            <span class="brand-tagline">MultiService Emulator</span>
+          </div>
+        </div>
         <nav>
           <button onclick="openModal()">
             <i class="bi bi-plus-circle"></i> Tambah Device
@@ -26,6 +39,17 @@
             style="display: none"
           >
             <i class="bi bi-phone"></i> iOS Simulator
+          </button>
+          <button
+            id="versionCheckButton"
+            onclick="window.triggerVersionCheck && window.triggerVersionCheck()"
+          >
+            <i class="bi bi-arrow-repeat"></i> Cek Versi
+            <span
+              id="versionUpdateDot"
+              class="version-dot"
+              aria-hidden="true"
+            ></span>
           </button>
           <!-- <button onclick="openSettings()">
       <i class="bi bi-gear-fill"></i> Pengaturan
@@ -40,10 +64,6 @@
           <span id="authStatusLabel" class="auth-status"
             >Mode tamu • 2 device/layanan</span
           >
-          <span id="authQuotaBadge" class="auth-quota"
-            >Tamu: maks 2 device per layanan</span
-          >
-          <span id="authPackageLabel" class="auth-package"></span>
         </div>
         <div class="auth-actions">
           <button id="authButton" onclick="handleAuthButtonClick()">
@@ -61,56 +81,120 @@
       </div>
     </header>
 
-    <div class="toolbar">
-      <label>
-        <input
-          type="checkbox"
-          id="selectAllDevices"
-          onchange="selectAllDevices(this)"
-        />
-        Pilih Semua
-      </label>
-      <button onclick="runAllDevices()">
-        <i class="bi bi-play-fill"></i> Run All Device
-      </button>
-      <button onclick="runSelectedDevices()">
-        <i class="bi bi-play-btn-fill"></i> Run Selected
-      </button>
-      <button onclick="restartSelectedDevices()">
-        <i class="bi bi-arrow-clockwise"></i> Restart Selected
-      </button>
-      <button onclick="restartAllDevices()">
-        <i class="bi bi-arrow-repeat"></i> Restart All
-      </button>
-      <button onclick="stopSelectedDevices()">
-        <i class="bi bi-stop-circle"></i> Stop Selected
-      </button>
-      <button onclick="stopAllDevices()">
-        <i class="bi bi-stop-btn-fill"></i> Stop All
-      </button>
-
-      <!-- Status Koneksi Internet -->
-      <span
-        id="connectionStatus"
-        style="
-          margin-left: auto;
-          padding: 6px 12px;
-          border-radius: 6px;
-          font-size: 0.85rem;
-        "
-      >
-        <i class="bi bi-wifi-off"></i> Offline
-      </span>
+    <div id="versionAlertBanner" class="version-alert" style="display: none">
+      <div class="version-alert-info">
+        <strong id="versionAlertTitle">Versi baru tersedia</strong>
+        <p id="versionAlertMessage">
+          Dapatkan peningkatan fitur dan perbaikan bug terbaru.
+        </p>
+      </div>
+      <div class="version-alert-actions">
+        <a
+          id="versionAlertDownload"
+          class="version-alert-button"
+          href="#"
+          target="_blank"
+          rel="noopener"
+          style="display: none"
+        >
+          <i class="bi bi-download"></i> Download
+        </a>
+        <button
+          type="button"
+          class="secondary"
+          onclick="window.openVersionInfoDialog && window.openVersionInfoDialog()"
+        >
+          Detail
+        </button>
+        <button
+          type="button"
+          class="ghost"
+          onclick="window.dismissVersionBanner && window.dismissVersionBanner()"
+        >
+          Tutup
+        </button>
+      </div>
     </div>
 
-    <div
-      id="device-limit-info"
-      class="device-limit-info"
-      role="status"
-      aria-live="polite"
-    ></div>
+    <main class="page-main">
+      <div class="toolbar">
+        <label>
+          <input
+            type="checkbox"
+            id="selectAllDevices"
+            onchange="selectAllDevices(this)"
+          />
+          Pilih Semua
+        </label>
+        <button onclick="runAllDevices()">
+          <i class="bi bi-play-fill"></i> Run All Device
+        </button>
+        <button onclick="runSelectedDevices()">
+          <i class="bi bi-play-btn-fill"></i> Run Selected
+        </button>
+        <button onclick="restartSelectedDevices()">
+          <i class="bi bi-arrow-clockwise"></i> Restart Selected
+        </button>
+        <button onclick="restartAllDevices()">
+          <i class="bi bi-arrow-repeat"></i> Restart All
+        </button>
+        <button onclick="stopSelectedDevices()">
+          <i class="bi bi-stop-circle"></i> Stop Selected
+        </button>
+        <button onclick="stopAllDevices()">
+          <i class="bi bi-stop-btn-fill"></i> Stop All
+        </button>
+        <div class="device-search-wrapper">
+          <i class="bi bi-search"></i>
+          <input
+            type="text"
+            id="deviceSearchInput"
+            placeholder="Cari nama device, layanan, atau URL..."
+          />
+        </div>
+        <div id="layoutToggle" class="layout-toggle" style="display: none">
+          <span>Layout:</span>
+          <button
+            type="button"
+            class="layout-option is-active"
+            data-layout="card"
+            onclick="window.changeLayout('card')"
+          >
+            <i class="bi bi-grid-3x3-gap-fill"></i> Card
+          </button>
+          <button
+            type="button"
+            class="layout-option"
+            data-layout="list"
+            onclick="window.changeLayout('list')"
+          >
+            <i class="bi bi-list-task"></i> List
+          </button>
+        </div>
 
-    <div id="device-list">Loading...</div>
+        <!-- Status Koneksi Internet -->
+        <span
+          id="connectionStatus"
+          style="
+            margin-left: auto;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+          "
+        >
+          <i class="bi bi-wifi-off"></i> Offline
+        </span>
+      </div>
+
+      <div
+        id="device-limit-info"
+        class="device-limit-info"
+        role="status"
+        aria-live="polite"
+      ></div>
+
+      <div id="device-list">Loading...</div>
+    </main>
 
     <div id="aboutModal" class="modal">
       <div class="modal-content">
@@ -122,32 +206,25 @@
           <strong>Gingin Abdul Goni</strong>.
         </p>
         <p>
-          Emulator ringan untuk multi-login layanan seperti WhatsApp, Telegram,
-          Gmail, dan Android Emulator.
+          StarBox adalah pusat kendali emulator multi-platform — Android, iOS,
+          dan layanan desktop — yang membantu Anda mengelola WhatsApp, Shopee,
+          Telegram, dan automation tools lainnya dalam satu dashboard. Fokus
+          pada produktivitas, biar StarBox yang mengurus sisanya.
         </p>
-
-        <h4>Layanan Didukung</h4>
-        <ul>
-          <li>✅ WhatsApp, Telegram, Gmail</li>
-          <li>✅ Shopee, Shopee Affiliate</li>
-          <li>✅ Android Emulator</li>
-          <li>✅ iOS Simulator (NEW! - 5-10 detik boot time)</li>
-          <li>⏳ Notion, Tokopedia, Instagram (segera)</li>
-        </ul>
 
         <h4>Dukungan</h4>
         <ul>
           <li>
             ☕
-            <a href="https://trakteer.id/ginginabdulgoni/tip" target="_blank"
-              >Trakteer</a
-            >
+            <a href="https://trakteer.id/ginginabdulgoni/tip" target="_blank">
+              Trakteer
+            </a>
           </li>
           <li>
             💸
-            <a href="https://paypal.me/ginginabdulgoni" target="_blank"
-              >PayPal</a
-            >
+            <a href="https://paypal.me/ginginabdulgoni" target="_blank">
+              PayPal
+            </a>
           </li>
         </ul>
 
@@ -155,22 +232,28 @@
         <ul>
           <li>
             🌐
-            <a href="https://1112-project.com" target="_blank"
-              >1112-project.com</a
-            >
+            <a href="https://starbox.weagate.com" target="_blank">
+              starbox.weagate.com
+            </a>
+          </li>
+          <li>
+            🌍
+            <a href="https://1112-project.com" target="_blank">
+              1112-project.com
+            </a>
           </li>
           <li>
             💻
-            <a href="https://github.com/ginginabdulgoni" target="_blank"
-              >GitHub</a
-            >
+            <a href="https://github.com/ginginabdulgoni" target="_blank">
+              GitHub
+            </a>
           </li>
         </ul>
       </div>
     </div>
 
     <div id="addModal" class="modal">
-      <div class="modal-content" style="max-width: 400px">
+      <div class="modal-content" style="max-width: 560px">
         <span class="close" onclick="closeModal()">&times;</span>
         <h3>Tambah Device Baru</h3>
 
@@ -181,20 +264,34 @@
           placeholder="Misal: WA Personal, Telegram Bot"
         />
 
-        <label for="deviceService">Jenis Layanan</label>
-        <select id="deviceService">
-          <option value="wa">WhatsApp</option>
-          <option value="telegram">Telegram</option>
-          <option value="gmail">Gmail</option>
-          <option value="shopee">Shopee</option>
-          <option value="shopee_affiliate">Shopee Affiliate</option>
-          <option value="android" data-requires-feature="android">
-            Android Emulator
-          </option>
-          <option value="other" data-requires-feature="private" hidden>
-            Website (Custom URL)
-          </option>
-        </select>
+        <select id="deviceService" style="display: none"></select>
+        <div class="service-browser">
+          <div class="service-browser-header">
+            <div>
+              <label for="serviceBrowserSearch">Jenis Layanan</label>
+              <p class="service-browser-subtitle">
+                Pilih layanan populer untuk membantu produktivitas Anda.
+              </p>
+            </div>
+            <div class="service-browser-search">
+              <i class="bi bi-search"></i>
+              <input
+                type="text"
+                id="serviceBrowserSearch"
+                placeholder="Cari WhatsApp, Tokopedia, Slack, dll..."
+                autocomplete="off"
+              />
+            </div>
+          </div>
+          <div id="serviceBrowserSelected" class="service-browser-selected">
+            <img src="assets/starbox.png" alt="Service preview" />
+            <div>
+              <strong>Belum memilih layanan</strong>
+              <span>Tap salah satu layanan di daftar di bawah.</span>
+            </div>
+          </div>
+          <div id="serviceBrowserGrid" class="service-browser-grid"></div>
+        </div>
         <p id="addDeviceQuotaHint" class="quota-hint">
           Mode tamu: maks 2 device per layanan.
         </p>
@@ -223,7 +320,7 @@
             <input
               type="text"
               id="deviceCallbackUrl"
-              placeholder="Kosongkan untuk gunakan default /schedule/updatestatusmessage"
+              placeholder="Kosongkan untuk gunakan default /updatestatusmessage"
             />
           </div>
         </div>
@@ -292,6 +389,16 @@
           />
         </div>
 
+        <div
+          id="androidSpecSection"
+          class="android-spec-section"
+          style="display: none"
+        >
+          <label for="androidSpecPreset">Spesifikasi Android Emulator</label>
+          <select id="androidSpecPreset"></select>
+          <p id="androidSpecDescription" class="android-spec-note"></p>
+        </div>
+
         <label style="margin-top: 10px">
           <input type="checkbox" id="deviceAutoRun" />
           Auto Run saat aplikasi dibuka
@@ -308,6 +415,20 @@
     <div id="authModal" class="modal">
       <div class="modal-content auth-modal-content">
         <span class="close" onclick="closeAuthModal()">&times;</span>
+        <div class="auth-modal-brand">
+          <img
+            src="assets/starbox.png"
+            data-asset-src="starbox.png"
+            alt="Logo StarBox"
+            class="auth-brand-logo"
+            width="56"
+            height="56"
+          />
+          <div>
+            <strong>StarBox</strong>
+            <span>MultiService Emulator</span>
+          </div>
+        </div>
         <h3>Akses Akun Starbox</h3>
         <p class="auth-subtitle">
           Masuk untuk menambah kuota device sesuai paket akun Anda.
@@ -362,9 +483,18 @@
           />
 
           <label for="registerPhoneCode">Kode Negara</label>
-          <select id="registerPhoneCode">
-            <option value="">Memuat kode negara...</option>
-          </select>
+          <div class="phonecode-selector">
+            <input
+              type="text"
+              id="registerPhoneCodeSearch"
+              class="phonecode-search-input"
+              placeholder="Cari negara atau kode..."
+              autocomplete="off"
+            />
+            <select id="registerPhoneCode">
+              <option value="">Memuat kode negara...</option>
+            </select>
+          </div>
 
           <label for="registerPhone">Nomor Telepon</label>
           <input type="text" id="registerPhone" placeholder="81234567890" />
@@ -389,7 +519,7 @@
 
     <div id="accountModal" class="modal">
       <div class="modal-content account-modal">
-        <span class="close" onclick="closeAccountModal()">&times;</span>
+        <span class="close close-visible" onclick="closeAccountModal()">&times;</span>
         <h3>Detail Akun</h3>
         <div class="account-info">
           <div class="account-info-row">
@@ -417,8 +547,39 @@
             <strong id="accountExpiryValue">-</strong>
           </div>
         </div>
+        <div class="account-summary">
+          <div id="accountQuotaSummary">Batas per layanan: -</div>
+          <div id="accountPackageSummary">Paket: -</div>
+        </div>
+        <div class="account-note">
+          <strong>Tip:</strong>
+          Jika Anda sudah upgrade paket namun informasi belum berubah,
+          silakan keluar lalu login kembali agar data ter-refresh.
+        </div>
+        <div id="themeSelector" class="theme-selector" style="display: none">
+          <span>Pilih Tema StarBox</span>
+          <div class="theme-options">
+            <button
+              type="button"
+              class="theme-option is-active"
+              data-theme="default"
+            >
+              <span class="theme-dot theme-dot-default"></span> Indigo
+            </button>
+            <button type="button" class="theme-option" data-theme="mint">
+              <span class="theme-dot theme-dot-mint"></span> Mint
+            </button>
+            <button type="button" class="theme-option" data-theme="sunset">
+              <span class="theme-dot theme-dot-sunset"></span> Sunset
+            </button>
+            <button type="button" class="theme-option" data-theme="midnight">
+              <span class="theme-dot theme-dot-midnight"></span> Midnight
+            </button>
+          </div>
+        </div>
         <div class="account-actions">
-          <button class="danger" onclick="handleLogout()">Keluar</button>
+          <button class="ghost" onclick="closeAccountModal()">Tutup</button>
+          <button class="danger" onclick="handleLogout()">Logout</button>
         </div>
       </div>
     </div>
@@ -521,6 +682,16 @@
         </div>
 
         <div
+          id="editAndroidSpecSection"
+          class="android-spec-section"
+          style="display: none"
+        >
+          <label for="editAndroidSpecPreset">Spesifikasi Android Emulator</label>
+          <select id="editAndroidSpecPreset"></select>
+          <p id="editAndroidSpecDescription" class="android-spec-note"></p>
+        </div>
+
+        <div
           id="editAutoSenderSection"
           class="auto-sender-section"
           style="display: none"
@@ -593,7 +764,12 @@
             const autoSenderEl = document.getElementById("deviceAutoSender");
             const pendingEl = document.getElementById("devicePendingUrl");
             if (nameInput) nameInput.value = "";
-            if (serviceSelect) serviceSelect.value = "wa";
+            if (serviceSelect) {
+              serviceSelect.value = "wa";
+              serviceSelect.dispatchEvent(
+                new Event("change", { bubbles: true })
+              );
+            }
             if (autoRunEl) autoRunEl.checked = false;
             if (autoSenderEl) autoSenderEl.checked = false;
             if (pendingEl) pendingEl.value = "";
@@ -649,8 +825,13 @@
         if (modal) {
           modal.style.display = "none";
         }
-        document.getElementById("deviceName").value = "";
-        document.getElementById("deviceService").value = "wa";
+        const nameInput = document.getElementById("deviceName");
+        if (nameInput) nameInput.value = "";
+        const serviceSelect = document.getElementById("deviceService");
+        if (serviceSelect) {
+          serviceSelect.value = "wa";
+          serviceSelect.dispatchEvent(new Event("change", { bubbles: true }));
+        }
       }
 
       function openAbout() {
@@ -977,6 +1158,30 @@
         return AUTO_SENDER_SERVICES.includes((service || "").toLowerCase());
       };
 
+      window.refreshAddAndroidSpecUI = function () {
+        const serviceValue =
+          (document.getElementById("deviceService")?.value || "").toLowerCase();
+        if (typeof toggleAndroidSpecSection === "function") {
+          toggleAndroidSpecSection(serviceValue === "android");
+        } else {
+          const section = document.getElementById("androidSpecSection");
+          if (section)
+            section.style.display =
+              serviceValue === "android" ? "block" : "none";
+        }
+      };
+
+      window.refreshEditAndroidSpecUI = function () {
+        const isAndroid =
+          (window.currentEditService || "").toLowerCase() === "android";
+        if (typeof toggleEditAndroidSpecSection === "function") {
+          toggleEditAndroidSpecSection(isAndroid);
+        } else {
+          const section = document.getElementById("editAndroidSpecSection");
+          if (section) section.style.display = isAndroid ? "block" : "none";
+        }
+      };
+
       window.refreshAddAutoSenderUI = function () {
         const service = document.getElementById("deviceService")?.value || "";
         const section = document.getElementById("deviceAutoSenderSection");
@@ -1044,6 +1249,7 @@
       const editAutoSenderEl = document.getElementById("editAutoSender");
 
       addServiceEl?.addEventListener("change", window.refreshAddAutoSenderUI);
+      addServiceEl?.addEventListener("change", window.refreshAddAndroidSpecUI);
       addAutoSenderEl?.addEventListener(
         "change",
         window.refreshAddAutoSenderUI
@@ -1054,8 +1260,10 @@
       );
 
       window.refreshAddAutoSenderUI();
+      window.refreshAddAndroidSpecUI();
       window.refreshEditAutoSenderUI();
       window.refreshEditCustomServiceUI();
+      window.refreshEditAndroidSpecUI();
 
       function openEditModal() {
         const modal = document.getElementById("editModal");
@@ -1065,6 +1273,9 @@
         }
         if (typeof window.refreshEditCustomServiceUI === "function") {
           window.refreshEditCustomServiceUI();
+        }
+        if (typeof window.refreshEditAndroidSpecUI === "function") {
+          window.refreshEditAndroidSpecUI();
         }
         setTimeout(() => {
           const nameInput = document.getElementById("editDeviceName");
@@ -1081,12 +1292,26 @@
         const pendingEl = document.getElementById("editPendingUrl");
         const customEl = document.getElementById("editCustomServiceUrl");
         const callbackEl = document.getElementById("editCallbackUrl");
+        const specEl = document.getElementById("editAndroidSpecPreset");
         if (autoSenderEl) autoSenderEl.checked = false;
         if (pendingEl) pendingEl.value = "";
         if (callbackEl) callbackEl.value = "";
+        if (specEl) {
+          specEl.value =
+            window.DEFAULT_ANDROID_SPEC_ID || specEl.value || "balanced";
+          if (typeof window.updateAndroidSpecDescription === "function") {
+            window.updateAndroidSpecDescription(
+              "editAndroidSpecPreset",
+              "editAndroidSpecDescription"
+            );
+          }
+        }
         window.refreshEditAutoSenderUI();
         if (customEl) customEl.value = "";
         window.refreshEditCustomServiceUI();
+        if (typeof window.refreshEditAndroidSpecUI === "function") {
+          window.refreshEditAndroidSpecUI();
+        }
       }
 
       function saveEditDevice() {
@@ -1202,41 +1427,20 @@
         }, duration);
       }
     </script>
+    <footer class="app-footer">
+      <span class="footer-left"
+        >StarBox v1.2.251111 &copy; 2025 Gingin Abdul Goni —
+        <a
+          href="https://1112-project.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          >1112 Project</a
+        ></span
+      >
+      <span id="system-info-badge" class="system-info-badge footer-right"
+        >Mengambil info…</span
+      >
+    </footer>
     <script src="renderer.js"></script>
   </body>
-  <footer
-    style="
-      position: fixed;
-      bottom: 20px;
-      left: 20px;
-      width: calc(100% - 40px);
-      background-color: var(--color-medium-purple);
-      color: var(--color-text-light);
-      padding: 14px 24px;
-      font-size: 0.85rem;
-      border-top: 1px solid var(--color-light-purple);
-      border-radius: 12px;
-      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25);
-      z-index: 1000;
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 16px;
-      text-align: left;
-      flex-wrap: wrap;
-    "
-  >
-    <span class="footer-left"
-      >StarBox v1.2.251105 &copy; 2025 Gingin Abdul Goni —
-      <a
-        href="https://1112-project.com"
-        target="_blank"
-        rel="noopener noreferrer"
-        >1112 Project</a
-      ></span
-    >
-    <span id="system-info-badge" class="system-info-badge footer-right"
-      >Mengambil info…</span
-    >
-  </footer>
 </html>

@@ -1,45 +1,1032 @@
-const serviceConfig = {
-  wa: {
+const DEFAULT_ICON_ASSET = "starbox.png";
+const DEFAULT_ANDROID_SPEC_ID = "balanced";
+
+const ANDROID_SPEC_PRESETS = [
+  {
+    id: "lite",
+    label: "Lite • 1 Core • 1 GB RAM",
+    description: "Mode paling ringan untuk PC kentang. Cocok hanya membuka aplikasi ringan.",
+    memoryMb: 1024,
+    cores: 1,
+    resolution: "540x960",
+    density: 220,
+  },
+  {
+    id: "balanced",
+    label: "Balanced • 2 Core • 1.5 GB RAM",
+    description: "Rekomendasi default untuk performa stabil & kompatibel.",
+    memoryMb: 1536,
+    cores: 2,
+    resolution: "720x1280",
+    density: 265,
+  },
+  {
+    id: "performance",
+    label: "Performance • 4 Core • 2 GB RAM",
+    description: "Untuk PC lebih kuat (butuh ~4GB RAM bebas). Resolusi 1080p.",
+    memoryMb: 2048,
+    cores: 4,
+    resolution: "1080x1920",
+    density: 420,
+  },
+];
+
+const ANDROID_SPEC_PRESET_MAP = new Map(
+  ANDROID_SPEC_PRESETS.map((preset) => [preset.id, preset])
+);
+
+const DEFAULT_SERVICE_LIBRARY = [
+  {
+    id: "wa",
     label: "WhatsApp",
     color: "#25D366",
     url: "https://web.whatsapp.com",
+    category: "Komunikasi",
+    description: "Chat personal & bisnis paling populer.",
+    keywords: ["whatsapp", "wa", "chat"],
   },
-  telegram: {
+  {
+    id: "telegram",
     label: "Telegram",
     color: "#0088cc",
     url: "https://web.telegram.org/k/",
+    category: "Komunikasi",
+    description: "Pesan instan multi-device dengan bot.",
+    keywords: ["telegram", "chat", "bot"],
   },
-  gmail: {
+  {
+    id: "gmail",
     label: "Gmail",
     color: "#EA4335",
     url: "https://mail.google.com",
+    category: "Produktivitas",
+    description: "Email Google Workspace.",
+    keywords: ["email", "google"],
   },
-  shopee: {
+  {
+    id: "google_drive",
+    label: "Google Drive",
+    color: "#0f9d58",
+    url: "https://drive.google.com",
+    category: "Produktivitas",
+    description: "File storage & kolaborasi Google.",
+    keywords: ["drive", "storage", "workspace"],
+  },
+  {
+    id: "google_docs",
+    label: "Google Docs",
+    color: "#1a73e8",
+    url: "https://docs.google.com/document/u/0/",
+    category: "Produktivitas",
+    description: "Editor dokumen berbasis cloud.",
+    keywords: ["docs", "document", "google"],
+  },
+  {
+    id: "google_sheets",
+    label: "Google Sheets",
+    color: "#0f9d58",
+    url: "https://docs.google.com/spreadsheets/u/0/",
+    category: "Produktivitas",
+    description: "Spreadsheet kolaboratif Google.",
+    keywords: ["sheets", "spreadsheet", "google"],
+  },
+  {
+    id: "google_slides",
+    label: "Google Slides",
+    color: "#fbbc04",
+    url: "https://docs.google.com/presentation/u/0/",
+    category: "Presentasi",
+    description: "Presentasi online dengan template siap pakai.",
+    keywords: ["slides", "presentasi", "google"],
+  },
+  {
+    id: "google_calendar",
+    label: "Google Calendar",
+    color: "#1a73e8",
+    url: "https://calendar.google.com",
+    category: "Produktivitas",
+    description: "Kalender online dan manajemen jadwal Google.",
+    keywords: ["calendar", "jadwal", "google"],
+  },
+  {
+    id: "google_meet",
+    label: "Google Meet",
+    color: "#0c9d58",
+    url: "https://meet.google.com",
+    category: "Komunikasi",
+    description: "Rapat video Google Workspace.",
+    keywords: ["google", "meet", "video"],
+  },
+  {
+    id: "office_word",
+    label: "Microsoft Word",
+    color: "#185abd",
+    url: "https://www.office.com/launch/word",
+    category: "Produktivitas",
+    description: "Microsoft Word Online.",
+    keywords: ["word", "office"],
+  },
+  {
+    id: "office_excel",
+    label: "Microsoft Excel",
+    color: "#107c41",
+    url: "https://www.office.com/launch/excel",
+    category: "Produktivitas",
+    description: "Microsoft Excel Online.",
+    keywords: ["excel", "office", "spreadsheet"],
+  },
+  {
+    id: "office_powerpoint",
+    label: "Microsoft PowerPoint",
+    color: "#b7472a",
+    url: "https://www.office.com/launch/powerpoint",
+    category: "Presentasi",
+    description: "Microsoft PowerPoint Online.",
+    keywords: ["powerpoint", "office", "presentasi"],
+  },
+  {
+    id: "youtube",
+    label: "YouTube",
+    color: "#ff0000",
+    url: "https://www.youtube.com",
+    category: "Video",
+    description: "Platform video terbesar untuk konten dan live.",
+    keywords: ["youtube", "video", "stream"],
+  },
+  {
+    id: "youtube_studio",
+    label: "YouTube Studio",
+    color: "#ff0000",
+    url: "https://studio.youtube.com",
+    category: "Video",
+    description: "Dashboard kreator YouTube.",
+    keywords: ["youtube", "studio", "creator"],
+  },
+  {
+    id: "canva",
+    label: "Canva",
+    color: "#00c4cc",
+    url: "https://www.canva.com",
+    category: "Desain",
+    description: "Desain grafis dan konten sosial instan.",
+    keywords: ["canva", "design"],
+  },
+  {
+    id: "fotor",
+    label: "Fotor",
+    color: "#fcbf1e",
+    url: "https://www.fotor.com",
+    category: "Desain",
+    description: "Editor foto dan kolase online serba cepat.",
+    keywords: ["fotor", "photo", "design"],
+  },
+  {
+    id: "pixlr",
+    label: "Pixlr",
+    color: "#05a081",
+    url: "https://pixlr.com",
+    category: "Desain",
+    description: "Editor foto ringan berbasis browser.",
+    keywords: ["pixlr", "photo", "design"],
+  },
+  {
+    id: "removebg",
+    label: "Remove.bg",
+    color: "#2d68ff",
+    url: "https://www.remove.bg",
+    category: "Desain",
+    description: "Hapus background foto otomatis.",
+    keywords: ["removebg", "background", "design"],
+  },
+  {
+    id: "photopea",
+    label: "Photopea",
+    color: "#0a8d74",
+    url: "https://www.photopea.com",
+    category: "Desain",
+    description: "Editor foto dengan fitur ala Photoshop.",
+    keywords: ["photopea", "photo", "design"],
+  },
+  {
+    id: "capcut",
+    label: "CapCut Web",
+    color: "#000000",
+    url: "https://www.capcut.com",
+    category: "Video",
+    description: "Editor video CapCut versi web.",
+    keywords: ["capcut", "video", "editor"],
+  },
+  {
+    id: "adobe_express",
+    label: "Adobe Express",
+    color: "#ff5c57",
+    url: "https://www.adobe.com/express",
+    category: "Desain",
+    description: "Template desain cepat ala Adobe.",
+    keywords: ["adobe", "express", "design"],
+  },
+  {
+    id: "figma",
+    label: "Figma",
+    color: "#0acf83",
+    url: "https://www.figma.com",
+    category: "Desain",
+    description: "Kolaborasi UI/UX berbasis cloud.",
+    keywords: ["figma", "ui", "ux", "design"],
+  },
+  {
+    id: "notion",
+    label: "Notion",
+    color: "#ffffff",
+    url: "https://www.notion.so",
+    category: "Produktivitas",
+    description: "Dokumentasi & manajemen kerja fleksibel.",
+    keywords: ["notion", "docs", "wiki"],
+  },
+  {
+    id: "dropbox_paper",
+    label: "Dropbox Paper",
+    color: "#0061ff",
+    url: "https://paper.dropbox.com",
+    category: "Produktivitas",
+    description: "Dokumen kolaborasi ringan ala Dropbox.",
+    keywords: ["dropbox", "paper"],
+  },
+  {
+    id: "dropbox",
+    label: "Dropbox",
+    color: "#0061ff",
+    url: "https://www.dropbox.com",
+    category: "Produktivitas",
+    description: "Sinkronisasi file dan backup Dropbox.",
+    keywords: ["dropbox", "storage"],
+  },
+  {
+    id: "zoho_writer",
+    label: "Zoho Writer",
+    color: "#d32f2f",
+    url: "https://writer.zoho.com",
+    category: "Produktivitas",
+    description: "Editor dokumen dari Zoho.",
+    keywords: ["zoho", "writer"],
+  },
+  {
+    id: "zoho_sheet",
+    label: "Zoho Sheet",
+    color: "#1da462",
+    url: "https://sheet.zoho.com",
+    category: "Produktivitas",
+    description: "Spreadsheet Zoho.",
+    keywords: ["zoho", "sheet", "spreadsheet"],
+  },
+  {
+    id: "obsidian",
+    label: "Obsidian Publish",
+    color: "#7c3aed",
+    url: "https://publish.obsidian.md",
+    category: "Catatan",
+    description: "Notasi Markdown canggih Obsidian.",
+    keywords: ["obsidian", "markdown"],
+  },
+  {
+    id: "evernote",
+    label: "Evernote",
+    color: "#2dbe60",
+    url: "https://www.evernote.com/Login.action",
+    category: "Catatan",
+    description: "Notebook digital klasik.",
+    keywords: ["evernote", "note"],
+  },
+  {
+    id: "miro",
+    label: "Miro",
+    color: "#ffd02f",
+    url: "https://miro.com/app/dashboard",
+    category: "Kolaborasi",
+    description: "Whiteboard kolaboratif untuk tim.",
+    keywords: ["miro", "whiteboard"],
+  },
+  {
+    id: "slack",
+    label: "Slack",
+    color: "#611f69",
+    url: "https://app.slack.com",
+    category: "Komunikasi",
+    description: "Kolaborasi tim dan integrasi automasi.",
+    keywords: ["slack", "chat", "kolaborasi"],
+  },
+  {
+    id: "discord",
+    label: "Discord",
+    color: "#5865f2",
+    url: "https://discord.com/app",
+    category: "Komunitas",
+    description: "Komunitas dan layanan pelanggan real-time.",
+    keywords: ["discord", "komunitas"],
+  },
+  {
+    id: "messenger",
+    label: "Messenger",
+    color: "#00b2ff",
+    url: "https://www.messenger.com",
+    category: "Komunikasi",
+    description: "Chat Facebook Messenger versi web.",
+    keywords: ["messenger", "facebook"],
+  },
+  {
+    id: "instagram",
+    label: "Instagram",
+    color: "#F77737",
+    url: "https://www.instagram.com",
+    category: "Media Sosial",
+    description: "Kelola feed, DM, dan reels langsung dari desktop.",
+    keywords: ["instagram", "ig"],
+  },
+  {
+    id: "facebook",
+    label: "Facebook",
+    color: "#1877f2",
+    url: "https://www.facebook.com",
+    category: "Media Sosial",
+    description: "Akses beranda & grup Facebook.",
+    keywords: ["facebook", "fb"],
+  },
+  {
+    id: "facebook_pages",
+    label: "Facebook Pages",
+    color: "#1877f2",
+    url: "https://business.facebook.com/latest/home",
+    category: "Media Sosial",
+    description: "Kelola halaman & iklan Meta.",
+    keywords: ["facebook", "pages", "meta"],
+  },
+  {
+    id: "twitter_x",
+    label: "Twitter / X",
+    color: "#000000",
+    url: "https://x.com",
+    category: "Media Sosial",
+    description: "Posting & monitoring timeline X (Twitter).",
+    keywords: ["twitter", "x"],
+  },
+  {
+    id: "threads",
+    label: "Threads",
+    color: "#000000",
+    url: "https://www.threads.net",
+    category: "Media Sosial",
+    description: "Platform microblogging Meta.",
+    keywords: ["threads", "meta"],
+  },
+  {
+    id: "pinterest",
+    label: "Pinterest",
+    color: "#e60023",
+    url: "https://www.pinterest.com",
+    category: "Media Sosial",
+    description: "Inspirasi visual & ide konten.",
+    keywords: ["pinterest", "board"],
+  },
+  {
+    id: "linkedin",
+    label: "LinkedIn",
+    color: "#0a66c2",
+    url: "https://www.linkedin.com",
+    category: "Media Sosial",
+    description: "Jejaring profesional & konten bisnis.",
+    keywords: ["linkedin", "professional"],
+  },
+  {
+    id: "snapchat",
+    label: "Snapchat",
+    color: "#fffc00",
+    url: "https://web.snapchat.com",
+    category: "Media Sosial",
+    description: "Chat & story Snapchat versi web.",
+    keywords: ["snapchat"],
+  },
+  {
+    id: "reddit",
+    label: "Reddit",
+    color: "#ff4500",
+    url: "https://www.reddit.com",
+    category: "Komunitas",
+    description: "Forum komunitas global.",
+    keywords: ["reddit", "forum"],
+  },
+  {
+    id: "line",
+    label: "LINE",
+    color: "#00c300",
+    url: "https://web.line.me",
+    category: "Komunikasi",
+    description: "Chat dan komunitas LINE di desktop.",
+    keywords: ["line", "chat"],
+  },
+  {
+    id: "zoom",
+    label: "Zoom",
+    color: "#2d8cff",
+    url: "https://app.zoom.us",
+    category: "Komunikasi",
+    description: "Meeting video dan webinar.",
+    keywords: ["zoom", "meeting", "video"],
+  },
+  {
+    id: "aircall",
+    label: "Aircall",
+    color: "#00c58c",
+    url: "https://dashboard.aircall.io",
+    category: "Komunikasi",
+    description: "Call center modern berbasis cloud.",
+    keywords: ["aircall", "callcenter"],
+  },
+  {
+    id: "uptimerobot",
+    label: "UptimeRobot",
+    color: "#22c55e",
+    url: "https://uptimerobot.com",
+    category: "Monitoring",
+    description: "Pantau uptime website dan API.",
+    keywords: ["uptimerobot", "monitoring", "uptime"],
+  },
+  {
+    id: "patch",
+    label: "Patch",
+    color: "#1b998b",
+    url: "https://patch.com",
+    category: "Media",
+    description: "Portal berita lokal Patch.",
+    keywords: ["patch", "news"],
+  },
+  {
+    id: "asana",
+    label: "Asana",
+    color: "#fc636b",
+    url: "https://app.asana.com",
+    category: "Produktivitas",
+    description: "Manajemen tugas & tim kreatif.",
+    keywords: ["asana", "task", "project"],
+  },
+  {
+    id: "trello",
+    label: "Trello",
+    color: "#0079bf",
+    url: "https://trello.com",
+    category: "Produktivitas",
+    description: "Board kanban sederhana untuk semua tim.",
+    keywords: ["trello", "kanban"],
+  },
+  {
+    id: "microsoft_teams",
+    label: "Microsoft Teams",
+    color: "#6264a7",
+    url: "https://teams.microsoft.com",
+    category: "Produktivitas",
+    description: "Kolaborasi Microsoft 365.",
+    keywords: ["teams", "microsoft"],
+  },
+  {
+    id: "aha",
+    label: "Aha!",
+    color: "#8a2be2",
+    url: "https://www.aha.io",
+    category: "Produk & Roadmap",
+    description: "Perencanaan roadmap produk.",
+    keywords: ["aha", "roadmap"],
+  },
+  {
+    id: "ahrefs",
+    label: "Ahrefs",
+    color: "#0c63ff",
+    url: "https://ahrefs.com",
+    category: "Pemasaran",
+    description: "Riset SEO dan analisis kompetitor.",
+    keywords: ["seo", "ahrefs"],
+  },
+  {
+    id: "agorapulse",
+    label: "Agorapulse",
+    color: "#f15427",
+    url: "https://app.agorapulse.com",
+    category: "Pemasaran",
+    description: "Manajemen media sosial dan inbox.",
+    keywords: ["social", "agorapulse"],
+  },
+  {
+    id: "activecampaign",
+    label: "ActiveCampaign",
+    color: "#1b6de0",
+    url: "https://www.activecampaign.com/login",
+    category: "CRM & Automasi",
+    description: "Email marketing & automasi CRM.",
+    keywords: ["crm", "email"],
+  },
+  {
+    id: "adobe_analytics",
+    label: "Adobe Analytics",
+    color: "#5c2d91",
+    url: "https://experiencecloud.adobe.com",
+    category: "Analitik",
+    description: "Analitik enterprise Adobe.",
+    keywords: ["adobe", "analytics"],
+  },
+  {
+    id: "airtable",
+    label: "Airtable",
+    color: "#ffb347",
+    url: "https://airtable.com",
+    category: "Produktivitas",
+    description: "Spreadsheet + database fleksibel.",
+    keywords: ["airtable", "database"],
+  },
+  {
+    id: "github",
+    label: "GitHub",
+    color: "#24292e",
+    url: "https://github.com",
+    category: "Developer",
+    description: "Repositori kode dan kolaborasi dev.",
+    keywords: ["github", "git"],
+  },
+  {
+    id: "shopee",
     label: "Shopee",
     color: "#ee4d2d",
-    url: "https://shopee.co.id/",
+    url: "https://shopee.co.id",
+    category: "Marketplace",
+    description: "Marketplace populer di Indonesia.",
+    keywords: ["shopee", "marketplace"],
   },
-  shopee_affiliate: {
+  {
+    id: "shopee_affiliate",
     label: "Shopee Affiliate",
     color: "#ee4d2d",
-    url: "https://affiliate.shopee.co.id/",
+    url: "https://affiliate.shopee.co.id",
+    category: "Marketplace",
+    description: "Dashboard afiliasi Shopee.",
+    keywords: ["shopee", "affiliate"],
   },
-  android: {
+  {
+    id: "tokopedia",
+    label: "Tokopedia",
+    color: "#08a045",
+    url: "https://www.tokopedia.com",
+    category: "Marketplace",
+    description: "Marketplace hijau favorit seller.",
+    keywords: ["tokopedia", "marketplace"],
+  },
+  {
+    id: "tokopedia_seller",
+    label: "Tokopedia Seller",
+    color: "#08a045",
+    url: "https://seller.tokopedia.com",
+    category: "Marketplace",
+    description: "Dashboard seller Tokopedia.",
+    keywords: ["tokopedia", "seller"],
+  },
+  {
+    id: "bukalapak",
+    label: "Bukalapak",
+    color: "#d41c5d",
+    url: "https://www.bukalapak.com",
+    category: "Marketplace",
+    description: "Marketplace lokal untuk segala kebutuhan.",
+    keywords: ["bukalapak", "marketplace"],
+  },
+  {
+    id: "lazada",
+    label: "Lazada",
+    color: "#1a73e8",
+    url: "https://www.lazada.co.id",
+    category: "Marketplace",
+    description: "Marketplace internasional di Indonesia.",
+    keywords: ["lazada", "marketplace"],
+  },
+  {
+    id: "blibli",
+    label: "Blibli",
+    color: "#007bff",
+    url: "https://www.blibli.com",
+    category: "Marketplace",
+    description: "Retail dan marketplace serba ada.",
+    keywords: ["blibli", "marketplace"],
+  },
+  {
+    id: "tiktok",
+    label: "TikTok",
+    color: "#000000",
+    url: "https://www.tiktok.com/login",
+    category: "Marketplace",
+    description: "TikTok Shop & live commerce.",
+    keywords: ["tiktok", "shop"],
+  },
+  {
+    id: "tiktok_affiliate",
+    label: "TikTok Affiliate",
+    color: "#000000",
+    url: "https://affiliate.tiktok.com",
+    category: "Marketplace",
+    description: "Program afiliasi TikTok.",
+    keywords: ["tiktok", "affiliate"],
+  },
+  {
+    id: "android",
     label: "Android Emulator",
     color: "#3DDC84",
     url: null,
+    category: "Emulator",
+    description: "Emulator Android bawaan Starbox.",
+    icon: "assets/starbox.png",
+    requiresFeature: "android",
+    keywords: ["android", "emulator"],
   },
-  other: {
+  {
+    id: "other",
     label: "Website Kustom",
     color: "#f97316",
     url: null,
+    category: "Kustom",
+    description: "Masukkan URL website Anda sendiri.",
+    icon: "assets/starbox.png",
+    requiresFeature: "private",
+    keywords: ["custom", "private"],
   },
-  default: {
-    label: "Service",
-    color: "#6b7280",
-    url: "https://example.com",
-  },
+];
+
+let SERVICE_LIBRARY = DEFAULT_SERVICE_LIBRARY.map(cloneServiceEntry);
+let serviceConfig = {};
+const SERVICE_LIBRARY_MAP = new Map();
+
+rebuildServiceLookups();
+
+const assetUrlCache = new Map();
+const assetPendingRequests = new Map();
+const assetElementRegistry = new Map();
+
+function buildServiceConfig(list = []) {
+  return list.reduce(
+    (map, service) => {
+      const key = sanitizeServiceId(service.id);
+      map[key] = {
+        label: service.label,
+        color: service.color,
+        url: service.url,
+      };
+      return map;
+    },
+    {
+      default: {
+        label: "Service",
+        color: "#6b7280",
+        url: "https://example.com",
+      },
+    }
+  );
+}
+
+function rebuildServiceLookups(list = SERVICE_LIBRARY) {
+  serviceConfig = buildServiceConfig(list);
+  SERVICE_LIBRARY_MAP.clear();
+  list.forEach((service) => {
+    SERVICE_LIBRARY_MAP.set(sanitizeServiceId(service.id), service);
+  });
+}
+
+function cloneServiceEntry(service = {}) {
+  const cloned = { ...service };
+  if (Array.isArray(service.keywords)) {
+    cloned.keywords = [...service.keywords];
+  }
+  if (service.meta && typeof service.meta === "object") {
+    cloned.meta = { ...service.meta };
+  }
+  return cloned;
+}
+
+function sanitizeKeywordList(list = []) {
+  return Array.from(
+    new Set(
+      (list || [])
+        .map((value) => (value || "").toString().trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
+}
+
+function normalizeServiceUrl(url) {
+  if (!url) return "";
+  return url.toString().trim().replace(/\/+$/, "").toLowerCase();
+}
+
+function normalizeAssetName(icon) {
+  if (!icon) return null;
+  if (icon.startsWith("assets/")) {
+    return icon.replace(/^assets\//, "");
+  }
+  if (!icon.includes("://") && !icon.startsWith("data:")) {
+    return icon;
+  }
+  return null;
+}
+
+function getAssetFallbackPath(assetName = DEFAULT_ICON_ASSET) {
+  if (!assetName) return `assets/${DEFAULT_ICON_ASSET}`;
+  if (assetName.startsWith("assets/")) return assetName;
+  return `assets/${assetName}`;
+}
+
+function registerAssetElement(assetName, element) {
+  if (!assetName || !element) return;
+  if (!assetElementRegistry.has(assetName)) {
+    assetElementRegistry.set(assetName, new Set());
+  }
+  assetElementRegistry.get(assetName).add(element);
+}
+
+function resolveAssetPath(assetName = DEFAULT_ICON_ASSET) {
+  if (!assetName) return Promise.resolve(getAssetFallbackPath());
+  if (assetUrlCache.has(assetName)) {
+    return Promise.resolve(assetUrlCache.get(assetName));
+  }
+  if (!window.electronAPI?.resolveAssetUrl) {
+    const fallback = getAssetFallbackPath(assetName);
+    assetUrlCache.set(assetName, fallback);
+    return Promise.resolve(fallback);
+  }
+  if (assetPendingRequests.has(assetName)) {
+    return assetPendingRequests.get(assetName);
+  }
+  const promise = window.electronAPI
+    .resolveAssetUrl(assetName)
+    .then((url) => {
+      const resolved = url || getAssetFallbackPath(assetName);
+      assetUrlCache.set(assetName, resolved);
+      assetPendingRequests.delete(assetName);
+      const elements = assetElementRegistry.get(assetName);
+      if (elements && elements.size) {
+        elements.forEach((el) => {
+          if (el && el.isConnected && el.dataset.assetName === assetName) {
+            el.src = resolved;
+          }
+        });
+        assetElementRegistry.delete(assetName);
+      }
+      return resolved;
+    })
+    .catch(() => {
+      const fallback = getAssetFallbackPath(assetName);
+      assetUrlCache.set(assetName, fallback);
+      assetPendingRequests.delete(assetName);
+      return fallback;
+    });
+  assetPendingRequests.set(assetName, promise);
+  return promise;
+}
+
+function applyAssetToImage(element, assetName = DEFAULT_ICON_ASSET) {
+  if (!element) return;
+  const normalized = normalizeAssetName(assetName) || DEFAULT_ICON_ASSET;
+  element.dataset.assetName = normalized;
+  registerAssetElement(normalized, element);
+  const fallbackPath = assetUrlCache.get(normalized) || getAssetFallbackPath(normalized);
+  element.src = fallbackPath;
+  resolveAssetPath(normalized).catch(() => {});
+}
+
+function getServiceIconSource(service) {
+  if (!service) {
+    return { type: "asset", name: DEFAULT_ICON_ASSET };
+  }
+  const assetName =
+    service.iconAsset ||
+    normalizeAssetName(service.icon) ||
+    normalizeAssetName(service.icon_url);
+  if (assetName) {
+    return { type: "asset", name: assetName };
+  }
+  if (service.icon && (service.icon.includes("://") || service.icon.startsWith("data:"))) {
+    return { type: "url", value: service.icon };
+  }
+  if (service.url) {
+    return {
+      type: "url",
+      value: `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(
+        service.url
+      )}`,
+    };
+  }
+  return { type: "asset", name: DEFAULT_ICON_ASSET };
+}
+
+function getAndroidSpecPreset(specId = DEFAULT_ANDROID_SPEC_ID) {
+  return (
+    ANDROID_SPEC_PRESET_MAP.get((specId || "").toLowerCase()) ||
+    ANDROID_SPEC_PRESET_MAP.get(DEFAULT_ANDROID_SPEC_ID)
+  );
+}
+
+function getAndroidSpecPayload(specId = DEFAULT_ANDROID_SPEC_ID) {
+  const preset = getAndroidSpecPreset(specId);
+  return {
+    id: preset.id,
+    label: preset.label,
+    memoryMb: preset.memoryMb,
+    cores: preset.cores,
+    resolution: preset.resolution,
+    density: preset.density,
+    description: preset.description,
+  };
+}
+
+function ensureAndroidSpecSelectOptions(selectId, descriptionId) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  select.innerHTML = "";
+  ANDROID_SPEC_PRESETS.forEach((preset) => {
+    const option = document.createElement("option");
+    option.value = preset.id;
+    option.textContent = preset.label;
+    option.dataset.description = preset.description;
+    select.appendChild(option);
+  });
+  select.value = DEFAULT_ANDROID_SPEC_ID;
+  updateAndroidSpecDescription(selectId, descriptionId);
+  select.addEventListener("change", () =>
+    updateAndroidSpecDescription(selectId, descriptionId)
+  );
+}
+
+function updateAndroidSpecDescription(selectId, descriptionId) {
+  const select = document.getElementById(selectId);
+  const descEl = document.getElementById(descriptionId);
+  if (!select || !descEl) return;
+  const preset = getAndroidSpecPreset(select.value);
+  descEl.textContent = preset?.description || "";
+}
+
+function toggleAndroidSpecSection(show) {
+  const section = document.getElementById("androidSpecSection");
+  if (section) {
+    section.style.display = show ? "block" : "none";
+  }
+}
+
+function toggleEditAndroidSpecSection(show) {
+  const section = document.getElementById("editAndroidSpecSection");
+  if (section) {
+    section.style.display = show ? "block" : "none";
+  }
+}
+
+window.getAndroidSpecPayload = getAndroidSpecPayload;
+window.updateAndroidSpecDescription = updateAndroidSpecDescription;
+window.DEFAULT_ANDROID_SPEC_ID = DEFAULT_ANDROID_SPEC_ID;
+
+const CATEGORY_COLOR_MAP = {
+  "komunikasi": "#2563eb",
+  "komunikasi & sosial": "#2563eb",
+  "sosial": "#2563eb",
+  "media sosial": "#2563eb",
+  marketplace: "#f97316",
+  pemasaran: "#f59e0b",
+  analitik: "#22c55e",
+  desain: "#0ea5e9",
+  produktivitas: "#10b981",
+  komunitas: "#a855f7",
+  video: "#ef4444",
+  emulator: "#3DDC84",
 };
+
+function pickCategoryColor(category = "") {
+  const key = (category || "").toString().trim().toLowerCase();
+  return CATEGORY_COLOR_MAP[key] || "#6366f1";
+}
+
+function formatServerServiceItem(item, slug) {
+  const base =
+    DEFAULT_SERVICE_LIBRARY.find(
+      (service) => sanitizeServiceId(service.id) === slug
+    ) || {};
+  const label = item.name || base.label || slug.toUpperCase();
+  const category = item.category || base.category || "Layanan";
+  const description =
+    item.description || base.description || "Layanan publik";
+  const url = (item.url || base.url || "").trim();
+  const keywords = sanitizeKeywordList([
+    slug,
+    label,
+    category,
+    ...(item.meta?.tags || []),
+    ...(base.keywords || []),
+  ]);
+
+  return {
+    id: slug,
+    label,
+    color: base.color || pickCategoryColor(category),
+    url,
+    category,
+    description,
+    icon: item.icon_url || base.icon || null,
+    keywords,
+    meta: item.meta || base.meta || null,
+    requiresFeature: base.requiresFeature,
+    sortOrder: item.sort_order ?? base.sortOrder ?? null,
+  };
+}
+
+function mergeServiceEntries(base = {}, incoming = {}) {
+  const merged = {
+    ...base,
+    ...incoming,
+  };
+  merged.icon = incoming.icon || base.icon || null;
+  merged.requiresFeature = base.requiresFeature || incoming.requiresFeature;
+  const keywords = sanitizeKeywordList([
+    ...(base.keywords || []),
+    ...(incoming.keywords || []),
+  ]);
+  if (keywords.length) {
+    merged.keywords = keywords;
+  }
+  return merged;
+}
+
+function applyRemoteServiceLibrary(items = []) {
+  if (!Array.isArray(items) || !items.length) return null;
+  const merged = DEFAULT_SERVICE_LIBRARY.map(cloneServiceEntry);
+  const slugIndex = new Map();
+  const urlIndex = new Map();
+
+  merged.forEach((service, index) => {
+    slugIndex.set(sanitizeServiceId(service.id), index);
+    const normalizedUrl = normalizeServiceUrl(service.url);
+    if (normalizedUrl && !urlIndex.has(normalizedUrl)) {
+      urlIndex.set(normalizedUrl, index);
+    }
+  });
+
+  const reservedIds = new Set(["android", "other"]);
+
+  items.forEach((item) => {
+    if (!item) return;
+    const slug = sanitizeServiceId(item.slug || item.id || item.name);
+    const serviceUrl = (item.url || "").trim();
+    if (!slug || !serviceUrl || reservedIds.has(slug)) return;
+
+    const formatted = formatServerServiceItem(item, slug);
+    const normalizedUrl = normalizeServiceUrl(formatted.url);
+
+    if (normalizedUrl && urlIndex.has(normalizedUrl)) {
+      const idx = urlIndex.get(normalizedUrl);
+      merged[idx] = mergeServiceEntries(merged[idx], formatted);
+      return;
+    }
+
+    if (slugIndex.has(slug)) {
+      const idx = slugIndex.get(slug);
+      merged[idx] = mergeServiceEntries(merged[idx], formatted);
+      if (normalizedUrl) {
+        urlIndex.set(normalizedUrl, idx);
+      }
+      return;
+    }
+
+    merged.push(formatted);
+    const newIndex = merged.length - 1;
+    slugIndex.set(slug, newIndex);
+    if (normalizedUrl && !urlIndex.has(normalizedUrl)) {
+      urlIndex.set(normalizedUrl, newIndex);
+    }
+  });
+
+  return merged;
+}
+
+async function refreshServiceLibraryFromServer() {
+  if (!window?.electronAPI?.invoke) return false;
+  try {
+    const catalog =
+      (await window.electronAPI.invoke("get-service-catalog")) || [];
+    if (!Array.isArray(catalog) || !catalog.length) {
+      return false;
+    }
+    const merged = applyRemoteServiceLibrary(catalog);
+    if (!merged || !merged.length) {
+      return false;
+    }
+    SERVICE_LIBRARY = merged;
+    rebuildServiceLookups();
+    return true;
+  } catch (err) {
+    console.warn(
+      "⚠️ Gagal menerapkan layanan dari server:",
+      err?.message || err
+    );
+    return false;
+  }
+}
 
 const automationConfig = {
   targetUid: null,
@@ -85,6 +1072,291 @@ const automationConnectionStatus = {
 const automationConnectionLog = [];
 
 let cachedDevices = [];
+let deviceSearchQuery = "";
+
+const serviceBrowserState = {
+  search: "",
+};
+
+const STORAGE_KEYS = {
+  layout: "starboxLayoutPreference",
+  theme: "starboxThemePreference",
+};
+
+const THEME_OPTIONS = [
+  { id: "default", label: "Indigo" },
+  { id: "mint", label: "Mint" },
+  { id: "sunset", label: "Sunset" },
+  { id: "midnight", label: "Midnight" },
+];
+
+let preferredTheme = getStoredTheme();
+let activeTheme = preferredTheme;
+
+function sanitizeServiceId(value) {
+  return (value || "").toString().trim().toLowerCase();
+}
+
+function getServiceMeta(serviceId) {
+  if (!serviceId) return null;
+  return SERVICE_LIBRARY_MAP.get(sanitizeServiceId(serviceId)) || null;
+}
+
+function getServiceDisabledReason(service) {
+  if (!service) return null;
+  if (
+    service.requiresFeature === "android" &&
+    !authState.allowsAndroidEmulator
+  ) {
+    return "Aktifkan paket yang mendukung Android Emulator.";
+  }
+  if (
+    service.requiresFeature === "private" &&
+    !authState.allowsPrivateService
+  ) {
+    return "Login untuk memakai website kustom.";
+  }
+  return null;
+}
+
+function attachServiceIconFallback(img, assetName = DEFAULT_ICON_ASSET) {
+  if (!img) return;
+  img.addEventListener("error", () => {
+    if (img.dataset.fallbackApplied === "true") return;
+    img.dataset.fallbackApplied = "true";
+    applyAssetToImage(img, assetName);
+  });
+}
+
+function ensureServiceSelectOptions(selectId = "deviceService") {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  const previousValue = sanitizeServiceId(select.value) || "wa";
+  select.innerHTML = "";
+  SERVICE_LIBRARY.forEach((service) => {
+    if (service.hideInForm) return;
+    const option = document.createElement("option");
+    option.value = service.id;
+    option.textContent = service.label;
+    if (service.requiresFeature) {
+      option.dataset.requiresFeature = service.requiresFeature;
+    }
+    select.appendChild(option);
+  });
+  select.value = SERVICE_LIBRARY_MAP.has(previousValue) ? previousValue : "wa";
+}
+
+function filterServices(query = "", options = {}) {
+  const normalizedQuery = (query || "").trim().toLowerCase();
+  const { hideFlag = "hideInBrowser" } = options;
+  return SERVICE_LIBRARY.filter((service) => {
+    if (hideFlag && service[hideFlag]) return false;
+    if (!normalizedQuery) return true;
+    const haystack = [
+      service.id,
+      service.label,
+      service.category,
+      service.description,
+      ...(service.keywords || []),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(normalizedQuery);
+  });
+}
+
+function updateServiceBrowserSelected(selectId = "deviceService") {
+  const info = document.getElementById("serviceBrowserSelected");
+  if (!info) return;
+  const select = document.getElementById(selectId);
+  const service = select ? getServiceMeta(select.value) : null;
+  if (!service) {
+    info.innerHTML = `
+      <img src="assets/starbox.png" alt="Service preview" />
+      <div>
+        <strong>Belum memilih layanan</strong>
+        <span>Tap salah satu layanan di daftar di bawah.</span>
+      </div>
+    `;
+    return;
+  }
+  info.innerHTML = `
+    <img alt="${service.label}" />
+    <div class="service-browser-selected-info">
+      <strong></strong>
+      <span class="service-browser-selected-meta"></span>
+      <span class="service-browser-selected-url"></span>
+    </div>
+  `;
+  const previewIcon = info.querySelector("img");
+  const iconSource = getServiceIconSource(service);
+  if (iconSource.type === "asset") {
+    applyAssetToImage(previewIcon, iconSource.name);
+  } else {
+    previewIcon.src = iconSource.value;
+    attachServiceIconFallback(previewIcon);
+  }
+  const infoBox = info.querySelector(".service-browser-selected-info");
+  if (infoBox) {
+    const titleEl = infoBox.querySelector("strong");
+    if (titleEl) {
+      titleEl.textContent = service.label;
+    }
+    const metaEl = infoBox.querySelector(".service-browser-selected-meta");
+    if (metaEl) {
+      metaEl.textContent =
+        service.category || service.description || "Layanan publik";
+    }
+    const urlEl = infoBox.querySelector(".service-browser-selected-url");
+    if (urlEl) {
+      if (service.url) {
+        urlEl.textContent = `URL: ${service.url}`;
+        urlEl.title = service.url;
+        urlEl.classList.remove("is-empty");
+      } else {
+        urlEl.textContent = "URL layanan belum tersedia";
+        urlEl.removeAttribute("title");
+        urlEl.classList.add("is-empty");
+      }
+    }
+  }
+}
+
+function renderServiceBrowserGrid(options = {}) {
+  const {
+    containerId = "serviceBrowserGrid",
+    selectId = "deviceService",
+    search = serviceBrowserState.search,
+  } = options;
+  const container = document.getElementById(containerId);
+  const select = document.getElementById(selectId);
+  if (!container || !select) return;
+  const services = filterServices(search);
+  container.innerHTML = "";
+  if (!services.length) {
+    const empty = document.createElement("div");
+    empty.className = "service-browser-empty";
+    empty.textContent = "Layanan tidak ditemukan. Coba kata kunci lainnya.";
+    container.appendChild(empty);
+    updateServiceBrowserSelected(selectId);
+    return;
+  }
+  const currentValue =
+    sanitizeServiceId(select.value) ||
+    sanitizeServiceId(services[0]?.id || "wa");
+  services.forEach((service) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "service-card";
+    button.dataset.serviceId = service.id;
+    const disabledReason = getServiceDisabledReason(service);
+    if (disabledReason) {
+      button.classList.add("is-disabled");
+      button.disabled = true;
+      button.title = disabledReason;
+    } else {
+      button.addEventListener("click", () =>
+        setSelectedService(selectId, service.id)
+      );
+    }
+    if (sanitizeServiceId(service.id) === currentValue) {
+      button.classList.add("selected");
+    }
+    button.innerHTML = `
+      <img alt="${service.label}" />
+      <div class="service-card-info">
+        <div class="service-card-title">${service.label}</div>
+      </div>
+    `;
+    const iconNode = button.querySelector("img");
+    const iconSource = getServiceIconSource(service);
+    if (iconSource.type === "asset") {
+      applyAssetToImage(iconNode, iconSource.name);
+    } else {
+      iconNode.src = iconSource.value;
+      attachServiceIconFallback(iconNode);
+    }
+    container.appendChild(button);
+  });
+  updateServiceBrowserSelected(selectId);
+}
+
+function setSelectedService(selectId = "deviceService", serviceId = "wa") {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  if (!SERVICE_LIBRARY_MAP.has(sanitizeServiceId(serviceId))) return;
+  select.value = serviceId;
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  renderServiceBrowserGrid({ selectId });
+}
+
+function canUseThemeSelector() {
+  if (!authState.isLoggedIn) return false;
+  const pkg = authState.package || {};
+  const pkgName = (pkg.name || "").toLowerCase();
+  const priceValue = Number(
+    pkg.price ?? pkg.price_value ?? pkg.amount ?? pkg.total ?? NaN
+  );
+  const priceDisplay = (pkg.price_display || "").toLowerCase();
+  const isFree =
+    pkgName === "free" ||
+    pkgName === "gratis" ||
+    (Number.isFinite(priceValue) && priceValue <= 0) ||
+    priceDisplay.includes("gratis") ||
+    priceDisplay.includes("free") ||
+    priceDisplay === "💰 gratis";
+  return !isFree;
+}
+
+function updateThemeButtons() {
+  const wrapper = document.getElementById("themeSelector");
+  if (!wrapper) return;
+  wrapper
+    .querySelectorAll(".theme-option")
+    .forEach((btn) =>
+      btn.classList.toggle("is-active", btn.dataset.theme === preferredTheme)
+    );
+}
+
+function applyTheme(themeId, options = {}) {
+  const normalized = sanitizeThemeId(themeId);
+  activeTheme = normalized;
+  const body = document.body;
+  if (body) {
+    const classes = THEME_OPTIONS.map((theme) => `theme-${theme.id}`);
+    body.classList.remove(...classes);
+    body.classList.add(`theme-${normalized}`);
+  }
+  if (!options.skipStore) {
+    preferredTheme = normalized;
+    setStoredTheme(normalized);
+  }
+  updateThemeButtons();
+}
+
+function syncThemeSelector() {
+  const wrapper = document.getElementById("themeSelector");
+  if (!wrapper) return;
+  const allowed = canUseThemeSelector();
+  wrapper.style.display = allowed ? "flex" : "none";
+  if (allowed) {
+    applyTheme(preferredTheme || "default", { skipStore: true });
+  } else {
+    applyTheme("default", { skipStore: true });
+  }
+}
+
+function initThemeSelector() {
+  const wrapper = document.getElementById("themeSelector");
+  if (!wrapper) return;
+  wrapper.querySelectorAll(".theme-option").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!canUseThemeSelector()) return;
+      applyTheme(btn.dataset.theme);
+    });
+  });
+}
 const authState = {
   isLoggedIn: false,
   user: null,
@@ -105,7 +1377,13 @@ const authModalState = {
 };
 
 let phoneCodeOptionsLoaded = false;
+let phoneCodeOptionsCache = [];
 const DEFAULT_PHONE_CODE = "+62";
+const VERSION_CHECK_CHANNEL = "stable";
+let currentAppVersion = null;
+let latestVersionInfo = null;
+let versionCheckInProgress = false;
+let hasShownVersionDialog = false;
 const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
 let packageCountdownTimer = null;
 let systemPlatform =
@@ -115,6 +1393,40 @@ let lastAuthDeviceSnapshot = {
   unlimited: authState.isUnlimited,
   limit: getServiceLimitValue(),
 };
+
+function getStoredLayout() {
+  try {
+    const value = localStorage.getItem(STORAGE_KEYS.layout);
+    if (value === "card" || value === "list") return value;
+  } catch {}
+  return "card";
+}
+
+function setStoredLayout(value) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.layout, value);
+  } catch {}
+}
+
+function sanitizeThemeId(themeId) {
+  const id = (themeId || "").toLowerCase();
+  return THEME_OPTIONS.some((theme) => theme.id === id) ? id : "default";
+}
+
+function getStoredTheme() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.theme);
+    return sanitizeThemeId(stored);
+  } catch {
+    return "default";
+  }
+}
+
+function setStoredTheme(value) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.theme, sanitizeThemeId(value));
+  } catch {}
+}
 
 function getServiceLimitValue() {
   if (authState.isLoggedIn) {
@@ -315,6 +1627,8 @@ function syncServiceAvailability() {
     serviceSelect.value = "wa";
   }
   toggleCustomServiceSection(serviceSelect.value === "other");
+  toggleAndroidSpecSection(serviceSelect.value === "android");
+  renderServiceBrowserGrid();
 }
 
 function updateIOSButtonVisibility() {
@@ -380,23 +1694,40 @@ function canAddDeviceForService(service) {
 }
 
 function updateDeviceQuotaBanner() {
-  const badge = document.getElementById("authQuotaBadge");
-  if (!badge) return;
+  const quotaEl = document.getElementById("accountQuotaSummary");
+  const packageEl = document.getElementById("accountPackageSummary");
+  const used = cachedDevices.length;
 
-  if (authState.isLoggedIn) {
-    const used = cachedDevices.length;
-    if (authState.isUnlimited) {
-      badge.textContent = `Total device: ${used} (admin/unlimited, tanpa batas per layanan)`;
+  if (quotaEl) {
+    if (authState.isLoggedIn) {
+      if (authState.isUnlimited) {
+        quotaEl.textContent = `Unlimited per layanan • Total device saat ini ${used}`;
+      } else {
+        const limit = getServiceLimitValue();
+        quotaEl.textContent = `Batas per layanan: ${limit} device • Total device saat ini ${used}`;
+      }
     } else {
-      const limit = getServiceLimitValue();
-      badge.textContent = `Batas per layanan: ${limit} device • Total device saat ini ${used}`;
+      const limit =
+        typeof authState.guestServiceLimit === "number"
+          ? authState.guestServiceLimit
+          : 2;
+      quotaEl.textContent = `Mode tamu • Maks ${limit} device per layanan. Login untuk menambah kuota.`;
     }
-  } else {
-    const limit =
-      typeof authState.guestServiceLimit === "number"
-        ? authState.guestServiceLimit
-        : 2;
-    badge.textContent = `Tamu: maks ${limit} device per layanan`;
+  }
+
+  if (packageEl) {
+    if (authState.isLoggedIn) {
+      const pkgName = authState.package?.name || "Default";
+      const limitLabel = authState.isUnlimited
+        ? "Tanpa batas"
+        : `${getServiceLimitValue()} device/layanan`;
+      const expiry = getPackageExpiryText();
+      packageEl.textContent = expiry
+        ? `Paket: ${pkgName} • ${limitLabel} • ${expiry}`
+        : `Paket: ${pkgName} • ${limitLabel}`;
+    } else {
+      packageEl.textContent = "Belum login • Paket tamu default.";
+    }
   }
 }
 
@@ -404,7 +1735,7 @@ function updateAuthHeaderUI() {
   const authButton = document.getElementById("authButton");
   const logoutButton = document.getElementById("logoutButton");
   const statusLabel = document.getElementById("authStatusLabel");
-  const packageLabel = document.getElementById("authPackageLabel");
+  const layoutToggle = document.getElementById("layoutToggle");
 
   const guestLabel =
     authState.guestServiceLimit > 0
@@ -440,28 +1771,18 @@ function updateAuthHeaderUI() {
     }
   }
 
-  if (packageLabel) {
-    if (!authState.isLoggedIn) {
-      packageLabel.style.display = "none";
-      packageLabel.textContent = "";
-    } else if ((authState.user?.role || "").toLowerCase() === "admin") {
-      packageLabel.style.display = "none";
-      packageLabel.textContent = "";
-    } else {
-      const pkgName = authState.package?.name || "Default";
-      const limit = getServiceLimitValue();
-      const limitText = authState.isUnlimited
-        ? "Unlimited per layanan"
-        : `${limit} device per layanan`;
-      const parts = [`Paket: ${pkgName} • ${limitText}`];
-      const expiryText = getPackageExpiryText();
-      if (expiryText) {
-        parts.push(expiryText);
-      }
-      packageLabel.textContent = parts.join(" • ");
-      packageLabel.style.display = "block";
-    }
+  const preferredLayout = getStoredLayout();
+  const effectiveLayout = authState.isLoggedIn ? preferredLayout : "card";
+  if (document.body) {
+    document.body.classList.toggle("list-layout", effectiveLayout === "list");
   }
+  if (layoutToggle) {
+    layoutToggle.style.display = authState.isLoggedIn ? "inline-flex" : "none";
+    layoutToggle.querySelectorAll(".layout-option").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.layout === effectiveLayout);
+    });
+  }
+  syncThemeSelector();
 }
 
 function applyAuthSession(session = {}) {
@@ -761,6 +2082,7 @@ function populateAccountModal() {
       : `${getServiceLimitValue()} device per layanan`;
   }
   if (expiryEl) expiryEl.textContent = getPackageExpiryText() || "-";
+  updateDeviceQuotaBanner();
 }
 
 function openAccountModal() {
@@ -794,50 +2116,382 @@ async function loadPhoneCodesIntoSelect() {
   if (!select || phoneCodeOptionsLoaded) return;
 
   try {
-    const response = await fetch("assets/country.json");
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const countries = await response.json();
-    if (!Array.isArray(countries)) {
-      throw new Error("Format country.json tidak valid");
-    }
+    let countries = [];
 
-    select.innerHTML = '<option value="">Pilih kode negara</option>';
-    const sorted = countries
-      .filter((c) => c && c.phonecode)
-      .sort((a, b) => {
-        const nameA = (a.nicename || a.name || "").toLowerCase();
-        const nameB = (b.nicename || b.name || "").toLowerCase();
-        return nameA.localeCompare(nameB);
-      });
-
-    let defaultOptionFound = false;
-    sorted.forEach((country) => {
-      const code = `+${String(country.phonecode).trim()}`;
-      const emoji = country.emoji ? `${country.emoji} ` : "";
-      const labelName = country.nicename || country.name || country.iso || code;
-      const option = document.createElement("option");
-      option.value = code;
-      option.textContent = `${emoji}${labelName} (${code})`;
-      select.appendChild(option);
-      if (code === DEFAULT_PHONE_CODE) {
-        defaultOptionFound = true;
+    if (window.electronAPI?.getCountryCodes) {
+      try {
+        const ipcResult = await window.electronAPI.getCountryCodes();
+        if (Array.isArray(ipcResult?.data)) {
+          countries = ipcResult.data;
+        } else if (Array.isArray(ipcResult)) {
+          countries = ipcResult;
+        }
+      } catch (err) {
+        console.warn("⚠️ IPC country codes gagal:", err?.message || err);
       }
-    });
-
-    if (defaultOptionFound) {
-      select.value = DEFAULT_PHONE_CODE;
-    } else {
-      select.selectedIndex = 0;
     }
 
+    if (!countries.length) {
+      const assetUrl = new URL("assets/country.json", window.location.href);
+      const response = await fetch(assetUrl.toString());
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const json = await response.json();
+      if (!Array.isArray(json)) {
+        throw new Error("Format country.json tidak valid");
+      }
+      countries = json;
+    }
+
+    if (!countries.length) {
+      throw new Error("Daftar negara kosong");
+    }
+
+    const normalized = countries
+      .filter((c) => c && c.phonecode)
+      .map((country) => {
+        const code = `+${String(country.phonecode).trim()}`;
+        const emoji = country.emoji ? `${country.emoji} ` : "";
+        const labelName = country.nicename || country.name || country.iso || code;
+        const label = `${emoji}${labelName} (${code})`;
+        const searchText = [
+          labelName,
+          country.nicename,
+          country.name,
+          country.iso,
+          code,
+          country.emoji,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return { code, label, searchText };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label, "id"));
+
+    phoneCodeOptionsCache = normalized;
+    renderPhoneCodeOptions(normalized, select, { preserveValue: false });
     phoneCodeOptionsLoaded = true;
   } catch (err) {
     console.error("⚠️ Gagal memuat daftar kode negara:", err);
     select.innerHTML =
       '<option value="">Gagal memuat kode negara. Coba ulangi.</option>';
   }
+}
+
+function renderPhoneCodeOptions(list, select, options = {}) {
+  const { preserveValue = true, skipSync = false } = options;
+  const currentValue = preserveValue ? select.value : "";
+  select.innerHTML = '<option value="">Pilih kode negara</option>';
+
+  if (!list.length) {
+    const emptyOption = document.createElement("option");
+    emptyOption.value = "";
+    emptyOption.textContent = "Tidak ditemukan. Ketik kata lain.";
+    emptyOption.disabled = true;
+    select.appendChild(emptyOption);
+    select.selectedIndex = 0;
+    if (!skipSync) syncPhoneCodeSearchValue(true);
+    return;
+  }
+
+  let defaultOptionFound = false;
+  list.forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.code;
+    option.textContent = item.label;
+    select.appendChild(option);
+    if (item.code === DEFAULT_PHONE_CODE) {
+      defaultOptionFound = true;
+    }
+  });
+
+  if (currentValue && list.some((item) => item.code === currentValue)) {
+    select.value = currentValue;
+  } else if (defaultOptionFound) {
+    select.value = DEFAULT_PHONE_CODE;
+  } else {
+    select.selectedIndex = 0;
+  }
+
+  if (!skipSync) {
+    syncPhoneCodeSearchValue(true);
+  }
+}
+
+function syncPhoneCodeSearchValue(force = false) {
+  const select = document.getElementById("registerPhoneCode");
+  const input = document.getElementById("registerPhoneCodeSearch");
+  if (!select || !input) return;
+  if (!force && input.dataset.userEditing === "true") return;
+  const option = select.options[select.selectedIndex];
+  input.value = option?.textContent || "";
+}
+
+function handlePhoneCodeSearchInput(event) {
+  const select = document.getElementById("registerPhoneCode");
+  if (!select || !phoneCodeOptionsCache.length) return;
+  const query = (event.target.value || "").trim().toLowerCase();
+  if (!query) {
+    renderPhoneCodeOptions(phoneCodeOptionsCache, select, {
+      preserveValue: true,
+      skipSync: true,
+    });
+    return;
+  }
+  const filtered = phoneCodeOptionsCache.filter((item) =>
+    item.searchText.includes(query)
+  );
+  renderPhoneCodeOptions(filtered, select, {
+    preserveValue: false,
+    skipSync: true,
+  });
+}
+
+function handlePhoneCodeSearchFocus(event) {
+  event.target.dataset.userEditing = "true";
+  event.target.select();
+}
+
+function handlePhoneCodeSearchBlur(event) {
+  event.target.dataset.userEditing = "false";
+  syncPhoneCodeSearchValue(true);
+}
+
+function compareVersions(a = "", b = "") {
+  const parse = (value) =>
+    value
+      .toString()
+      .split(".")
+      .map((part) => parseInt(part, 10) || 0);
+  const partsA = parse(a);
+  const partsB = parse(b);
+  const length = Math.max(partsA.length, partsB.length);
+  for (let i = 0; i < length; i += 1) {
+    const diff = (partsA[i] || 0) - (partsB[i] || 0);
+    if (diff > 0) return 1;
+    if (diff < 0) return -1;
+  }
+  return 0;
+}
+
+function getPreferredPlatformKey() {
+  const ua = (navigator.userAgent || "").toLowerCase();
+  if (ua.includes("windows")) return "windows";
+  if (ua.includes("mac") || ua.includes("darwin")) return "mac";
+  if (ua.includes("linux")) return "linux";
+  return null;
+}
+
+function getPreferredDownload(info = {}) {
+  const downloads = info.downloads || {};
+  const platformKey = getPreferredPlatformKey();
+  if (platformKey && downloads[platformKey]) {
+    return { platform: platformKey, ...(downloads[platformKey] || {}) };
+  }
+  const [firstKey] = Object.keys(downloads);
+  if (firstKey) {
+    return { platform: firstKey, ...(downloads[firstKey] || {}) };
+  }
+  return null;
+}
+
+function renderVersionBanner(info) {
+  const banner = document.getElementById("versionAlertBanner");
+  if (!banner) return;
+  if (!info) {
+    banner.style.display = "none";
+    return;
+  }
+  const titleEl = document.getElementById("versionAlertTitle");
+  const msgEl = document.getElementById("versionAlertMessage");
+  const downloadBtn = document.getElementById("versionAlertDownload");
+
+  if (titleEl) {
+    titleEl.textContent = `Versi ${info.version} (${(info.channel || "stable").toUpperCase()}) tersedia`;
+  }
+  if (msgEl) {
+    const summary =
+      info.changelog?.split?.("\n")?.find((line) => line.trim()) ||
+      "Tersedia pembaruan dengan perbaikan terbaru.";
+    msgEl.textContent = summary;
+  }
+  if (downloadBtn) {
+    const preferred = getPreferredDownload(info);
+    if (preferred?.url) {
+      downloadBtn.href = preferred.url;
+      downloadBtn.style.display = "inline-flex";
+      downloadBtn.innerHTML = `<i class="bi bi-download"></i> Download ${
+        preferred.platform ? preferred.platform.toUpperCase() : ""
+      }`;
+    } else {
+      downloadBtn.style.display = "none";
+    }
+  }
+  banner.style.display = "flex";
+}
+
+function dismissVersionBanner() {
+  const banner = document.getElementById("versionAlertBanner");
+  if (banner) {
+    banner.style.display = "none";
+  }
+}
+
+function updateVersionIndicator(hasUpdate) {
+  const dot = document.getElementById("versionUpdateDot");
+  if (dot) {
+    dot.style.display = hasUpdate ? "inline-block" : "none";
+  }
+}
+
+function buildDownloadListHtml(downloads = {}) {
+  const entries = Object.entries(downloads);
+  if (!entries.length) return "";
+  const items = entries
+    .map(([platform, payload]) => {
+      if (!payload?.url) return "";
+      const checksum = payload.checksum
+        ? `<small>Checksum: ${payload.checksum}</small>`
+        : "";
+      return `<li><a href="${payload.url}" target="_blank" rel="noopener">${platform.toUpperCase()}</a>${checksum}</li>`;
+    })
+    .filter(Boolean)
+    .join("");
+  if (!items) return "";
+  return `<ul class="version-download-list">${items}</ul>`;
+}
+
+function showVersionInfoDialog(info) {
+  if (!info) return;
+  const changelogHtml = (info.changelog || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("<br>");
+  const notesHtml = Array.isArray(info.metadata?.notes)
+    ? info.metadata.notes
+        .map((note) => `<li>${note}</li>`)
+        .join("")
+    : "";
+  const downloadHtml = buildDownloadListHtml(info.downloads || {});
+
+  const sections = [];
+  sections.push(
+    `<p><strong>Channel:</strong> ${(info.channel || "stable").toUpperCase()}</p>`
+  );
+  if (info.metadata?.min_app_version) {
+    sections.push(
+      `<p><strong>Minimal versi aplikasi:</strong> ${info.metadata.min_app_version}</p>`
+    );
+  }
+  if (changelogHtml) {
+    sections.push(
+      `<div class="version-changelog"><strong>Changelog:</strong><br>${changelogHtml}</div>`
+    );
+  }
+  if (notesHtml) {
+    sections.push(
+      `<div class="version-notes"><strong>Catatan:</strong><ul>${notesHtml}</ul></div>`
+    );
+  }
+  if (downloadHtml) {
+    sections.push(
+      `<div class="version-downloads"><strong>Unduhan:</strong>${downloadHtml}</div>`
+    );
+  }
+
+  Swal.fire({
+    title: `Versi ${info.version} tersedia`,
+    html: sections.join(""),
+    icon: "info",
+    width: 600,
+    confirmButtonText: "Tutup",
+  });
+}
+
+async function checkLatestVersion(options = {}) {
+  if (!window.electronAPI?.checkLatestVersion) return;
+  if (versionCheckInProgress) {
+    if (options.showAlways) {
+      showToast("Sedang memeriksa versi...", 2500, "info");
+    }
+    return;
+  }
+  versionCheckInProgress = true;
+  const channel = options.channel || VERSION_CHECK_CHANNEL;
+  try {
+    const result = await window.electronAPI.checkLatestVersion(channel);
+    if (!result?.success) {
+      if (options.silent) {
+        console.warn("⚠️ Version check gagal:", result?.message || "Unknown");
+      } else {
+        showToast(result?.message || "Gagal memeriksa versi.", 3500, "error");
+      }
+      return;
+    }
+    currentAppVersion = result.currentVersion || currentAppVersion || "0.0.0";
+    const info = result.info || result.data;
+    if (!info?.version) {
+      if (options.silent) {
+        console.warn("⚠️ Respons versi tidak valid:", info);
+      } else {
+        showToast("Respons versi tidak valid.", 3500, "error");
+      }
+      return;
+    }
+    latestVersionInfo = info;
+    const isNewer =
+      compareVersions(info.version, currentAppVersion || "0.0.0") > 0;
+    updateVersionIndicator(isNewer);
+    if (isNewer) {
+      renderVersionBanner(info);
+      if (!hasShownVersionDialog || options.showAlways) {
+        showVersionInfoDialog(info);
+        hasShownVersionDialog = true;
+      }
+    } else {
+      renderVersionBanner(null);
+      if (options.showAlways) {
+        showToast(
+          `Anda sudah menggunakan versi terbaru (${currentAppVersion}).`,
+          3500,
+          "success"
+        );
+      }
+    }
+  } catch (err) {
+    if (options.silent) {
+      console.warn("⚠️ Gagal memeriksa versi:", err?.message || err);
+    } else {
+      showToast(err?.message || "Gagal memeriksa versi.", 3500, "error");
+    }
+  } finally {
+    versionCheckInProgress = false;
+  }
+}
+
+async function hydrateStaticAssetImages() {
+  if (!window.electronAPI?.resolveAssetUrl) return;
+  const candidates = document.querySelectorAll("[data-asset-src]");
+  if (!candidates.length) return;
+  const tasks = Array.from(candidates).map(async (img) => {
+    const assetName = img.getAttribute("data-asset-src");
+    if (!assetName) return;
+    try {
+      const resolved = await window.electronAPI.resolveAssetUrl(assetName);
+      if (resolved) {
+        img.src = resolved;
+      }
+    } catch (err) {
+      console.warn(
+        `⚠️ Gagal memuat asset ${assetName}:`,
+        err?.message || err
+      );
+    }
+  });
+  await Promise.allSettled(tasks);
 }
 
 function getActiveSession() {
@@ -1876,14 +3530,37 @@ function setDeviceState(uid, state) {
   }
 }
 
+function filterDevicesBySearch(devices = []) {
+  if (!deviceSearchQuery) return devices.slice();
+  const query = deviceSearchQuery;
+  return devices.filter((device) => {
+    const label = getServiceLabel(device.service);
+    const haystack = [
+      device.uid,
+      device.name,
+      label,
+      device.service,
+      device.customUrl,
+      device.pendingUrl,
+      device.mode,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(query);
+  });
+}
+
 async function renderDevices(devices) {
   const container = document.getElementById("device-list");
   const limitInfo = document.getElementById("device-limit-info");
   if (!container) return;
 
   container.innerHTML = "";
+  const filteredDevices = filterDevicesBySearch(devices);
   const { visible: visibleDevices, hidden: hiddenDevices } =
-    partitionDevicesByLimit(devices);
+    partitionDevicesByLimit(filteredDevices);
+  const isSearching = !!deviceSearchQuery;
   updateDeviceLimitInfo(hiddenDevices);
   if (limitInfo && !hiddenDevices.length && !visibleDevices.length) {
     limitInfo.style.display = "none";
@@ -1894,25 +3571,24 @@ async function renderDevices(devices) {
   if (!visibleDevices.length) {
     const emptyState = document.createElement("div");
     emptyState.className = "device-empty-state";
-    emptyState.textContent =
-      "Belum ada device yang dapat ditampilkan untuk konfigurasi saat ini.";
+    emptyState.textContent = isSearching
+      ? "Tidak ada device yang cocok dengan pencarian Anda."
+      : "Belum ada device yang dapat ditampilkan untuk konfigurasi saat ini.";
     fragment.appendChild(emptyState);
   }
 
   for (const device of visibleDevices) {
     const serviceKey = (device?.service || "").toLowerCase();
     const config = serviceConfig[serviceKey] || serviceConfig.default;
+    const serviceMeta = SERVICE_LIBRARY_MAP.get(serviceKey);
     const isCustomService = serviceKey === "other";
     const displayUrl = device.customUrl || "";
     const serviceLabel = isCustomService
       ? displayUrl || config.label || "Website Kustom"
       : config.label || device.service || "Unknown";
     const baseUrl = isCustomService
-      ? displayUrl || "https://example.com"
-      : config.url || `https://${serviceKey}.com`;
-    const faviconUrl = `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(
-      baseUrl
-    )}`;
+      ? displayUrl || ""
+      : config.url || serviceMeta?.url || "";
     const initialStatus = (device.status || "stopped").toLowerCase();
     const isActive =
       initialStatus === "active" ||
@@ -1944,9 +3620,7 @@ async function renderDevices(devices) {
              aria-label="Pilih ${device.name}">
 
       <div class="device-service-icon" title="Layanan: ${serviceLabel}">
-        <img src="${faviconUrl}"
-             alt="Ikon ${serviceLabel}"
-             onerror="this.onerror=null;this.src='assets/starbox.png';">
+        <img alt="Ikon ${serviceLabel}">
       </div>
 
       <div class="device-header">
@@ -1991,6 +3665,33 @@ async function renderDevices(devices) {
         </div>
       </div>
     `;
+
+    const iconElement = deviceCard.querySelector(".device-service-icon img");
+    if (isCustomService) {
+      if (displayUrl) {
+        iconElement.src = `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(
+          displayUrl
+        )}`;
+        attachServiceIconFallback(iconElement);
+      } else {
+        applyAssetToImage(iconElement);
+      }
+    } else if (serviceMeta) {
+      const iconSource = getServiceIconSource(serviceMeta);
+      if (iconSource.type === "asset") {
+        applyAssetToImage(iconElement, iconSource.name);
+      } else {
+        iconElement.src = iconSource.value;
+        attachServiceIconFallback(iconElement);
+      }
+    } else if (baseUrl) {
+      iconElement.src = `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(
+        baseUrl
+      )}`;
+      attachServiceIconFallback(iconElement);
+    } else {
+      applyAssetToImage(iconElement);
+    }
 
     const statusButton = deviceCard.querySelector(".status-indicator");
     const inlineStop = deviceCard.querySelector(".inline-stop");
@@ -2094,6 +3795,24 @@ async function renderDevices(devices) {
           section.style.display =
             (device.service || "").toLowerCase() === "other" ? "block" : "none";
         }
+      }
+      const editSpecSelect = document.getElementById(
+        "editAndroidSpecPreset"
+      );
+      if (editSpecSelect) {
+        editSpecSelect.value =
+          device.androidSpec?.id || DEFAULT_ANDROID_SPEC_ID;
+        updateAndroidSpecDescription(
+          "editAndroidSpecPreset",
+          "editAndroidSpecDescription"
+        );
+      }
+      if (typeof window.refreshEditAndroidSpecUI === "function") {
+        window.refreshEditAndroidSpecUI();
+      } else {
+        toggleEditAndroidSpecSection(
+          (device.service || "").toLowerCase() === "android"
+        );
       }
 
       openEditModal();
@@ -2590,6 +4309,9 @@ function openModal() {
   toggleCustomServiceSection(
     document.getElementById("deviceService")?.value === "other"
   );
+  toggleAndroidSpecSection(
+    document.getElementById("deviceService")?.value === "android"
+  );
   if (typeof refreshAddAutoSenderUI === "function") {
     refreshAddAutoSenderUI();
   }
@@ -2608,6 +4330,7 @@ function closeModal() {
   const customUrlEl = document.getElementById("customServiceUrl");
   const callbackEl = document.getElementById("deviceCallbackUrl");
   const serviceSelect = document.getElementById("deviceService");
+  const androidSpecSelect = document.getElementById("androidSpecPreset");
   if (nameEl) nameEl.value = "";
   if (serviceSelect) serviceSelect.value = "wa";
   if (autoRunEl) autoRunEl.checked = false;
@@ -2616,6 +4339,14 @@ function closeModal() {
   if (customUrlEl) customUrlEl.value = "";
   if (callbackEl) callbackEl.value = "";
   toggleCustomServiceSection(false);
+  toggleAndroidSpecSection(false);
+  if (androidSpecSelect) {
+    androidSpecSelect.value = DEFAULT_ANDROID_SPEC_ID;
+    updateAndroidSpecDescription(
+      "androidSpecPreset",
+      "androidSpecDescription"
+    );
+  }
   syncServiceAvailability();
   updateAddDeviceQuotaHint();
   if (typeof refreshAddAutoSenderUI === "function") {
@@ -2679,6 +4410,15 @@ async function submitDevice() {
   const callbackUrl = autoSenderEnabled
     ? (callbackInput?.value || "").trim()
     : "";
+  const androidSpecSelect = document.getElementById("androidSpecPreset");
+  const selectedAndroidSpecId =
+    service === "android"
+      ? androidSpecSelect?.value || DEFAULT_ANDROID_SPEC_ID
+      : null;
+  const androidSpec =
+    service === "android"
+      ? getAndroidSpecPayload(selectedAndroidSpecId)
+      : null;
 
   if (!name) {
     showToast("Nama device wajib diisi.", 3000, "warning");
@@ -2717,6 +4457,7 @@ async function submitDevice() {
       pendingUrl,
       callbackUrl,
       customUrl,
+      androidSpec,
     });
     if (result.success) {
       showToast(`Device ${name} berhasil ditambahkan.`, 3000, "success");
@@ -2741,6 +4482,32 @@ async function submitDevice() {
 
 // Jalankan saat awal
 window.addEventListener("DOMContentLoaded", () => {
+  resolveAssetPath(DEFAULT_ICON_ASSET).catch(() => {});
+  hydrateStaticAssetImages();
+  initThemeSelector();
+  ensureServiceSelectOptions("deviceService");
+  ensureAndroidSpecSelectOptions(
+    "androidSpecPreset",
+    "androidSpecDescription"
+  );
+  ensureAndroidSpecSelectOptions(
+    "editAndroidSpecPreset",
+    "editAndroidSpecDescription"
+  );
+  renderServiceBrowserGrid();
+  refreshServiceLibraryFromServer()
+    .then((updated) => {
+      if (updated) {
+        ensureServiceSelectOptions("deviceService");
+        renderServiceBrowserGrid();
+      }
+    })
+    .catch((err) =>
+      console.warn(
+        "⚠️ Tidak dapat menyinkronkan layanan saat inisialisasi:",
+        err?.message || err
+      )
+    );
   initAuthFlow();
   applyRememberedLogin();
   loadPhoneCodesIntoSelect();
@@ -2755,8 +4522,37 @@ window.addEventListener("DOMContentLoaded", () => {
         refreshAddAutoSenderUI();
       }
       toggleCustomServiceSection(serviceSelect.value === "other");
+      renderServiceBrowserGrid();
     });
   }
+  const serviceSearch = document.getElementById("serviceBrowserSearch");
+  if (serviceSearch) {
+    serviceSearch.addEventListener("input", (event) => {
+      serviceBrowserState.search = event.target.value || "";
+      renderServiceBrowserGrid();
+    });
+  }
+  const phoneCodeSearch = document.getElementById("registerPhoneCodeSearch");
+  if (phoneCodeSearch) {
+    phoneCodeSearch.addEventListener("input", handlePhoneCodeSearchInput);
+    phoneCodeSearch.addEventListener("focus", handlePhoneCodeSearchFocus);
+    phoneCodeSearch.addEventListener("blur", handlePhoneCodeSearchBlur);
+  }
+  const phoneCodeSelect = document.getElementById("registerPhoneCode");
+  if (phoneCodeSelect) {
+    phoneCodeSelect.addEventListener("change", () =>
+      syncPhoneCodeSearchValue(true)
+    );
+  }
+  checkLatestVersion({ silent: true });
+  const deviceSearchInput = document.getElementById("deviceSearchInput");
+  if (deviceSearchInput) {
+    deviceSearchInput.addEventListener("input", (event) => {
+      deviceSearchQuery = (event.target.value || "").toLowerCase();
+      renderDevices(cachedDevices);
+    });
+  }
+  syncThemeSelector();
   syncServiceAvailability();
 
   // Update status otomatis
@@ -2821,6 +4617,26 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 });
+
+window.triggerVersionCheck =
+  window.triggerVersionCheck ||
+  function () {
+    checkLatestVersion({ showAlways: true });
+  };
+
+window.openVersionInfoDialog =
+  window.openVersionInfoDialog ||
+  function () {
+    if (latestVersionInfo) {
+      showVersionInfoDialog(latestVersionInfo);
+    } else {
+      checkLatestVersion({ showAlways: true });
+    }
+  };
+
+window.dismissVersionBanner =
+  window.dismissVersionBanner || dismissVersionBanner;
+
 function restartDevice(uid, service) {
   // Close window by killing process (optional improvement: track PID)
   // Di sini kita hanya ubah status dan jalankan ulang
@@ -2965,3 +4781,17 @@ Object.assign(window, {
   openAccountModal,
   closeAccountModal,
 });
+
+window.changeLayout = function (layout) {
+  const desired = layout === "list" ? "list" : "card";
+  setStoredLayout(desired);
+  const toggle = document.getElementById("layoutToggle");
+  if (toggle) {
+    toggle.querySelectorAll(".layout-option").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.layout === desired);
+    });
+  }
+  if (document.body) {
+    document.body.classList.toggle("list-layout", desired === "list");
+  }
+};

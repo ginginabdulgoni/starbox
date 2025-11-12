@@ -2,8 +2,9 @@
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const os = require('os');
 const { app } = require('electron');
-const AdmZip = require('adm-zip');
+const extractZip = require('extract-zip');
 const { spawn } = require('child_process');
 
 class AndroidManager {
@@ -25,6 +26,102 @@ class AndroidManager {
 
     // Check if Mac is Apple Silicon
     this.isAppleSilicon = this.isMac && process.arch === 'arm64';
+  }
+
+  sanitizeAvdName(name = 'StarBox_Default') {
+    const normalized = (name || 'StarBox_Default')
+      .toString()
+      .replace(/[^a-zA-Z0-9_\-]+/g, '_')
+      .slice(0, 32);
+    return normalized || 'StarBox_Default';
+  }
+
+  getEmulatorTempDir() {
+    const base =
+      (os.tmpdir && os.tmpdir()) ||
+      (app.getPath && app.getPath('temp')) ||
+      path.join(this.emulatorPath || app.getPath('userData'), 'tmp');
+    return path.join(base, 'AndroidEmulator');
+  }
+
+  ensureTempCrashDirectories() {
+    try {
+      const tempDir = this.getEmulatorTempDir();
+      fs.mkdirSync(tempDir, { recursive: true });
+      const candidates = [
+        path.join(tempDir, 'emu-crash'),
+        path.join(tempDir, 'emu-crash-33.1.24.db'),
+      ];
+      candidates.forEach((root) => {
+        const attachments = path.join(root, 'attachments');
+        fs.mkdirSync(attachments, { recursive: true });
+      });
+      const updateIni = path.join(tempDir, 'emu-update-last-check.ini');
+      if (!fs.existsSync(updateIni)) {
+        fs.writeFileSync(updateIni, 'lastCheck=0\n', 'utf8');
+      }
+      const homeDir = path.join(tempDir, 'home');
+      fs.mkdirSync(homeDir, { recursive: true });
+      return { tempDir, homeDir };
+    } catch (err) {
+      console.warn('⚠️ Tidak dapat membuat folder temp emulator:', err.message);
+    }
+    return {
+      tempDir: this.getEmulatorTempDir(),
+      homeDir: path.join(this.getEmulatorTempDir(), 'home'),
+    };
+  }
+
+  getDefaultSpec() {
+    return {
+      id: 'balanced',
+      label: 'Balanced • 2 Core • 1.5 GB',
+      memoryMb: 1536,
+      cores: 2,
+      resolution: '720x1280',
+      density: 265,
+    };
+  }
+
+  normalizeSpec(spec) {
+    const base = this.getDefaultSpec();
+    if (!spec || typeof spec !== 'object') {
+      return { ...base };
+    }
+    const normalized = { ...base };
+    const mem = parseInt(spec.memoryMb, 10);
+    if (Number.isFinite(mem)) {
+      normalized.memoryMb = Math.min(Math.max(mem, 512), 4096);
+    }
+    const cores = parseInt(spec.cores, 10);
+    if (Number.isFinite(cores)) {
+      normalized.cores = Math.min(Math.max(cores, 1), 8);
+    }
+    if (spec.resolution) {
+      const match = String(spec.resolution)
+        .toLowerCase()
+        .match(/(\d+)\s*x\s*(\d+)/);
+      if (match) {
+        normalized.resolution = `${match[1]}x${match[2]}`;
+      }
+    }
+    const density = parseInt(spec.density, 10);
+    if (Number.isFinite(density)) {
+      normalized.density = Math.min(Math.max(density, 120), 640);
+    }
+    normalized.id = spec.id || normalized.id;
+    normalized.label = spec.label || normalized.label;
+    return normalized;
+  }
+
+  parseResolution(resolution = '720x1280') {
+    const match = String(resolution)
+      .toLowerCase()
+      .match(/(\d+)\s*x\s*(\d+)/);
+    if (!match) {
+      return { width: 720, height: 1280 };
+    }
+    return { width: Number(match[1]), height: Number(match[2]) };
   }
 
   getProcessEnv() {
@@ -374,7 +471,7 @@ class AndroidManager {
         message: 'Creating default Android Virtual Device...',
       });
 
-      await this.createDefaultAVD((message) => {
+      await this.createDefaultAVD('StarBox_Default', null, (message) => {
         emitProgress({
           phase: 'setup',
           component: 'AVD',
@@ -729,10 +826,16 @@ class AndroidManager {
   /**
    * Create default AVD configuration
    */
-  async createDefaultAVD(statusCallback = null) {
-    const avdName = 'StarBox_Default';
+  async createDefaultAVD(avdName = 'StarBox_Default', spec = null, statusCallback = null) {
+    avdName = this.sanitizeAvdName(avdName);
     const avdDir = path.join(this.avdPath, `${avdName}.avd`);
     const avdIni = path.join(this.avdPath, `${avdName}.ini`);
+    const resolvedSpec = this.normalizeSpec(spec);
+    const { width, height } = this.parseResolution(resolvedSpec.resolution);
+    const heapSize = Math.max(
+      228,
+      Math.min(768, Math.round(resolvedSpec.memoryMb * 0.4))
+    );
 
     const notify = (message) => {
       if (typeof statusCallback !== 'function') return;
@@ -761,28 +864,30 @@ target=android-30
 
     // Create config.ini optimized for software emulation with quick boot enabled
     // Lower resolution (720x1280) for faster rendering on Apple Silicon
+    const gpuMode = this.isWin ? 'swiftshader_indirect' : 'guest';
     const avdConfig = `
 avd.ini.encoding=UTF-8
 hw.accelerometer=yes
 hw.audioInput=no
 hw.battery=yes
 hw.cpu.arch=x86_64
-hw.cpu.ncore=2
+hw.cpu.ncore=${resolvedSpec.cores}
 hw.device.manufacturer=Google
 hw.device.name=pixel_4
 hw.gpu.enabled=yes
-hw.gpu.mode=swiftshader_indirect
+hw.gpu.mode=${gpuMode}
 hw.keyboard=yes
 hw.lcd.density=240
-hw.lcd.height=1280
-hw.lcd.width=720
-hw.ramSize=1536
+hw.lcd.height=${height}
+hw.lcd.width=${width}
+hw.lcd.density=${resolvedSpec.density}
+hw.ramSize=${resolvedSpec.memoryMb}
 hw.sdCard=yes
 image.sysdir.1=system-images/android-30/google_apis/x86_64/
-skin.name=720x1280
+skin.name=${resolvedSpec.resolution}
 tag.display=Google APIs
 tag.id=google_apis
-vm.heapSize=228
+vm.heapSize=${heapSize}
 hw.arc=false
 hw.audioOutput=no
 fastboot.chosenSnapshotFile=
@@ -846,8 +951,14 @@ hw.camera.front=none
         unzip.on('error', reject);
       });
     } else {
-      const zip = new AdmZip(zipPath);
-      zip.extractAllTo(dest, true);
+      await extractZip(zipPath, {
+        dir: dest,
+        onEntry: (entry) => {
+          if (typeof notify === 'function' && entry?.fileName) {
+            notify(entry.fileName);
+          }
+        },
+      });
     }
 
     return true;
@@ -954,6 +1065,7 @@ hw.camera.front=none
    * Start Android emulator
    */
   async startEmulator(avdName = 'StarBox_Default', options = {}) {
+    avdName = this.sanitizeAvdName(avdName);
     this.initializePaths();
 
     if (this.emulatorProcess) {
@@ -963,7 +1075,12 @@ hw.camera.front=none
     const {
       headless = false,
       progressCallback = null,
+      spec: requestedSpec = null,
     } = options || {};
+
+    const resolvedSpec = this.normalizeSpec(requestedSpec);
+
+    this.ensureTempCrashDirectories();
 
     const emitProgress = (payload = {}) => {
       if (typeof progressCallback === 'function') {
@@ -1026,18 +1143,24 @@ hw.camera.front=none
     // Build emulator arguments optimized for software emulation with quick boot
     // Lower resolution (720x1280) for faster rendering on Apple Silicon
     // Using 'guest' GPU mode instead of SwiftShader for better Apple Silicon compatibility
+    const gpuMode = this.isWin ? 'swiftshader_indirect' : 'guest';
+    const skinValue = (resolvedSpec.resolution || '720x1280').toLowerCase();
     const args = [
       '-avd', avdName,
       '-no-boot-anim',
       '-no-audio',
-      '-gpu', 'guest',
-      '-skin', '720x1280',
-      '-memory', '1536',  // Reduce memory for stability
-      '-cores', '2',
+      '-gpu', gpuMode,
+      '-skin', skinValue,
+      '-memory', String(resolvedSpec.memoryMb || 1536),
+      '-cores', String(resolvedSpec.cores || 2),
       '-feature', '-Vulkan',
-      '-no-accel',  // Explicitly disable hardware acceleration to avoid HVF errors
       '-verbose'
     ];
+    if (this.isWin) {
+      args.push('-accel', 'off');
+    } else {
+      args.push('-no-accel');
+    }
 
     if (headless) {
       args.push('-no-window');
@@ -1051,7 +1174,7 @@ hw.camera.front=none
       phase: 'setup-avd',
       message: 'Menyiapkan konfigurasi emulator untuk software mode...',
     });
-    await this.createDefaultAVD((message) =>
+    await this.createDefaultAVD(avdName, resolvedSpec, (message) =>
       emitProgress({
         phase: 'setup-avd',
         message,
@@ -1074,6 +1197,10 @@ hw.camera.front=none
       try {
         const env = this.getProcessEnv();
         env.ANDROID_EMULATOR_USE_SYSTEM_LIBS = '1';
+        env.ANDROID_EMULATOR_DISABLE_CRASH_REPORT = '1';
+        env.ANDROID_EMULATOR_DISABLE_METRICS = '1';
+        env.ANDROID_EMULATOR_HOME = env.ANDROID_EMULATOR_HOME || this.getEmulatorTempDir();
+        env.ANDROID_PRODUCT_OUT = env.ANDROID_PRODUCT_OUT || this.getEmulatorTempDir();
         if (this.isMac) {
           env.QEMU_AUDIO_DRV = 'none';
           env.ANDROID_EMULATOR_HVF = '1';

@@ -94,5 +94,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         }
       });
     }
-  }
+  },
+
+  resolveAssetUrl: (assetName) =>
+    ipcRenderer.invoke('resolve-asset-url', assetName),
+  getCountryCodes: () => ipcRenderer.invoke('get-country-codes'),
+  checkLatestVersion: (channel = 'stable') =>
+    ipcRenderer.invoke('check-latest-version', channel)
 });

@@ -5,7 +5,9 @@ StarBox adalah aplikasi desktop berbasis Electron yang membantu menjalankan bebe
 ## Fitur Utama
 
 - **Multi‑service web emulator**
-  Jalankan berbagai layanan web dengan profil terisolasi (partition `persist:<uid>`) sehingga tiap device memiliki sesi cookies sendiri.
+  Jalankan berbagai layanan web dengan profil terisolasi (partition `persist:<uid>`) sehingga tiap device memiliki sesi cookies sendiri. Contoh layanan bawaan: WhatsApp, Telegram, Gmail, Google Drive/Docs/Sheets/Slides, YouTube/Studio, Instagram, Twitter/X, TikTok Shop, Tokopedia, Canva, Figma, Slack, Trello, GitHub, Microsoft 365 (Word/Excel/PowerPoint), dan banyak lagi.
+- **Katalog layanan dengan pencarian & logo**
+  Pilih layanan publik dan marketplace Indonesia (Tokopedia, Shopee, TikTok Shop, dll.) lewat katalog bergambar lengkap dengan pencarian instan agar penambahan device lebih cepat.
 
 - **Android Emulator (NEW!)**
   Jalankan Android virtual device langsung dari StarBox tanpa install Android Studio. Download on-demand (~800MB), kemudian tinggal klik Start untuk menjalankan emulator Android 11.
