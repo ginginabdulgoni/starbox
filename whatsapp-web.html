@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Starbox WhatsApp Web</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" />
+</head>
+
+<body>
+  <div class="wa-web-wrapper">
+    <aside class="wa-web-sidebar">
+      <div class="wa-web-sidebar-header">
+        <div>
+          <h2>Chats</h2>
+          <p class="wa-web-subtitle">Tatap muka dari data log</p>
+        </div>
+        <button id="waWebRefreshBtn" class="ghost btn-sm">
+          <i class="bi bi-arrow-repeat"></i>
+        </button>
+      </div>
+
+      <div class="wa-web-search">
+        <input id="waWebSearchInput" type="text" placeholder="Cari pesan atau nomor..." />
+      </div>
+
+      <div class="wa-web-chat-list" id="waWebChatList">
+        <div class="wa-web-chat-empty">Memuat percakapan…</div>
+      </div>
+    </aside>
+
+    <section class="wa-web-main">
+      <header class="wa-web-main-header">
+        <div>
+          <div id="waWebChatTitle">Pilih percakapan</div>
+          <div class="wa-web-chat-subtitle" id="waWebChatSubtitle">
+            Pilih chat di panel kiri untuk melihat pesan masuk/keluar.
+          </div>
+        </div>
+        <div class="wa-web-main-meta">
+          <span id="waWebDeviceLabel"></span>
+          <span id="waWebDeviceStatus" class="wa-web-status-badge">Status: —</span>
+        </div>
+      </header>
+
+      <div class="wa-web-alert" id="waWebAlert" aria-live="polite"></div>
+
+      <div class="wa-web-messages" id="waWebMessages">
+        <div class="wa-web-placeholder">
+          Tidak ada pesan untuk ditampilkan.
+        </div>
+      </div>
+
+      <form class="wa-web-send-form" id="waWebSendForm">
+        <input id="waWebMessageInput" type="text" placeholder="Ketik pesan baru..." autocomplete="off" />
+        <button type="submit" class="btn-success">
+          <i class="bi bi-send"></i> Kirim
+        </button>
+      </form>
+    </section>
+  </div>
+
+  <script>
+    (() => {
+      const params = new URLSearchParams(window.location.search);
+      const deviceId = params.get("deviceId");
+      const MAX_LOGS = 400;
+      const chatList = document.getElementById("waWebChatList");
+      const messagesContainer = document.getElementById("waWebMessages");
+      const searchInput = document.getElementById("waWebSearchInput");
+      const refreshBtn = document.getElementById("waWebRefreshBtn");
+      const sendForm = document.getElementById("waWebSendForm");
+      const messageInput = document.getElementById("waWebMessageInput");
+      const titleEl = document.getElementById("waWebChatTitle");
+      const subtitleEl = document.getElementById("waWebChatSubtitle");
+      const deviceLabel = document.getElementById("waWebDeviceLabel");
+      const deviceStatus = document.getElementById("waWebDeviceStatus");
+      const alertEl = document.getElementById("waWebAlert");
+
+      let deviceInfo = null;
+      let chatBuckets = [];
+      let selectedPhone = null;
+
+      const formatTimestamp = (value) => {
+        if (!value) return "";
+        const dt = new Date(value);
+        if (Number.isNaN(dt.getTime())) return "";
+        return dt.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+      };
+
+      const escapeHtml = (value) => {
+        if (typeof value !== "string") return "";
+        return value
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      };
+
+      const setAlert = (text, type = "info") => {
+        if (!alertEl) return;
+        alertEl.textContent = text || "";
+        alertEl.dataset.type = type;
+      };
+
+      const showError = (message) => {
+        chatList.innerHTML = `<div class="wa-web-chat-empty">${escapeHtml(message)}</div>`;
+        messagesContainer.innerHTML = `<div class="wa-web-placeholder">${escapeHtml(message)}</div>`;
+        titleEl.textContent = "Error";
+        subtitleEl.textContent = "Tidak dapat memuat data";
+        deviceStatus.textContent = "Status: —";
+      };
+
+      const buildChatBuckets = (logs) => {
+        const map = new Map();
+        logs.forEach((log) => {
+          const incoming = String(log.status || "").toLowerCase().includes("received");
+          const phone = log.phone || "unknown";
+          const bucket = map.get(phone) || {
+            phone,
+            messages: [],
+            lastTimestamp: 0,
+            preview: "",
+            lastStatus: incoming ? "received" : "sent"
+          };
+          bucket.messages.push(log);
+          const timestamp = log.timestamp ? new Date(log.timestamp).getTime() : Date.now();
+          if (!bucket.lastTimestamp || timestamp >= bucket.lastTimestamp) {
+            bucket.lastTimestamp = timestamp;
+            bucket.preview = log.message || log.type || log.status || "[tidak ada teks]";
+            bucket.lastStatus = incoming ? "received" : "sent";
+          }
+          map.set(phone, bucket);
+        });
+        return Array.from(map.values()).sort((a, b) => b.lastTimestamp - a.lastTimestamp);
+      };
+
+      const renderChatList = () => {
+        const query = (searchInput.value || "").trim().toLowerCase();
+        const filter = (bucket) => {
+          if (!query) return true;
+          return (
+            bucket.phone.toLowerCase().includes(query) ||
+            bucket.preview.toLowerCase().includes(query)
+          );
+        };
+
+        const filtered = chatBuckets.filter(filter);
+        if (!filtered.length) {
+          chatList.innerHTML = `<div class="wa-web-chat-empty">Belum ada pesan yang cocok.</div>`;
+          messagesContainer.innerHTML = `<div class="wa-web-placeholder">Pilih kontak atau coba kata kunci lain.</div>`;
+          titleEl.textContent = "Tidak ada percakapan";
+          subtitleEl.textContent = "Cari atau kirim pesan baru untuk membuat log.";
+          return;
+        }
+
+        const markup = filtered
+          .map((bucket) => {
+            const isSelected = bucket.phone === selectedPhone;
+            return `
+              <div class="wa-web-chat-item ${isSelected ? "selected" : ""}" data-phone="${bucket.phone}">
+                <div>
+                  <div class="wa-web-chat-name">${escapeHtml(bucket.phone)}</div>
+                  <div class="wa-web-chat-preview">${escapeHtml(bucket.preview)}</div>
+                </div>
+                <div class="wa-web-chat-meta">
+                  <span>${formatTimestamp(bucket.lastTimestamp)}</span>
+                  <span class="wa-web-badge ${bucket.lastStatus}">${bucket.lastStatus}</span>
+                </div>
+              </div>
+            `;
+          })
+          .join("");
+
+        chatList.innerHTML = markup;
+        attachChatHandlers();
+      };
+
+      const attachChatHandlers = () => {
+        const items = chatList.querySelectorAll(".wa-web-chat-item");
+        items.forEach((item) => {
+          item.addEventListener("click", () => {
+            const phone = item.dataset.phone;
+            if (!phone) return;
+            selectedPhone = phone;
+            renderChatList();
+            renderConversation();
+          });
+        });
+      };
+
+      const renderConversation = () => {
+        if (!selectedPhone) {
+          messagesContainer.innerHTML = `<div class="wa-web-placeholder">Pilih percakapan untuk melihat pesan.</div>`;
+          titleEl.textContent = "Pilih percakapan";
+          subtitleEl.textContent = "Panel chat menampilkan pesan masuk/keluar.";
+          return;
+        }
+
+        const bucket = chatBuckets.find((item) => item.phone === selectedPhone);
+        if (!bucket) {
+          messagesContainer.innerHTML = `<div class="wa-web-placeholder">Tidak ada pesan pada kontak ini.</div>`;
+          return;
+        }
+
+        titleEl.textContent = bucket.phone;
+        subtitleEl.textContent = `Terakhir: ${bucket.preview}`;
+
+        const ordered = bucket.messages.slice().sort((a, b) => {
+          const aTs = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const bTs = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return aTs - bTs;
+        });
+
+        const conversationMarkup = ordered
+          .map((log) => {
+            const outgoing = String(log.status || "").toLowerCase().includes("sent");
+            const directionClass = outgoing ? "outgoing" : "incoming";
+            const messageText = log.message || `[${log.type || log.status || "pesan"}]`;
+            const meta = [formatTimestamp(log.timestamp), log.status || log.type]
+              .filter(Boolean)
+              .join(" • ");
+
+            return `
+              <div class="wa-web-message ${directionClass}">
+                <div class="wa-web-bubble">
+                  <div class="wa-web-message-text">${escapeHtml(messageText)}</div>
+                  <div class="wa-web-message-meta">${escapeHtml(meta)}</div>
+                </div>
+              </div>
+            `;
+          })
+          .join("");
+
+        messagesContainer.innerHTML = conversationMarkup || `<div class="wa-web-placeholder">Belum ada pesan.</div>`;
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      };
+
+      const refreshStatusDisplay = () => {
+        const status = deviceInfo?.status || "disconnected";
+        deviceStatus.textContent = `Status: ${status}`;
+        deviceStatus.dataset.status = status;
+        deviceLabel.textContent = deviceInfo?.phone ? `Nomor: ${deviceInfo.phone}` : "";
+      };
+
+      const refreshData = async () => {
+        if (!deviceId) {
+          showError("Device WA tidak tersedia");
+          return;
+        }
+        setAlert("Memuat data WA...", "info");
+        try {
+          const devicesResponse = await window.electronAPI.whatsappGateway.getDevices();
+          if (!devicesResponse.success) {
+            throw new Error(devicesResponse.error || "Gagal memuat perangkat");
+          }
+          deviceInfo = (devicesResponse.devices || []).find((entry) => entry.id === deviceId);
+          if (!deviceInfo) {
+            throw new Error("Perangkat WhatsApp tidak ditemukan");
+          }
+          refreshStatusDisplay();
+
+          const logsResponse = await window.electronAPI.whatsappGateway.getMessageLogs(deviceId, MAX_LOGS);
+          const logs = logsResponse.logs || [];
+          chatBuckets = buildChatBuckets(logs);
+          if (!selectedPhone && chatBuckets.length) {
+            selectedPhone = chatBuckets[0].phone;
+          }
+
+          renderChatList();
+          renderConversation();
+          setAlert("");
+        } catch (error) {
+          console.error("❌ Error loading WhatsApp web data:", error);
+          showError(error.message || "Terjadi kesalahan saat memuat data.");
+          setAlert("");
+        }
+      };
+
+      const handleSendMessage = async (event) => {
+        event.preventDefault();
+        if (!selectedPhone) {
+          setAlert("Pilih percakapan terlebih dahulu.", "warning");
+          return;
+        }
+        const text = (messageInput.value || "").trim();
+        if (!text) {
+          return;
+        }
+        messageInput.disabled = true;
+        sendForm.querySelector("button").disabled = true;
+        setAlert("Mengirim pesan...", "info");
+        try {
+          await window.electronAPI.whatsappGateway.sendMessage(deviceId, selectedPhone, text);
+          messageInput.value = "";
+          setAlert("Pesan terkirim.", "success");
+          await refreshData();
+        } catch (error) {
+          console.error("❌ Failed to send message:", error);
+          setAlert(error.message || "Gagal mengirim pesan.", "error");
+        } finally {
+          messageInput.disabled = false;
+          sendForm.querySelector("button").disabled = false;
+        }
+      };
+
+      refreshBtn.addEventListener("click", () => {
+        refreshData();
+      });
+      searchInput.addEventListener("input", () => {
+        renderChatList();
+      });
+      sendForm.addEventListener("submit", handleSendMessage);
+
+      refreshData();
+    })();
+  </script>
+</body>
+
+</html>

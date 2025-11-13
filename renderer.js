@@ -5,7 +5,8 @@ const ANDROID_SPEC_PRESETS = [
   {
     id: "lite",
     label: "Lite • 1 Core • 1 GB RAM",
-    description: "Mode paling ringan untuk PC kentang. Cocok hanya membuka aplikasi ringan.",
+    description:
+      "Mode paling ringan untuk PC kentang. Cocok hanya membuka aplikasi ringan.",
     memoryMb: 1024,
     cores: 1,
     resolution: "540x960",
@@ -789,7 +790,8 @@ function applyAssetToImage(element, assetName = DEFAULT_ICON_ASSET) {
   const normalized = normalizeAssetName(assetName) || DEFAULT_ICON_ASSET;
   element.dataset.assetName = normalized;
   registerAssetElement(normalized, element);
-  const fallbackPath = assetUrlCache.get(normalized) || getAssetFallbackPath(normalized);
+  const fallbackPath =
+    assetUrlCache.get(normalized) || getAssetFallbackPath(normalized);
   element.src = fallbackPath;
   resolveAssetPath(normalized).catch(() => {});
 }
@@ -805,7 +807,10 @@ function getServiceIconSource(service) {
   if (assetName) {
     return { type: "asset", name: assetName };
   }
-  if (service.icon && (service.icon.includes("://") || service.icon.startsWith("data:"))) {
+  if (
+    service.icon &&
+    (service.icon.includes("://") || service.icon.startsWith("data:"))
+  ) {
     return { type: "url", value: service.icon };
   }
   if (service.url) {
@@ -884,9 +889,9 @@ window.updateAndroidSpecDescription = updateAndroidSpecDescription;
 window.DEFAULT_ANDROID_SPEC_ID = DEFAULT_ANDROID_SPEC_ID;
 
 const CATEGORY_COLOR_MAP = {
-  "komunikasi": "#2563eb",
+  komunikasi: "#2563eb",
   "komunikasi & sosial": "#2563eb",
-  "sosial": "#2563eb",
+  sosial: "#2563eb",
   "media sosial": "#2563eb",
   marketplace: "#f97316",
   pemasaran: "#f59e0b",
@@ -910,8 +915,7 @@ function formatServerServiceItem(item, slug) {
     ) || {};
   const label = item.name || base.label || slug.toUpperCase();
   const category = item.category || base.category || "Layanan";
-  const description =
-    item.description || base.description || "Layanan publik";
+  const description = item.description || base.description || "Layanan publik";
   const url = (item.url || base.url || "").trim();
   const keywords = sanitizeKeywordList([
     slug,
@@ -1072,6 +1076,25 @@ const automationConnectionStatus = {
 const automationConnectionLog = [];
 
 let cachedDevices = [];
+let cachedWebDevices = [];
+let cachedAndroidDevices = [];
+
+// Function to refresh device list (callable from global scope)
+window.refreshDeviceList = async function() {
+  console.log('🔄 Refreshing device list for page:', window.currentActivePage);
+  // Always reload devices from storage to ensure fresh data
+  if (typeof loadAllDevices === 'function') {
+    await loadAllDevices();
+  } else {
+    // Fallback: detect current page and render appropriate devices
+    const currentPage = document.querySelector(".page-content.active")?.id;
+    if (currentPage === "page-android-ios" && typeof renderDevicesAndroid === 'function') {
+      renderDevicesAndroid(cachedAndroidDevices);
+    } else if (typeof renderDevices === 'function') {
+      renderDevices(cachedWebDevices);
+    }
+  }
+};
 let deviceSearchQuery = "";
 
 const serviceBrowserState = {
@@ -1280,6 +1303,10 @@ function renderServiceBrowserGrid(options = {}) {
     container.appendChild(button);
   });
   updateServiceBrowserSelected(selectId);
+
+  // Apply page-based filtering after rendering
+  const currentPage = window.currentActivePage || 'web-emulator';
+  filterServicesByPage(currentPage);
 }
 
 function setSelectedService(selectId = "deviceService", serviceId = "wa") {
@@ -1633,16 +1660,29 @@ function syncServiceAvailability() {
 
 function updateIOSButtonVisibility() {
   const button = document.getElementById("iosSimulatorButton");
-  if (!button) return;
+  const buttonAndroid = document.getElementById("iosSimulatorButtonAndroid");
+
   const isMac =
     (systemPlatform || "").toLowerCase().includes("darwin") ||
     (systemPlatform || "").toLowerCase().includes("mac");
   const canShow = authState.isLoggedIn && authState.allowsIosSimulator && isMac;
-  button.style.display = canShow ? "inline-flex" : "none";
+
+  if (button) button.style.display = canShow ? "inline-flex" : "none";
+  if (buttonAndroid) buttonAndroid.style.display = canShow ? "inline-flex" : "none";
 }
 
-function updateCachedDevices(list = []) {
-  cachedDevices = Array.isArray(list) ? list.slice() : [];
+function updateCachedDevices(list = [], type = "web") {
+  const deviceList = Array.isArray(list) ? list.slice() : [];
+
+  if (type === "android") {
+    cachedAndroidDevices = deviceList;
+  } else {
+    cachedWebDevices = deviceList;
+  }
+
+  // Keep global cache for backward compatibility
+  cachedDevices = deviceList;
+
   updateDeviceQuotaBanner();
   updateAddDeviceQuotaHint();
 }
@@ -1733,7 +1773,8 @@ function updateDeviceQuotaBanner() {
 
 function updateAuthHeaderUI() {
   const authButton = document.getElementById("authButton");
-  const logoutButton = document.getElementById("logoutButton");
+  const userProfileButton = document.getElementById("userProfileButton");
+  const userProfileName = document.getElementById("userProfileName");
   const statusLabel = document.getElementById("authStatusLabel");
   const layoutToggle = document.getElementById("layoutToggle");
 
@@ -1742,33 +1783,22 @@ function updateAuthHeaderUI() {
       ? `Mode tamu • ${authState.guestServiceLimit} device/layanan`
       : "Mode tamu";
 
-  if (authButton) {
-    if (authState.isLoggedIn) {
-      const displayName =
-        authState.user?.name || authState.user?.email || "Pengguna";
-      authButton.innerHTML = `<i class="bi bi-person-badge"></i> Akun (${displayName})`;
-    } else {
-      authButton.innerHTML =
-        '<i class="bi bi-box-arrow-in-right"></i> Masuk / Daftar';
-    }
-  }
+  // Update navbar buttons
+  if (authState.isLoggedIn) {
+    const displayName = authState.user?.name || authState.user?.email || "Pengguna";
 
-  if (logoutButton) {
-    logoutButton.style.display = authState.isLoggedIn ? "inline-flex" : "none";
-  }
-
-  if (statusLabel) {
-    if (authState.isLoggedIn) {
-      const displayName =
-        authState.user?.name || authState.user?.email || "Pengguna";
-      const roleSuffix =
-        (authState.user?.role || "").toLowerCase() === "admin"
-          ? " (Admin)"
-          : "";
-      statusLabel.textContent = `Masuk sebagai ${displayName}${roleSuffix}`;
-    } else {
-      statusLabel.textContent = guestLabel;
+    // Hide login button, show profile button
+    if (authButton) authButton.style.display = "none";
+    if (userProfileButton) {
+      userProfileButton.style.display = "flex";
+      if (userProfileName) {
+        userProfileName.textContent = displayName;
+      }
     }
+  } else {
+    // Show login button, hide profile button
+    if (authButton) authButton.style.display = "flex";
+    if (userProfileButton) userProfileButton.style.display = "none";
   }
 
   const preferredLayout = getStoredLayout();
@@ -2153,7 +2183,8 @@ async function loadPhoneCodesIntoSelect() {
       .map((country) => {
         const code = `+${String(country.phonecode).trim()}`;
         const emoji = country.emoji ? `${country.emoji} ` : "";
-        const labelName = country.nicename || country.name || country.iso || code;
+        const labelName =
+          country.nicename || country.name || country.iso || code;
         const label = `${emoji}${labelName} (${code})`;
         const searchText = [
           labelName,
@@ -2309,7 +2340,9 @@ function renderVersionBanner(info) {
   const downloadBtn = document.getElementById("versionAlertDownload");
 
   if (titleEl) {
-    titleEl.textContent = `Versi ${info.version} (${(info.channel || "stable").toUpperCase()}) tersedia`;
+    titleEl.textContent = `Versi ${info.version} (${(
+      info.channel || "stable"
+    ).toUpperCase()}) tersedia`;
   }
   if (msgEl) {
     const summary =
@@ -2355,7 +2388,9 @@ function buildDownloadListHtml(downloads = {}) {
       const checksum = payload.checksum
         ? `<small>Checksum: ${payload.checksum}</small>`
         : "";
-      return `<li><a href="${payload.url}" target="_blank" rel="noopener">${platform.toUpperCase()}</a>${checksum}</li>`;
+      return `<li><a href="${
+        payload.url
+      }" target="_blank" rel="noopener">${platform.toUpperCase()}</a>${checksum}</li>`;
     })
     .filter(Boolean)
     .join("");
@@ -2371,15 +2406,15 @@ function showVersionInfoDialog(info) {
     .filter(Boolean)
     .join("<br>");
   const notesHtml = Array.isArray(info.metadata?.notes)
-    ? info.metadata.notes
-        .map((note) => `<li>${note}</li>`)
-        .join("")
+    ? info.metadata.notes.map((note) => `<li>${note}</li>`).join("")
     : "";
   const downloadHtml = buildDownloadListHtml(info.downloads || {});
 
   const sections = [];
   sections.push(
-    `<p><strong>Channel:</strong> ${(info.channel || "stable").toUpperCase()}</p>`
+    `<p><strong>Channel:</strong> ${(
+      info.channel || "stable"
+    ).toUpperCase()}</p>`
   );
   if (info.metadata?.min_app_version) {
     sections.push(
@@ -2485,10 +2520,7 @@ async function hydrateStaticAssetImages() {
         img.src = resolved;
       }
     } catch (err) {
-      console.warn(
-        `⚠️ Gagal memuat asset ${assetName}:`,
-        err?.message || err
-      );
+      console.warn(`⚠️ Gagal memuat asset ${assetName}:`, err?.message || err);
     }
   });
   await Promise.allSettled(tasks);
@@ -3552,12 +3584,18 @@ function filterDevicesBySearch(devices = []) {
 }
 
 async function renderDevices(devices) {
+  // This function ONLY handles web service devices (NOT Android)
+  // Renders to #device-list container
   const container = document.getElementById("device-list");
   const limitInfo = document.getElementById("device-limit-info");
   if (!container) return;
 
   container.innerHTML = "";
-  const filteredDevices = filterDevicesBySearch(devices);
+
+  // Filter out Android devices - only show web services
+  const webDevices = devices.filter(d => (d.service || '').toLowerCase() !== 'android');
+
+  const filteredDevices = filterDevicesBySearch(webDevices);
   const { visible: visibleDevices, hidden: hiddenDevices } =
     partitionDevicesByLimit(filteredDevices);
   const isSearching = !!deviceSearchQuery;
@@ -3616,6 +3654,8 @@ async function renderDevices(devices) {
       <input type="checkbox"
              class="select-device"
              value="${device.uid}"
+             data-device-uid="${device.uid}"
+             data-device-service="${device.service || ""}"
              data-service="${device.service || ""}"
              aria-label="Pilih ${device.name}">
 
@@ -3769,6 +3809,15 @@ async function renderDevices(devices) {
 
     deleteButton.addEventListener("click", () => deleteDevice(device.uid));
     editButton.addEventListener("click", () => {
+      // Check if Android device - use separate modal
+      if ((device.service || "").toLowerCase() === "android") {
+        if (typeof window.openEditAndroidModal === "function") {
+          window.openEditAndroidModal(device.uid);
+        }
+        return;
+      }
+
+      // For web services, use original modal
       window.currentEditUID = device.uid;
       window.currentEditService = device.service || "";
       document.getElementById("editDeviceName").value =
@@ -3796,9 +3845,7 @@ async function renderDevices(devices) {
             (device.service || "").toLowerCase() === "other" ? "block" : "none";
         }
       }
-      const editSpecSelect = document.getElementById(
-        "editAndroidSpecPreset"
-      );
+      const editSpecSelect = document.getElementById("editAndroidSpecPreset");
       if (editSpecSelect) {
         editSpecSelect.value =
           device.androidSpec?.id || DEFAULT_ANDROID_SPEC_ID;
@@ -4233,19 +4280,240 @@ function ensureAutomationLoop() {
   }
 }
 
-async function loadAllDevices() {
+// Load devices separately for Web and Android (MUST BE DEFINED BEFORE loadAllDevices)
+async function loadAllDevicesWeb() {
   try {
-    const data = await window.electronAPI.loadDevices();
+    const data = await window.electronAPI.loadDevices("web");
     const devices = data.devices || [];
-    console.log("📦 Daftar device:", devices);
+    console.log("📦 Web devices:", devices);
     renderDevices(devices);
-    updateCachedDevices(devices);
+    updateCachedDevices(devices, "web");
     devices.forEach((device) => setDeviceState(device.uid, device.status));
     await syncAutomationSource(devices);
     if (automationSessions.size) {
       ensureAutomationLoop();
     } else {
       stopAutomationLoop();
+    }
+  } catch (err) {
+    console.error("⚠️ Gagal memuat web devices:", err);
+  }
+}
+
+// Render Android devices (MUST BE DEFINED BEFORE loadAllDevicesAndroid)
+function renderDevicesAndroid(devices) {
+  console.log("🤖 renderDevicesAndroid called with", devices?.length || 0, "devices");
+  const container = document.getElementById("device-list-android");
+  if (!container) {
+    console.error("⚠️ Container #device-list-android not found!");
+    return;
+  }
+
+  console.log("  📦 Clearing Android container");
+  container.innerHTML = "";
+
+  // Filter to only show Android devices
+  const androidDevices = (devices || []).filter(d =>
+    (d.service || '').toLowerCase() === 'android'
+  );
+
+  if (androidDevices.length === 0) {
+    console.log("  📭 No Android devices, showing empty state");
+    container.innerHTML =
+      '<div style="padding: 2rem; text-align: center; color: #6b7280;">Belum ada device Android. Klik "Tambah Device" untuk mulai.</div>';
+    return;
+  }
+
+  console.log("  🎨 Rendering", androidDevices.length, "Android devices");
+
+  const fragment = document.createDocumentFragment();
+
+  for (const device of androidDevices) {
+    const serviceKey = (device?.service || "").toLowerCase();
+    const config = serviceConfig[serviceKey] || serviceConfig.default;
+    const serviceMeta = SERVICE_LIBRARY_MAP.get(serviceKey);
+    const serviceLabel = config.label || device.service || "Android Emulator";
+    const baseUrl = config.url || serviceMeta?.url || "";
+    const initialStatus = (device.status || "stopped").toLowerCase();
+    const isActive =
+      initialStatus === "active" ||
+      initialStatus === "running" ||
+      initialStatus === "starting";
+    const initialLabel = isActive
+      ? (initialStatus || "active").toUpperCase()
+      : "START";
+
+    const deviceCard = document.createElement("div");
+    deviceCard.className = "device";
+    deviceCard.dataset.uid = device.uid;
+    deviceCard.dataset.service = device.service || "";
+    deviceCard.dataset.status = initialStatus;
+    deviceCard.dataset.autoSender = "false";
+    deviceCard.dataset.pendingUrl = "";
+    deviceCard.dataset.callbackUrl = "";
+    deviceCard.dataset.deviceName = device.name || "";
+    deviceCard.style.setProperty("--device-accent", config.color || "#6b7280");
+
+    const runLabel = isActive ? "Restart" : "Jalankan";
+    const runIcon = isActive ? "bi-arrow-clockwise" : "bi-play-fill";
+
+    deviceCard.innerHTML = `
+      <div class="device-service-icon" title="Layanan: ${serviceLabel}">
+        <img alt="Ikon ${serviceLabel}">
+      </div>
+
+      <div class="device-header">
+        <div class="device-meta">
+          <h3>${device.name}</h3>
+          <span class="device-service-name">${serviceLabel}</span>
+        </div>
+      </div>
+
+      <div class="device-body">
+        <button class="status-indicator ${
+          isActive ? "running" : "stopped"
+        }" data-uid="${device.uid}" title="${
+      isActive
+        ? "Klik untuk menampilkan jendela"
+        : "Klik untuk menjalankan device"
+    }">
+          ${initialLabel}
+        </button>
+        <button class="inline-stop ${
+          isActive ? "" : "is-hidden"
+        }" title="Stop ${device.name}">
+          <i class="bi bi-stop-circle"></i>
+          <span>Stop</span>
+        </button>
+      </div>
+
+      <div class="device-footer">
+        <div class="device-actions">
+          <button class="run">
+            <i class="bi ${runIcon}"></i>
+            <span>${runLabel}</span>
+          </button>
+          <button class="edit" data-uid="${device.uid}">
+            <i class="bi bi-pencil-square"></i>
+            <span>Edit</span>
+          </button>
+          <button class="delete">
+            <i class="bi bi-trash-fill"></i>
+            <span>Hapus</span>
+          </button>
+        </div>
+      </div>
+    `;
+
+    const iconElement = deviceCard.querySelector(".device-service-icon img");
+    if (serviceMeta) {
+      const iconSource = getServiceIconSource(serviceMeta);
+      if (iconSource.type === "asset") {
+        applyAssetToImage(iconElement, iconSource.name);
+      } else {
+        iconElement.src = iconSource.value;
+        attachServiceIconFallback(iconElement);
+      }
+    } else if (baseUrl) {
+      iconElement.src = `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(
+        baseUrl
+      )}`;
+      attachServiceIconFallback(iconElement);
+    } else {
+      applyAssetToImage(iconElement);
+    }
+
+    const statusButton = deviceCard.querySelector(".status-indicator");
+    const inlineStop = deviceCard.querySelector(".inline-stop");
+    const runButton = deviceCard.querySelector(".run");
+    const deleteButton = deviceCard.querySelector(".delete");
+    const editButton = deviceCard.querySelector(".edit");
+
+    statusButton?.addEventListener("click", () => {
+      const currentStatus = (deviceCard.dataset.status || "").toLowerCase();
+      if (currentStatus === "active" || currentStatus === "running") {
+        if (window.electronAPI?.focusDevice) {
+          window.electronAPI.focusDevice(device.uid);
+        }
+      } else {
+        runDevice(device.uid, device.service);
+      }
+    });
+
+    runButton.addEventListener("click", async () => {
+      const originalHTML = runButton.innerHTML;
+      runButton.innerHTML = `<i class="bi bi-arrow-repeat"></i> <span>Proses...</span>`;
+      runButton.disabled = true;
+
+      try {
+        await runDevice(device.uid, device.service);
+        device.status = "active";
+
+        setTimeout(() => {
+          runButton.innerHTML = originalHTML;
+          runButton.disabled = false;
+        }, 2000);
+      } catch (err) {
+        console.error("Error running device:", err);
+        runButton.innerHTML = originalHTML;
+        runButton.disabled = false;
+      }
+    });
+
+    if (inlineStop) {
+      inlineStop.addEventListener("click", async (evt) => {
+        evt.stopPropagation();
+        if (inlineStop.disabled) return;
+        try {
+          inlineStop.disabled = true;
+          window.electronAPI.stopDevice(device.uid);
+          setDeviceState(device.uid, "stopped");
+          device.status = "stopped";
+        } catch (err) {
+          console.error("Error stopping device:", err);
+          inlineStop.disabled = false;
+        }
+      });
+    }
+
+    deleteButton.addEventListener("click", () => deleteDevice(device.uid));
+    editButton.addEventListener("click", () => {
+      // Android device always uses Android modal
+      if (typeof window.openEditAndroidModal === "function") {
+        window.openEditAndroidModal(device.uid);
+      }
+    });
+
+    fragment.appendChild(deviceCard);
+  }
+
+  container.appendChild(fragment);
+}
+
+async function loadAllDevicesAndroid() {
+  try {
+    const data = await window.electronAPI.loadDevices("android");
+    const devices = data.devices || [];
+    console.log("📦 Android devices:", devices);
+    renderDevicesAndroid(devices);
+    updateCachedDevices(devices, "android");
+    devices.forEach((device) => setDeviceState(device.uid, device.status));
+  } catch (err) {
+    console.error("⚠️ Gagal memuat Android devices:", err);
+  }
+}
+
+async function loadAllDevices() {
+  try {
+    // Detect which page is active and load from correct DB
+    const currentPage = document.querySelector(".page-content.active")?.id;
+
+    if (currentPage === "page-android-ios") {
+      // Load Android devices only
+      await loadAllDevicesAndroid();
+    } else {
+      // Default to Web devices (page-web-emulator or others)
+      await loadAllDevicesWeb();
     }
   } catch (err) {
     console.error("⚠️ Gagal memuat daftar device:", err);
@@ -4302,9 +4570,45 @@ function deleteDevice(uid) {
   });
 }
 
+function filterServicesByPage(pageName) {
+  const serviceBrowserGrid = document.getElementById("serviceBrowserGrid");
+  if (!serviceBrowserGrid) return;
+
+  // Clear and rebuild service browser based on page
+  const serviceCards = serviceBrowserGrid.querySelectorAll('.service-card');
+
+  serviceCards.forEach(card => {
+    const serviceValue = card.dataset.serviceId || '';
+
+    if (pageName === 'android-ios') {
+      // Show only Android service
+      if (serviceValue.toLowerCase() === 'android') {
+        card.style.display = 'flex';
+      } else {
+        card.style.display = 'none';
+      }
+    } else if (pageName === 'web-emulator') {
+      // Hide Android service
+      if (serviceValue.toLowerCase() === 'android') {
+        card.style.display = 'none';
+      } else {
+        card.style.display = 'flex';
+      }
+    } else {
+      // For other pages, show all
+      card.style.display = 'flex';
+    }
+  });
+}
+
 function openModal() {
-  document.getElementById("addModal").style.display = "block";
+  document.getElementById("addModal").style.display = "flex";
   updateAddDeviceQuotaHint();
+
+  // Filter services based on current page
+  const currentPage = window.currentActivePage || 'web-emulator';
+  filterServicesByPage(currentPage);
+
   syncServiceAvailability();
   toggleCustomServiceSection(
     document.getElementById("deviceService")?.value === "other"
@@ -4342,10 +4646,7 @@ function closeModal() {
   toggleAndroidSpecSection(false);
   if (androidSpecSelect) {
     androidSpecSelect.value = DEFAULT_ANDROID_SPEC_ID;
-    updateAndroidSpecDescription(
-      "androidSpecPreset",
-      "androidSpecDescription"
-    );
+    updateAndroidSpecDescription("androidSpecPreset", "androidSpecDescription");
   }
   syncServiceAvailability();
   updateAddDeviceQuotaHint();
@@ -4391,6 +4692,28 @@ function updateAddDeviceQuotaHint() {
   hint.classList.toggle("quota-warning", !quotaCheck.allowed);
 }
 
+// Helper function to check if mode is valid for WhatsApp (minimal iPad Pro 11" 834x1194)
+function isModeValidForWhatsApp(mode) {
+  if (!mode) return false;
+  // Mode yang valid untuk WhatsApp: tablet-* atau desktop-*
+  // Minimal: tablet-ipad-pro (834x1194)
+  const validModes = [
+    "tablet-ipad-pro",
+    "tablet-ipad-pro-13",
+    "tablet-android",
+    "tablet-samsung",
+    "desktop",
+    "desktop-mini",
+    "desktop-hd",
+    "desktop-full-hd",
+    "desktop-2k",
+    "desktop-wide",
+    "desktop-ultrawide",
+    "desktop-4k",
+  ];
+  return validModes.includes(mode);
+}
+
 async function submitDevice() {
   const name = document.getElementById("deviceName").value.trim();
   const service = document.getElementById("deviceService").value;
@@ -4416,12 +4739,25 @@ async function submitDevice() {
       ? androidSpecSelect?.value || DEFAULT_ANDROID_SPEC_ID
       : null;
   const androidSpec =
-    service === "android"
-      ? getAndroidSpecPayload(selectedAndroidSpecId)
-      : null;
+    service === "android" ? getAndroidSpecPayload(selectedAndroidSpecId) : null;
 
   if (!name) {
     showToast("Nama device wajib diisi.", 3000, "warning");
+    return;
+  }
+
+  // Validasi mode untuk WhatsApp: minimal iPad Pro 11" (834x1194)
+  if (isWhatsApp && !isModeValidForWhatsApp(mode)) {
+    showToast(
+      'Untuk layanan WhatsApp, mode minimal harus 📘 iPad Pro 11" (834x1194). Mode di bawah itu tidak bisa dibuka.',
+      5000,
+      "warning"
+    );
+    // Auto-set ke tablet-ipad-pro jika mode tidak valid
+    const modeSelect = document.getElementById("deviceMode");
+    if (modeSelect) {
+      modeSelect.value = "tablet-ipad-pro";
+    }
     return;
   }
 
@@ -4486,10 +4822,7 @@ window.addEventListener("DOMContentLoaded", () => {
   hydrateStaticAssetImages();
   initThemeSelector();
   ensureServiceSelectOptions("deviceService");
-  ensureAndroidSpecSelectOptions(
-    "androidSpecPreset",
-    "androidSpecDescription"
-  );
+  ensureAndroidSpecSelectOptions("androidSpecPreset", "androidSpecDescription");
   ensureAndroidSpecSelectOptions(
     "editAndroidSpecPreset",
     "editAndroidSpecDescription"
@@ -4548,6 +4881,13 @@ window.addEventListener("DOMContentLoaded", () => {
   const deviceSearchInput = document.getElementById("deviceSearchInput");
   if (deviceSearchInput) {
     deviceSearchInput.addEventListener("input", (event) => {
+      deviceSearchQuery = (event.target.value || "").toLowerCase();
+      renderDevices(cachedDevices);
+    });
+  }
+  const deviceSearchInputAndroid = document.getElementById("deviceSearchInputAndroid");
+  if (deviceSearchInputAndroid) {
+    deviceSearchInputAndroid.addEventListener("input", (event) => {
       deviceSearchQuery = (event.target.value || "").toLowerCase();
       renderDevices(cachedDevices);
     });
@@ -4644,15 +4984,17 @@ function restartDevice(uid, service) {
   window.electronAPI.runDevice(uid, service); // ini akan buka window baru
   setDeviceState(uid, "active");
 }
+// WEB EMULATOR ONLY - target #device-list container
 function selectAllDevices(master) {
-  document.querySelectorAll(".select-device").forEach((cb) => {
+  document.querySelectorAll("#device-list .select-device").forEach((cb) => {
     cb.checked = master.checked;
   });
 }
 
 // Function: Run All Device
+// WEB EMULATOR ONLY - target #device-list container
 function runAllDevices() {
-  const allDevices = document.querySelectorAll(".device");
+  const allDevices = document.querySelectorAll("#device-list .device");
   if (allDevices.length === 0) return;
   allDevices.forEach((card) => {
     const uid = card.dataset.uid;
@@ -4663,10 +5005,10 @@ function runAllDevices() {
   });
 }
 
-// Function: Run Selected Device
+// Function: Run Selected Device - WEB EMULATOR ONLY
 function runSelectedDevices() {
   const selected = Array.from(
-    document.querySelectorAll(".select-device:checked")
+    document.querySelectorAll("#device-list .select-device:checked")
   );
   if (selected.length === 0) return alert("Pilih device terlebih dahulu!");
   selected.forEach((cb) => {
@@ -4679,7 +5021,7 @@ function runSelectedDevices() {
 
 function restartSelectedDevices() {
   const selected = Array.from(
-    document.querySelectorAll(".select-device:checked")
+    document.querySelectorAll("#device-list .select-device:checked")
   );
   if (selected.length === 0) return alert("Pilih device terlebih dahulu!");
   selected.forEach((cb) => {
@@ -4690,7 +5032,7 @@ function restartSelectedDevices() {
 }
 
 function restartAllDevices() {
-  const allDevices = document.querySelectorAll(".device");
+  const allDevices = document.querySelectorAll("#device-list .device");
   if (allDevices.length === 0) return;
   allDevices.forEach((card) => {
     const uid = card.dataset.uid;
@@ -4703,7 +5045,7 @@ function restartAllDevices() {
 
 function stopSelectedDevices() {
   const selected = Array.from(
-    document.querySelectorAll(".select-device:checked")
+    document.querySelectorAll("#device-list .select-device:checked")
   );
   if (selected.length === 0) return alert("Pilih device terlebih dahulu!");
   Swal.fire({
@@ -4718,7 +5060,7 @@ function stopSelectedDevices() {
     if (!result.isConfirmed) return;
     selected.forEach((cb) => {
       const uid = cb.value;
-      const card = document.querySelector(`.device[data-uid="${uid}"]`);
+      const card = document.querySelector(`#device-list .device[data-uid="${uid}"]`);
       const status = (card?.dataset.status || "").toLowerCase();
       if (!["active", "running", "starting"].includes(status)) return;
       stopDevice(uid);
@@ -4727,7 +5069,7 @@ function stopSelectedDevices() {
 }
 
 function stopAllDevices() {
-  const allDevices = Array.from(document.querySelectorAll(".device"));
+  const allDevices = Array.from(document.querySelectorAll("#device-list .device"));
   if (allDevices.length === 0) return;
   Swal.fire({
     title: "Hentikan semua device?",
@@ -4793,5 +5135,323 @@ window.changeLayout = function (layout) {
   }
   if (document.body) {
     document.body.classList.toggle("list-layout", desired === "list");
+  }
+};
+
+// ========================================
+// ANDROID / iOS SEPARATE FUNCTIONS
+// ========================================
+
+// Modal functions for Android
+window.openModalAndroid = function () {
+  const modal = document.getElementById("addModalAndroid");
+  if (!modal) return;
+
+  // Reset form
+  document.getElementById("deviceNameAndroid").value = "";
+  document.getElementById("deviceAutoRunAndroid").checked = false;
+
+  // Populate Android spec presets
+  populateAndroidSpecPreset("androidSpecPresetAdd", "androidSpecDescriptionAdd");
+
+  modal.style.display = "flex";
+};
+
+window.closeModalAndroid = function () {
+  const modal = document.getElementById("addModalAndroid");
+  if (modal) modal.style.display = "none";
+};
+
+window.submitAndroidDevice = async function () {
+  const name = document.getElementById("deviceNameAndroid").value.trim();
+  const autoRun = document.getElementById("deviceAutoRunAndroid").checked;
+  const androidSpecSelect = document.getElementById("androidSpecPresetAdd");
+  const selectedAndroidSpecId =
+    androidSpecSelect?.value || DEFAULT_ANDROID_SPEC_ID;
+  const androidSpec = getAndroidSpecPayload(selectedAndroidSpecId);
+
+  if (!name) {
+    showToast("Nama device wajib diisi.", 3000, "warning");
+    return;
+  }
+
+  try {
+    const result = await window.electronAPI.addDevice({
+      name,
+      service: "android",
+      autoRun,
+      mode: "desktop",
+      autoSender: false,
+      pendingUrl: "",
+      callbackUrl: "",
+      customUrl: "",
+      androidSpec,
+    });
+
+    if (result.success) {
+      showToast("✅ Android device berhasil ditambahkan!", 3000, "success");
+      closeModalAndroid();
+      await loadAllDevicesAndroid();
+    } else {
+      showToast(result.message || "Gagal menambah device.", 4000, "error");
+    }
+  } catch (err) {
+    console.error("Error adding Android device:", err);
+    showToast("Error: " + err.message, 4000, "error");
+  }
+};
+
+// Edit Android device functions
+let editingAndroidDeviceUid = null;
+
+window.openEditAndroidModal = function (uid) {
+  const devices = getCachedDevices();
+  const device = devices.find((d) => d.uid === uid);
+  if (!device) return;
+
+  editingAndroidDeviceUid = uid;
+
+  document.getElementById("editDeviceNameAndroid").value = device.name || "";
+  document.getElementById("editAutoRunAndroid").checked = !!device.autoRun;
+
+  // Populate Android spec presets
+  populateAndroidSpecPreset(
+    "editAndroidSpecPresetAndroid",
+    "editAndroidSpecDescriptionAndroid"
+  );
+
+  // Set current spec
+  const currentSpecId = device.androidSpec?.id || DEFAULT_ANDROID_SPEC_ID;
+  const editSpecSelect = document.getElementById("editAndroidSpecPresetAndroid");
+  if (editSpecSelect) {
+    editSpecSelect.value = currentSpecId;
+  }
+
+  const modal = document.getElementById("editModalAndroid");
+  if (modal) modal.style.display = "flex";
+};
+
+window.closeEditModalAndroid = function () {
+  const modal = document.getElementById("editModalAndroid");
+  if (modal) modal.style.display = "none";
+  editingAndroidDeviceUid = null;
+};
+
+window.saveEditAndroidDevice = async function () {
+  if (!editingAndroidDeviceUid) return;
+
+  const name = document.getElementById("editDeviceNameAndroid").value.trim();
+  const autoRun = document.getElementById("editAutoRunAndroid").checked;
+  const androidSpecSelect = document.getElementById(
+    "editAndroidSpecPresetAndroid"
+  );
+  const selectedAndroidSpecId =
+    androidSpecSelect?.value || DEFAULT_ANDROID_SPEC_ID;
+  const androidSpec = getAndroidSpecPayload(selectedAndroidSpecId);
+
+  if (!name) {
+    showToast("Nama device wajib diisi.", 3000, "warning");
+    return;
+  }
+
+  try {
+    const result = await window.electronAPI.editDevice({
+      uid: editingAndroidDeviceUid,
+      name,
+      autoRun,
+      mode: "desktop",
+      autoSender: false,
+      pendingUrl: "",
+      callbackUrl: "",
+      customUrl: "",
+      androidSpec,
+    });
+
+    if (result.success) {
+      showToast("✅ Android device berhasil diupdate!", 3000, "success");
+      closeEditModalAndroid();
+      await loadAllDevicesAndroid();
+    } else {
+      showToast(result.message || "Gagal update device.", 4000, "error");
+    }
+  } catch (err) {
+    console.error("Error editing Android device:", err);
+    showToast("Error: " + err.message, 4000, "error");
+  }
+};
+
+// Helper: Populate Android spec preset dropdown
+function populateAndroidSpecPreset(selectId, descriptionId) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+
+  select.innerHTML = "";
+  ANDROID_SPEC_PRESETS.forEach((preset) => {
+    const option = document.createElement("option");
+    option.value = preset.id;
+    option.textContent = preset.label;
+    select.appendChild(option);
+  });
+
+  // Set default
+  select.value = DEFAULT_ANDROID_SPEC_ID;
+
+  // Update description on change
+  const updateDesc = () => {
+    const selectedPreset = ANDROID_SPEC_PRESETS.find(
+      (p) => p.id === select.value
+    );
+    const descEl = document.getElementById(descriptionId);
+    if (descEl && selectedPreset) {
+      descEl.textContent = selectedPreset.description || "";
+    }
+  };
+
+  select.addEventListener("change", updateDesc);
+  updateDesc(); // Initial update
+}
+
+// Select All for Android
+window.selectAllDevicesAndroid = function (checkbox) {
+  const checkboxes = document.querySelectorAll(
+    '#device-list-android input[type="checkbox"][data-device-uid]'
+  );
+  checkboxes.forEach((cb) => {
+    cb.checked = checkbox.checked;
+  });
+};
+
+// Bulk actions for Android
+window.runAllDevicesAndroid = async function () {
+  const data = await window.electronAPI.loadDevices("android");
+  const devices = data.devices || [];
+  devices.forEach((device) => {
+    runDevice(device.uid, device.service);
+  });
+};
+
+window.runSelectedDevicesAndroid = function () {
+  const checkboxes = document.querySelectorAll(
+    '#device-list-android input[type="checkbox"][data-device-uid]:checked'
+  );
+  checkboxes.forEach((cb) => {
+    const uid = cb.getAttribute("data-device-uid");
+    const service = cb.getAttribute("data-device-service") || "android";
+    runDevice(uid, service);
+  });
+};
+
+window.restartSelectedDevicesAndroid = function () {
+  const checkboxes = document.querySelectorAll(
+    '#device-list-android input[type="checkbox"][data-device-uid]:checked'
+  );
+  checkboxes.forEach((cb) => {
+    const uid = cb.getAttribute("data-device-uid");
+    const service = cb.getAttribute("data-device-service") || "android";
+    window.electronAPI.runDevice(uid, service);
+  });
+};
+
+window.restartAllDevicesAndroid = async function () {
+  const data = await window.electronAPI.loadDevices("android");
+  const devices = data.devices || [];
+  devices.forEach((device) => {
+    window.electronAPI.runDevice(device.uid, device.service);
+  });
+};
+
+window.stopSelectedDevicesAndroid = function () {
+  const checkboxes = document.querySelectorAll(
+    '#device-list-android input[type="checkbox"][data-device-uid]:checked'
+  );
+  checkboxes.forEach((cb) => {
+    const uid = cb.getAttribute("data-device-uid");
+    stopDevice(uid);
+  });
+};
+
+window.stopAllDevicesAndroid = async function () {
+  const data = await window.electronAPI.loadDevices("android");
+  const devices = data.devices || [];
+  devices.forEach((device) => {
+    stopDevice(device.uid);
+  });
+};
+
+// Make loadAllDevices available globally
+window.loadAllDevices = loadAllDevices;
+
+// Main switchPage function with device loading
+window.switchPage = async function (page) {
+  if (typeof event !== "undefined" && typeof event.preventDefault === "function") {
+    event.preventDefault();
+  }
+
+  console.log("🔄 Switching to page:", page);
+
+  window.currentActivePage = page;
+
+  // Hide all pages
+  document.querySelectorAll(".page-content").forEach((p) => {
+    p.classList.remove("active");
+    console.log("  ❌ Hiding page:", p.id);
+  });
+
+  // Show target page
+  const targetPage = document.getElementById(`page-${page}`);
+  if (targetPage) {
+    targetPage.classList.add("active");
+    console.log("  ✅ Showing page:", targetPage.id);
+  } else {
+    console.error("  ⚠️ Target page not found:", `page-${page}`);
+  }
+
+  // Update sidebar active state
+  document.querySelectorAll(".sidebar-item").forEach((item) => {
+    item.classList.remove("active");
+  });
+  const activeItem = document.querySelector(`.sidebar-item[data-page="${page}"]`);
+  if (activeItem) {
+    activeItem.classList.add("active");
+  }
+
+  // Persist selection
+  try {
+    localStorage.setItem("starbox-current-page", page);
+  } catch (err) {
+    console.warn("Unable to persist current page:", err?.message || err);
+  }
+
+  // Adjust service list visibility based on page
+  if (typeof filterServicesByPage === "function") {
+    filterServicesByPage(page);
+  }
+
+  // Load devices/content for the current page
+  if (page === "web-emulator") {
+    console.log("  📱 Loading web devices...");
+    await loadAllDevicesWeb();
+  } else if (page === "android-ios") {
+    console.log("  🤖 Loading Android devices...");
+    await loadAllDevicesAndroid();
+  } else if (page === "whatsapp-gateway") {
+    console.log("  💬 Loading WhatsApp Gateway devices...");
+    if (typeof window.loadWAGatewayPage === "function") {
+      await window.loadWAGatewayPage();
+    } else {
+      console.warn("loadWAGatewayPage is not defined.");
+    }
+  }
+
+  // Close sidebar overlay on mobile after switching pages
+  if (window.innerWidth <= 768) {
+    const sidebar = document.querySelector(".sidebar");
+    const overlay = document.querySelector(".sidebar-overlay");
+    if (sidebar) sidebar.classList.remove("open");
+    if (overlay) overlay.classList.remove("active");
+  }
+
+  if (typeof window.syncVersionDots === "function") {
+    window.syncVersionDots();
   }
 };

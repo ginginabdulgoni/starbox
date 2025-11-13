@@ -63,6 +63,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     download: (uid) => ipcRenderer.invoke('android-download', uid),
     start: (uid, options = {}) => ipcRenderer.invoke('android-start', uid, options),
     stop: (uid) => ipcRenderer.invoke('android-stop', uid),
+    fixIssues: (uid) => ipcRenderer.invoke('android-fix-issues', uid),
+    killAdb: () => ipcRenderer.invoke('android-kill-adb'),
     onDownloadProgress: (callback) => {
       if (typeof callback !== 'function') return;
       ipcRenderer.on('android-download-progress', (_event, data) => callback(data));
@@ -70,6 +72,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onStartProgress: (callback) => {
       if (typeof callback !== 'function') return;
       ipcRenderer.on('android-start-progress', (_event, data) => callback(data));
+    },
+    onFixProgress: (callback) => {
+      if (typeof callback !== 'function') return;
+      ipcRenderer.on('android-fix-progress', (_event, data) => callback(data));
     },
   },
 
@@ -93,6 +99,58 @@ contextBridge.exposeInMainWorld('electronAPI', {
           callback(data);
         }
       });
+    }
+  },
+
+  // WhatsApp Gateway APIs
+  whatsappGateway: {
+    getDevices: () => ipcRenderer.invoke('wa-get-devices'),
+    createDevice: (deviceId, name) => ipcRenderer.invoke('wa-create-device', deviceId, name),
+    startDevice: (deviceId) => ipcRenderer.invoke('wa-start-device', deviceId),
+    stopDevice: (deviceId) => ipcRenderer.invoke('wa-stop-device', deviceId),
+    deleteDevice: (deviceId) => ipcRenderer.invoke('wa-delete-device', deviceId),
+    sendMessage: (deviceId, phone, message) => ipcRenderer.invoke('wa-send-message', deviceId, phone, message),
+    getStatus: (deviceId) => ipcRenderer.invoke('wa-get-status', deviceId),
+
+    // Auto-reply
+    getAutoReplies: (deviceId) => ipcRenderer.invoke('wa-get-auto-replies', deviceId),
+    addAutoReply: (deviceId, keyword, replyMessage, scope, matchType) => ipcRenderer.invoke('wa-add-auto-reply', deviceId, keyword, replyMessage, scope, matchType),
+    deleteAutoReply: (replyId) => ipcRenderer.invoke('wa-delete-auto-reply', replyId),
+    toggleAutoReply: (replyId, isActive) => ipcRenderer.invoke('wa-toggle-auto-reply', replyId, isActive),
+    setAutoReplyEnabled: (deviceId, enabled) => ipcRenderer.invoke('wa-set-auto-reply-enabled', deviceId, enabled),
+
+    // Schedule
+    getSchedules: (deviceId) => ipcRenderer.invoke('wa-get-schedules', deviceId),
+    addSchedule: (deviceId, scheduleName, cronExpression, message, recipients) =>
+      ipcRenderer.invoke('wa-add-schedule', deviceId, scheduleName, cronExpression, message, recipients),
+    deleteSchedule: (scheduleId) => ipcRenderer.invoke('wa-delete-schedule', scheduleId),
+
+    // Logs
+    getMessageLogs: (deviceId, limit) => ipcRenderer.invoke('wa-get-message-logs', deviceId, limit),
+    clearLogs: (deviceId, days) => ipcRenderer.invoke('wa-clear-logs', deviceId, days),
+    openWhatsAppWeb: (deviceId) => ipcRenderer.invoke('wa-open-web', deviceId),
+    sendTyping: (deviceId, phone) => ipcRenderer.invoke('wa-send-typing', deviceId, phone),
+
+    // Event listeners
+    onQRCode: (callback) => {
+      if (typeof callback !== 'function') return;
+      ipcRenderer.on('wa-qr-code', (_event, deviceId, qr) => callback(deviceId, qr));
+    },
+    onConnected: (callback) => {
+      if (typeof callback !== 'function') return;
+      ipcRenderer.on('wa-connected', (_event, deviceId, phone) => callback(deviceId, phone));
+    },
+    onStatusChange: (callback) => {
+      if (typeof callback !== 'function') return;
+      ipcRenderer.on('wa-status-change', (_event, deviceId, status) => callback(deviceId, status));
+    },
+    onScheduleStatus: (callback) => {
+      if (typeof callback !== 'function') return;
+      ipcRenderer.on('wa-schedule-status', (_event, scheduleId, status) => callback(scheduleId, status));
+    },
+    onMessageReceived: (callback) => {
+      if (typeof callback !== 'function') return;
+      ipcRenderer.on('wa-message-received', (_event, deviceId, from, message) => callback(deviceId, from, message));
     }
   },
 

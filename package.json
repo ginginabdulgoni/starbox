@@ -1,13 +1,13 @@
 {
   "name": "starbox",
-  "version": "1.2.251111",
+  "version": "1.2.251112",
   "description": "StarBox - Emulator ringan multi-layanan",
   "main": "electron-main.js",
   "author": "Gingin Abdul Goni",
   "homepage": "https://starbox.app",
   "scripts": {
-    "dev": "NODE_ENV=development electron .",
-    "start": "NODE_ENV=production electron .",
+    "dev": "NODE_ENV=development ./node_modules/.bin/electron .",
+    "start": "NODE_ENV=production ./node_modules/.bin/electron .",
     "prebuild": "node update-version.js",
     "prebuild:mac": "node update-version.js",
     "prebuild:win": "node update-version.js",
@@ -115,14 +115,21 @@
     }
   },
   "devDependencies": {
-    "electron": "^28.0.0",
-    "electron-builder": "^24.6.0"
+    "electron": "^25.9.8",
+    "electron-builder": "^24.6.0",
+    "electron-rebuild": "^3.2.9"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc.6",
     "adm-zip": "^0.5.16",
-    "extract-zip": "^2.0.1",
+    "better-sqlite3": "^12.4.1",
+    "cron-parser": "^4.9.0",
     "electron-store": "^8.1.0",
+    "extract-zip": "^2.0.1",
     "node-machine-id": "^1.1.12",
+    "pino": "8.19.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
     "tree-kill": "^1.2.2",
     "uuid": "^9.0.1"
   }

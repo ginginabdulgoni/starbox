@@ -41,34 +41,49 @@ class AndroidManager {
       (os.tmpdir && os.tmpdir()) ||
       (app.getPath && app.getPath('temp')) ||
       path.join(this.emulatorPath || app.getPath('userData'), 'tmp');
-    return path.join(base, 'AndroidEmulator');
+
+    // Remove trailing slashes/backslashes to prevent double backslash
+    const cleanBase = base.replace(/[\\/]+$/, '');
+
+    // Build path and normalize for Windows
+    const tempPath = path.join(cleanBase, 'AndroidEmulator');
+
+    // Final normalization and replace any double backslashes
+    const normalized = path.normalize(tempPath);
+
+    // Extra safety: replace any remaining double backslashes on Windows
+    return this.isWin ? normalized.replace(/\\\\/g, '\\') : normalized;
   }
 
   ensureTempCrashDirectories() {
     try {
       const tempDir = this.getEmulatorTempDir();
-      fs.mkdirSync(tempDir, { recursive: true });
+      // Normalize path to avoid double backslashes on Windows
+      const normalizedTempDir = path.normalize(tempDir);
+      fs.mkdirSync(normalizedTempDir, { recursive: true });
       const candidates = [
-        path.join(tempDir, 'emu-crash'),
-        path.join(tempDir, 'emu-crash-33.1.24.db'),
+        path.join(normalizedTempDir, 'emu-crash'),
+        path.join(normalizedTempDir, 'emu-crash-33.1.24.db'),
       ];
       candidates.forEach((root) => {
         const attachments = path.join(root, 'attachments');
         fs.mkdirSync(attachments, { recursive: true });
       });
-      const updateIni = path.join(tempDir, 'emu-update-last-check.ini');
+      const updateIni = path.join(normalizedTempDir, 'emu-update-last-check.ini');
       if (!fs.existsSync(updateIni)) {
         fs.writeFileSync(updateIni, 'lastCheck=0\n', 'utf8');
       }
-      const homeDir = path.join(tempDir, 'home');
+      const homeDir = path.join(normalizedTempDir, 'home');
       fs.mkdirSync(homeDir, { recursive: true });
-      return { tempDir, homeDir };
+      return { tempDir: normalizedTempDir, homeDir };
     } catch (err) {
       console.warn('⚠️ Tidak dapat membuat folder temp emulator:', err.message);
     }
+    const tempDir = this.getEmulatorTempDir();
+    const normalizedTempDir = path.normalize(tempDir);
     return {
-      tempDir: this.getEmulatorTempDir(),
-      homeDir: path.join(this.getEmulatorTempDir(), 'home'),
+      tempDir: normalizedTempDir,
+      homeDir: path.join(normalizedTempDir, 'home'),
     };
   }
 
@@ -191,6 +206,109 @@ class AndroidManager {
         reject(err);
       });
     });
+  }
+
+  /**
+   * Kill ADB server to fix "device offline" or "busy" errors
+   */
+  async killAdbServer() {
+    try {
+      console.log('🔪 Killing ADB server...');
+      await this.runAdbCommand(['kill-server'], { timeout: 10000, silent: true });
+      console.log('✅ ADB server killed successfully');
+      return { success: true };
+    } catch (error) {
+      console.warn('⚠️ Failed to kill ADB server:', error.message);
+      // Try force kill the adb process on Windows
+      if (this.isWin) {
+        try {
+          const { execSync } = require('child_process');
+          execSync('taskkill /F /IM adb.exe', { stdio: 'pipe' });
+          console.log('✅ ADB process force killed on Windows');
+          return { success: true };
+        } catch (winError) {
+          console.warn('⚠️ Failed to force kill ADB on Windows:', winError.message);
+        }
+      }
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Restart ADB server
+   */
+  async restartAdbServer() {
+    try {
+      console.log('🔄 Restarting ADB server...');
+      await this.killAdbServer();
+      // Wait a bit before starting
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await this.runAdbCommand(['start-server'], { timeout: 15000, silent: false });
+      console.log('✅ ADB server restarted successfully');
+      return { success: true };
+    } catch (error) {
+      console.warn('⚠️ Failed to restart ADB server:', error.message);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Fix common emulator/ADB issues
+   */
+  async fixEmulatorIssues(progressCallback) {
+    const emitProgress = (payload = {}) => {
+      if (typeof progressCallback === 'function') {
+        try {
+          progressCallback({
+            timestamp: Date.now(),
+            ...payload,
+          });
+        } catch (callbackError) {
+          console.error('Fix progress callback error:', callbackError.message);
+        }
+      }
+    };
+
+    try {
+      emitProgress({
+        phase: 'fix-start',
+        message: 'Memulai perbaikan emulator...',
+      });
+
+      // Kill ADB server
+      emitProgress({
+        phase: 'fix-adb',
+        message: 'Menghentikan ADB server...',
+      });
+      await this.killAdbServer();
+
+      // Clean temp crash directories
+      emitProgress({
+        phase: 'fix-temp',
+        message: 'Membersihkan direktori temporary...',
+      });
+      this.ensureTempCrashDirectories();
+
+      // Restart ADB server
+      emitProgress({
+        phase: 'fix-restart',
+        message: 'Memulai ulang ADB server...',
+      });
+      await this.restartAdbServer();
+
+      emitProgress({
+        phase: 'fix-done',
+        message: 'Perbaikan selesai!',
+      });
+
+      return { success: true, message: 'Emulator berhasil diperbaiki' };
+    } catch (error) {
+      emitProgress({
+        phase: 'fix-error',
+        message: `Gagal memperbaiki: ${error.message}`,
+      });
+      return { success: false, error: error.message };
+    }
   }
 
   /**
@@ -352,6 +470,21 @@ class AndroidManager {
     };
 
     try {
+      // Kill any existing ADB server to prevent "busy" errors
+      emitProgress({
+        phase: 'prepare',
+        component: 'ADB Cleanup',
+        overallProgress: 0,
+        message: 'Membersihkan ADB server yang masih berjalan...',
+      });
+
+      try {
+        await this.killAdbServer();
+      } catch (adbError) {
+        console.warn('⚠️ Failed to kill ADB during setup:', adbError.message);
+        // Continue anyway, not critical
+      }
+
       emitProgress({
         phase: 'prepare',
         component: 'Directories',
@@ -892,8 +1025,9 @@ hw.arc=false
 hw.audioOutput=no
 fastboot.chosenSnapshotFile=
 fastboot.forceChosenSnapshotBoot=no
-fastboot.forceColdBoot=no
-fastboot.forceFastBoot=yes
+fastboot.forceColdBoot=yes
+fastboot.forceFastBoot=no
+snapshot.present=no
 disk.dataPartition.size=4294967296
 PlayStore.enabled=false
 hw.camera=no
@@ -1080,6 +1214,7 @@ hw.camera.front=none
 
     const resolvedSpec = this.normalizeSpec(requestedSpec);
 
+    // Ensure temp crash directories exist
     this.ensureTempCrashDirectories();
 
     const emitProgress = (payload = {}) => {
@@ -1094,6 +1229,20 @@ hw.camera.front=none
         }
       }
     };
+
+    // Kill any zombie ADB processes before starting
+    emitProgress({
+      phase: 'prepare-adb',
+      message: 'Membersihkan ADB server...',
+    });
+
+    try {
+      await this.killAdbServer();
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (adbError) {
+      console.warn('⚠️ Failed to kill ADB before start:', adbError.message);
+      // Continue anyway
+    }
 
     // Check for missing platforms directory and fix if needed
     const platformsDir = path.join(this.sdkPath, 'platforms', 'android-30');
@@ -1154,6 +1303,9 @@ hw.camera.front=none
       '-memory', String(resolvedSpec.memoryMb || 1536),
       '-cores', String(resolvedSpec.cores || 2),
       '-feature', '-Vulkan',
+      '-no-snapshot-load',
+      '-no-snapshot-save',
+      '-no-metrics',
       '-verbose'
     ];
     if (this.isWin) {
@@ -1199,11 +1351,34 @@ hw.camera.front=none
         env.ANDROID_EMULATOR_USE_SYSTEM_LIBS = '1';
         env.ANDROID_EMULATOR_DISABLE_CRASH_REPORT = '1';
         env.ANDROID_EMULATOR_DISABLE_METRICS = '1';
-        env.ANDROID_EMULATOR_HOME = env.ANDROID_EMULATOR_HOME || this.getEmulatorTempDir();
-        env.ANDROID_PRODUCT_OUT = env.ANDROID_PRODUCT_OUT || this.getEmulatorTempDir();
+
+        // Get temp directory with proper normalization
+        const tempDir = this.getEmulatorTempDir();
+
+        // Set environment variables without double backslashes
+        env.ANDROID_EMULATOR_HOME = env.ANDROID_EMULATOR_HOME || tempDir;
+        env.ANDROID_PRODUCT_OUT = env.ANDROID_PRODUCT_OUT || tempDir;
+
+        // Ensure TEMP and TMP are set correctly on Windows
+        if (this.isWin) {
+          const winTemp = os.tmpdir().replace(/[\\/]+$/, '');
+          const normalizedWinTemp = path.normalize(winTemp).replace(/\\\\/g, '\\');
+          env.TEMP = normalizedWinTemp;
+          env.TMP = normalizedWinTemp;
+        }
+
         if (this.isMac) {
           env.QEMU_AUDIO_DRV = 'none';
           env.ANDROID_EMULATOR_HVF = '1';
+        }
+
+        // Log environment for debugging
+        if (this.isWin) {
+          console.log('📂 Windows Environment Paths:');
+          console.log('  TEMP:', env.TEMP);
+          console.log('  TMP:', env.TMP);
+          console.log('  ANDROID_EMULATOR_HOME:', env.ANDROID_EMULATOR_HOME);
+          console.log('  ANDROID_PRODUCT_OUT:', env.ANDROID_PRODUCT_OUT);
         }
 
         this.emulatorProcess = spawn(emulatorBin, args, { env });
