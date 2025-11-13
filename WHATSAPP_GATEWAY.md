@@ -7,21 +7,25 @@ WhatsApp Gateway adalah fitur baru di StarBox yang memungkinkan Anda mengelola m
 ## Features
 
 ### 1. **Multi-Device Support**
+
 - Kelola banyak WhatsApp devices dalam satu aplikasi
 - Setiap device memiliki session independen
 - Sessions disimpan di SQLite untuk performa ringan
 
 ### 2. **Auto-Reply**
+
 - Buat rules auto-reply berdasarkan keyword
 - Enable/disable per device
 - Multiple rules per device
 
 ### 3. **Schedule Messages**
+
 - Kirim pesan terjadwal menggunakan cron expression
 - Multiple recipients per schedule
 - Tracking last run time
 
 ### 4. **Message Logs**
+
 - Log semua pesan masuk dan keluar
 - Filter by device
 - View message history
@@ -31,6 +35,7 @@ WhatsApp Gateway adalah fitur baru di StarBox yang memungkinkan Anda mengelola m
 Database menggunakan SQLite dengan tabel:
 
 ### `wa_devices`
+
 ```sql
 id TEXT PRIMARY KEY
 name TEXT NOT NULL
@@ -43,6 +48,7 @@ updated_at TEXT
 ```
 
 ### `wa_auto_replies`
+
 ```sql
 id TEXT PRIMARY KEY
 device_id TEXT
@@ -53,6 +59,7 @@ created_at TEXT
 ```
 
 ### `wa_schedules`
+
 ```sql
 id TEXT PRIMARY KEY
 device_id TEXT
@@ -66,6 +73,7 @@ created_at TEXT
 ```
 
 ### `wa_message_logs`
+
 ```sql
 id INTEGER PRIMARY KEY AUTOINCREMENT
 device_id TEXT
@@ -85,7 +93,10 @@ timestamp TEXT
 const result = await window.electronAPI.whatsappGateway.getDevices();
 
 // Create device
-const device = await window.electronAPI.whatsappGateway.createDevice(deviceId, name);
+const device = await window.electronAPI.whatsappGateway.createDevice(
+  deviceId,
+  name
+);
 
 // Start device (akan trigger QR code)
 await window.electronAPI.whatsappGateway.startDevice(deviceId);
@@ -103,14 +114,22 @@ await window.electronAPI.whatsappGateway.sendMessage(deviceId, phone, message);
 const status = await window.electronAPI.whatsappGateway.getStatus(deviceId);
 
 // Auto-reply
-const replies = await window.electronAPI.whatsappGateway.getAutoReplies(deviceId);
-await window.electronAPI.whatsappGateway.addAutoReply(deviceId, keyword, replyMessage);
+const replies = await window.electronAPI.whatsappGateway.getAutoReplies(
+  deviceId
+);
+await window.electronAPI.whatsappGateway.addAutoReply(
+  deviceId,
+  keyword,
+  replyMessage
+);
 await window.electronAPI.whatsappGateway.deleteAutoReply(replyId);
 await window.electronAPI.whatsappGateway.toggleAutoReply(replyId, isActive);
 await window.electronAPI.whatsappGateway.setAutoReplyEnabled(deviceId, true);
 
 // Schedules
-const schedules = await window.electronAPI.whatsappGateway.getSchedules(deviceId);
+const schedules = await window.electronAPI.whatsappGateway.getSchedules(
+  deviceId
+);
 await window.electronAPI.whatsappGateway.addSchedule(
   deviceId,
   scheduleName,
@@ -121,29 +140,35 @@ await window.electronAPI.whatsappGateway.addSchedule(
 await window.electronAPI.whatsappGateway.deleteSchedule(scheduleId);
 
 // Logs
-const logs = await window.electronAPI.whatsappGateway.getMessageLogs(deviceId, 100);
+const logs = await window.electronAPI.whatsappGateway.getMessageLogs(
+  deviceId,
+  100
+);
 
 // Event listeners
 window.electronAPI.whatsappGateway.onQRCode((deviceId, qr) => {
-  console.log('QR Code received:', qr);
+  console.log("QR Code received:", qr);
 });
 
 window.electronAPI.whatsappGateway.onConnected((deviceId, phone) => {
-  console.log('Connected:', phone);
+  console.log("Connected:", phone);
 });
 
 window.electronAPI.whatsappGateway.onStatusChange((deviceId, status) => {
-  console.log('Status changed:', status);
+  console.log("Status changed:", status);
 });
 
-window.electronAPI.whatsappGateway.onMessageReceived((deviceId, from, message) => {
-  console.log('Message received:', from, message);
-});
+window.electronAPI.whatsappGateway.onMessageReceived(
+  (deviceId, from, message) => {
+    console.log("Message received:", from, message);
+  }
+);
 ```
 
 ## Usage Flow
 
 ### 1. **Tambah Device Baru**
+
 1. Klik "Tambah Device WA"
 2. Masukkan nama device
 3. Klik "Tambah & Scan QR"
@@ -151,6 +176,7 @@ window.electronAPI.whatsappGateway.onMessageReceived((deviceId, from, message) =
 5. Tunggu hingga status menjadi "Connected"
 
 ### 2. **Setup Auto-Reply**
+
 1. Klik tombol "Settings" pada device card
 2. Tab "Auto Reply"
 3. Klik "Tambah Rule"
@@ -159,6 +185,7 @@ window.electronAPI.whatsappGateway.onMessageReceived((deviceId, from, message) =
 6. Toggle switch untuk enable/disable
 
 ### 3. **Setup Schedule**
+
 1. Klik tombol "Settings" pada device card
 2. Tab "Schedule"
 3. Klik "Tambah Schedule"
@@ -170,6 +197,7 @@ window.electronAPI.whatsappGateway.onMessageReceived((deviceId, from, message) =
 5. Klik "Simpan"
 
 ### 4. **View Logs**
+
 1. Klik tombol "Settings" pada device card
 2. Tab "Logs"
 3. Lihat history pesan masuk/keluar
@@ -189,10 +217,12 @@ Format: `detik menit jam tanggal bulan hari_minggu`
 ## Files Modified/Created
 
 ### Created:
+
 - `baileys-manager.js` - Core WA Gateway logic dengan Baileys
 - `WHATSAPP_GATEWAY.md` - This documentation
 
 ### Modified:
+
 - `index.html` - Added WhatsApp Gateway page dan modals
 - `style.css` - Added WA Gateway styles
 - `electron-main.js` - Added IPC handlers
@@ -200,6 +230,7 @@ Format: `detik menit jam tanggal bulan hari_minggu`
 - `package.json` - Added dependencies
 
 ### Dependencies Added:
+
 - `@whiskeysockets/baileys@7.0.0-rc.6` - WhatsApp Web API
 - `better-sqlite3` - SQLite database
 - `qrcode-terminal` - QR code display
@@ -256,16 +287,19 @@ Format: `detik menit jam tanggal bulan hari_minggu`
 ## Troubleshooting
 
 ### QR Code tidak muncul
+
 - Pastikan internet connection stable
 - Restart device connection
 - Check console untuk error messages
 
 ### Device disconnect terus
+
 - Check internet connection
 - Pastikan WhatsApp Web tidak dibuka di browser lain
 - Pastikan device tidak logout dari WhatsApp mobile
 
 ### Auto-reply tidak berfungsi
+
 - Pastikan auto-reply enabled untuk device
 - Check keyword match (case-insensitive)
 - Lihat logs untuk verify message receipt
@@ -284,6 +318,7 @@ Format: `detik menit jam tanggal bulan hari_minggu`
 ## Support
 
 Untuk pertanyaan atau issue, silakan:
+
 1. Check logs di `<userData>/starbox.log`
 2. Check database di `<userData>/whatsapp-gateway.db`
 3. Report issue di GitHub repository

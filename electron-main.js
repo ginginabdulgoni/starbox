@@ -36,6 +36,8 @@ const DEFAULT_API_BASE_URL = IS_DEV_BUILD
 const USER_AGENT_REPORT_URL =
   process.env.STARBOX_USER_AGENT_URL ||
   `${DEFAULT_API_BASE_URL}/api/report/user-agent`;
+const PACKAGE_INFO_URL =
+  process.env.STARBOX_PACKAGE_URL || `${DEFAULT_API_BASE_URL}/api/package`;
 const SYSTEM_REPORT_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const MACHINE_ID_STORE_KEY = "systemMachineId";
 const AUTH_BASE_URL =
@@ -324,6 +326,75 @@ function readDeviceDetails() {
   }
 }
 
+function collectWhatsAppGatewaySnapshot() {
+  const fallback = { total: 0, devices: [] };
+  if (!BaileysManager || !BaileysManager.isDatabaseReady?.()) {
+    return fallback;
+  }
+
+  try {
+    const devices = BaileysManager.getDevices() || [];
+    if (!Array.isArray(devices) || devices.length === 0) {
+      return fallback;
+    }
+
+    const entries = devices.map((device) => {
+      const statusInfo = BaileysManager.getConnectionStatus(device.id) || {};
+      return {
+        id: device.id,
+        name: device.name || null,
+        status: statusInfo.status || device.status || "unknown",
+        connected: !!statusInfo.connected,
+        phone: statusInfo.phone || device.phone || null,
+        auto_reply_enabled: !!device.auto_reply_enabled,
+        created_at: device.created_at || device.createdAt || null,
+        updated_at: device.updated_at || device.updatedAt || null,
+      };
+    });
+
+    return {
+      total: entries.length,
+      devices: entries,
+    };
+  } catch (err) {
+    console.warn(
+      "⚠️ Gagal mengumpulkan snapshot WhatsApp Gateway:",
+      err?.message || err
+    );
+    return fallback;
+  }
+}
+
+function collectWhatsAppGatewayStatusSnapshot() {
+  const fallback = [];
+  if (!BaileysManager || !BaileysManager.isDatabaseReady?.()) {
+    return fallback;
+  }
+
+  try {
+    const devices = BaileysManager.getDevices() || [];
+    return devices.map((device) => {
+      const statusInfo = BaileysManager.getConnectionStatus(device.id) || {};
+      return {
+        id: device.id,
+        name: device.name || null,
+        databaseStatus: device.status || "unknown",
+        socketStatus: statusInfo.status || "unknown",
+        connected: !!statusInfo.connected,
+        phone: statusInfo.phone || device.phone || null,
+        auto_reply_enabled: !!device.auto_reply_enabled,
+        lastCheckedAt: new Date().toISOString(),
+      };
+    });
+  } catch (err) {
+    console.warn(
+      "⚠️ Gagal mengumpulkan status WhatsApp Gateway:",
+      err?.message || err
+    );
+    return fallback;
+  }
+}
+
 function buildDeviceSnapshot(device = {}) {
   if (!device || typeof device !== "object") return null;
   return {
@@ -433,6 +504,7 @@ function buildSystemInfoPayload(context = {}) {
     },
     devices: deviceDetails,
     auth: authSnapshot,
+    whatsappGateway: collectWhatsAppGatewaySnapshot(),
   };
 
   if (context.eventType) {
@@ -446,6 +518,9 @@ function buildSystemInfoPayload(context = {}) {
   }
   if (context.deviceChange) {
     payload.deviceChange = context.deviceChange;
+  }
+  if (context.whatsappGatewayChange) {
+    payload.whatsappGatewayChange = context.whatsappGatewayChange;
   }
 
   return payload;
@@ -514,6 +589,10 @@ function createEmptyAuthSession() {
     allowsPrivateService: false,
     allowsAndroidEmulator: false,
     allowsIosSimulator: false,
+    limit_device_wa_gateway: null,
+    limit_auto_reply: null,
+    limit_broadcast_day: null,
+
     raw: null,
   };
 }
@@ -665,6 +744,9 @@ function sanitizeAuthSession() {
     isLoggedIn: !!(rest?.isLoggedIn && token),
     isUnlimited: !!rest?.isUnlimited,
     guestServiceLimit: getGuestServiceLimit(),
+    limit_device_wa_gateway: rest?.limit_device_wa_gateway ?? null,
+    limit_auto_reply: rest?.limit_auto_reply ?? null,
+    limit_broadcast_day: rest?.limit_broadcast_day ?? null,
   };
 }
 
@@ -705,10 +787,23 @@ function buildAuthSessionFromResponse(payload = {}, overrides = {}) {
         device_limit: coerceNumber(
           packageSource.device_limit ?? packageSource.limit
         ),
+        is_device_limit_unlimited:
+          packageSource.is_device_limit_unlimited === true ||
+          packageSource.isDeviceLimitUnlimited === true ||
+          packageSource.deviceLimitUnlimited === true,
         is_unlimited:
           packageSource.is_unlimited === true ||
           packageSource.isUnlimited === true ||
           packageSource.unlimited === true,
+        limit_device_wa_gateway:
+          coerceNumber(packageSource.limit_device_wa_gateway) ??
+          coerceNumber(packageSource.limitDeviceWAGateway),
+        limit_auto_reply:
+          coerceNumber(packageSource.limit_auto_reply) ??
+          coerceNumber(packageSource.limitAutoReply),
+        limit_broadcast_day:
+          coerceNumber(packageSource.limit_broadcast_day) ??
+          coerceNumber(packageSource.limitBroadcastDay),
         price_display:
           packageSource.price_display ||
           packageSource.priceDisplay ||
@@ -863,6 +958,22 @@ function buildAuthSessionFromResponse(payload = {}, overrides = {}) {
             baseUser.allows_ios_simulator
         );
 
+  const derivedLimitDeviceWAGateway =
+    normalizedPackage?.limit_device_wa_gateway ??
+    coerceNumber(payload.limit_device_wa_gateway) ??
+    coerceNumber(payload.limitDeviceWAGateway) ??
+    null;
+  const derivedLimitAutoReply =
+    normalizedPackage?.limit_auto_reply ??
+    coerceNumber(payload.limit_auto_reply) ??
+    coerceNumber(payload.limitAutoReply) ??
+    null;
+  const derivedLimitBroadcastDay =
+    normalizedPackage?.limit_broadcast_day ??
+    coerceNumber(payload.limit_broadcast_day) ??
+    coerceNumber(payload.limitBroadcastDay) ??
+    null;
+
   return {
     ...createEmptyAuthSession(),
     isLoggedIn: !!token,
@@ -880,6 +991,9 @@ function buildAuthSessionFromResponse(payload = {}, overrides = {}) {
     allowsIosSimulator,
     serverDeviceCount:
       typeof serverDeviceCount === "number" ? serverDeviceCount : null,
+    limit_device_wa_gateway: derivedLimitDeviceWAGateway,
+    limit_auto_reply: derivedLimitAutoReply,
+    limit_broadcast_day: derivedLimitBroadcastDay,
     lastSyncedAt: new Date().toISOString(),
     raw: payload,
   };
@@ -935,6 +1049,65 @@ async function callAuthEndpoint(pathSuffix, payload = {}, options = {}) {
       throw networkError;
     }
     throw err;
+  }
+}
+
+async function fetchPackageDetails(authToken = null) {
+  try {
+    const data = await requestJson({
+      url: PACKAGE_INFO_URL,
+      method: "GET",
+      headers: {
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        Accept: "application/json",
+      },
+    });
+    console.log("📦 GET /api/package response:", data);
+    return data;
+  } catch (err) {
+    console.error(
+      "❌ Gagal mengambil data paket dari API /package:",
+      err?.message || err
+    );
+    return null;
+  }
+}
+
+async function refreshPackageInfo() {
+  if (!authSession?.isLoggedIn || !authSession?.token) {
+    return null;
+  }
+
+  try {
+    const data = await fetchPackageDetails(authSession.token);
+    if (!data) return null;
+
+    const payload = {
+      token: authSession.token,
+      refreshToken: authSession.refreshToken,
+      user: authSession.user,
+      deviceQuota: authSession.deviceQuota,
+      package: data.package,
+      package_expires_at: data.package_expires_at,
+    };
+
+    const session = applyAuthSessionFromPayload(payload, {
+      email: authSession.user?.email,
+      packageExpiresAt:
+        data.package_expires_at ||
+        data.packageExpiresAt ||
+        authSession.packageExpiresAt,
+    });
+
+    logDev("🔁 Paket disinkronkan dari API /package:", {
+      package: session.package,
+      expires_at: session.packageExpiresAt,
+    });
+
+    return session;
+  } catch (err) {
+    console.error("❌ Gagal memuat detail paket:", err?.message || err);
+    return null;
   }
 }
 
@@ -1489,9 +1662,7 @@ async function refreshServicesFromServer() {
 
         const normalizedUrl = normalizeServiceUrl(serviceUrl);
         if (normalizedUrl && seenUrls.has(normalizedUrl)) {
-          console.log(
-            `ℹ️ Melewati layanan dengan URL duplikat: ${serviceUrl}`
-          );
+          console.log(`ℹ️ Melewati layanan dengan URL duplikat: ${serviceUrl}`);
           return;
         }
 
@@ -2958,6 +3129,7 @@ ipcMain.handle("auth-login", async (_event, credentials = {}) => {
       eventType: "login",
       accountSnapshot: session,
     });
+    await refreshPackageInfo();
     return {
       success: true,
       session,
@@ -2970,6 +3142,24 @@ ipcMain.handle("auth-login", async (_event, credentials = {}) => {
       message:
         err?.message || "Login gagal. Periksa koneksi atau kredensial Anda.",
       details: err?.details || null,
+    };
+  }
+});
+
+ipcMain.handle("auth-refresh-package", async () => {
+  try {
+    const session = await refreshPackageInfo();
+    return {
+      success: true,
+      session: session || sanitizeAuthSession(),
+    };
+  } catch (err) {
+    console.error("❌ Gagal refresh paket:", err?.message || err);
+    return {
+      success: false,
+      message:
+        err?.message ||
+        "Gagal menyinkronkan paket. Periksa koneksi internet Anda.",
     };
   }
 });
@@ -3505,7 +3695,6 @@ ipcMain.on("open-ios-simulator", () => {
   });
 
   iosWindow.loadFile("ios-simulator.html");
-
 });
 
 ipcMain.handle("monitor-copy-text", (_event, rawValue = "") => {
@@ -3655,10 +3844,7 @@ ipcMain.handle("load-devices", () => {
       device.callbackUrl = "";
       modifiedAny = true;
     }
-    if (
-      (device.service || "").toLowerCase() === "android" &&
-      !device.avdName
-    ) {
+    if ((device.service || "").toLowerCase() === "android" && !device.avdName) {
       device.avdName = generateAvdName(device.uid || device.token || "");
       modifiedAny = true;
     }
@@ -4084,6 +4270,18 @@ ipcMain.handle("wa-get-devices", async () => {
 ipcMain.handle("wa-create-device", async (_event, deviceId, name) => {
   try {
     const device = BaileysManager.createDevice(deviceId, name);
+    sendSystemInfoReport({
+      eventType: "wa-gateway-device-added",
+      whatsappGatewayChange: {
+        type: "added",
+        device: {
+          id: device.id,
+          name: device.name,
+          status: device.status || "disconnected",
+          phone: device.phone || null,
+        },
+      },
+    });
     return { success: true, device };
   } catch (error) {
     console.error("❌ Failed to create WA device:", error);
@@ -4112,7 +4310,12 @@ ipcMain.handle("wa-start-device", async (event, deviceId) => {
       // onMessage callback
       (from, message, rawMsg) => {
         if (senderWindow && !senderWindow.isDestroyed()) {
-          senderWindow.webContents.send("wa-message-received", deviceId, from, message);
+          senderWindow.webContents.send(
+            "wa-message-received",
+            deviceId,
+            from,
+            message
+          );
         }
       },
       // onStatusChange callback
@@ -4142,7 +4345,22 @@ ipcMain.handle("wa-stop-device", async (_event, deviceId) => {
 
 ipcMain.handle("wa-delete-device", async (_event, deviceId) => {
   try {
+    const device = BaileysManager.getDevice(deviceId);
     const result = BaileysManager.deleteDevice(deviceId);
+    if (result.success) {
+      sendSystemInfoReport({
+        eventType: "wa-gateway-device-removed",
+        whatsappGatewayChange: {
+          type: "removed",
+          device: {
+            id: device?.id || deviceId,
+            name: device?.name || null,
+            status: device?.status || "disconnected",
+            phone: device?.phone || null,
+          },
+        },
+      });
+    }
     return result;
   } catch (error) {
     console.error("❌ Failed to delete WA device:", error);
@@ -4170,6 +4388,16 @@ ipcMain.handle("wa-get-status", (_event, deviceId) => {
   }
 });
 
+ipcMain.handle("wa-get-profile", (_event, deviceId) => {
+  try {
+    const profile = BaileysManager.getDeviceProfile(deviceId);
+    return { success: true, profile };
+  } catch (error) {
+    console.error("❌ Failed to get WA profile:", error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle("wa-get-auto-replies", (_event, deviceId) => {
   try {
     const replies = BaileysManager.getAutoReplies(deviceId);
@@ -4180,15 +4408,24 @@ ipcMain.handle("wa-get-auto-replies", (_event, deviceId) => {
   }
 });
 
-ipcMain.handle("wa-add-auto-reply", (_event, deviceId, keyword, replyMessage, scope, matchType) => {
-  try {
-    const reply = BaileysManager.addAutoReply(deviceId, keyword, replyMessage, scope, matchType);
-    return { success: true, reply };
-  } catch (error) {
-    console.error("❌ Failed to add auto reply:", error);
-    return { success: false, error: error.message };
+ipcMain.handle(
+  "wa-add-auto-reply",
+  (_event, deviceId, keyword, replyMessage, scope, matchType) => {
+    try {
+      const reply = BaileysManager.addAutoReply(
+        deviceId,
+        keyword,
+        replyMessage,
+        scope,
+        matchType
+      );
+      return { success: true, reply };
+    } catch (error) {
+      console.error("❌ Failed to add auto reply:", error);
+      return { success: false, error: error.message };
+    }
   }
-});
+);
 
 ipcMain.handle("wa-delete-auto-reply", (_event, replyId) => {
   try {
@@ -4212,7 +4449,9 @@ ipcMain.handle("wa-toggle-auto-reply", (_event, replyId, isActive) => {
 
 ipcMain.handle("wa-set-auto-reply-enabled", (_event, deviceId, enabled) => {
   try {
-    const result = BaileysManager.updateDevice(deviceId, { auto_reply_enabled: enabled ? 1 : 0 });
+    const result = BaileysManager.updateDevice(deviceId, {
+      auto_reply_enabled: enabled ? 1 : 0,
+    });
     return { success: true, device: result };
   } catch (error) {
     console.error("❌ Failed to set auto reply enabled:", error);
@@ -4230,15 +4469,24 @@ ipcMain.handle("wa-get-schedules", (_event, deviceId) => {
   }
 });
 
-ipcMain.handle("wa-add-schedule", (_event, deviceId, scheduleName, cronExpression, message, recipients) => {
-  try {
-    const schedule = BaileysManager.addSchedule(deviceId, scheduleName, cronExpression, message, recipients);
-    return { success: true, schedule };
-  } catch (error) {
-    console.error("❌ Failed to add schedule:", error);
-    return { success: false, error: error.message };
+ipcMain.handle(
+  "wa-add-schedule",
+  (_event, deviceId, scheduleName, cronExpression, message, recipients) => {
+    try {
+      const schedule = BaileysManager.addSchedule(
+        deviceId,
+        scheduleName,
+        cronExpression,
+        message,
+        recipients
+      );
+      return { success: true, schedule };
+    } catch (error) {
+      console.error("❌ Failed to add schedule:", error);
+      return { success: false, error: error.message };
+    }
   }
-});
+);
 
 ipcMain.handle("wa-delete-schedule", (_event, scheduleId) => {
   try {
@@ -4303,10 +4551,10 @@ ipcMain.handle("wa-send-typing", async (_event, deviceId, target) => {
  */
 async function autoReconnectWADevices() {
   try {
-    console.log('🔄 Checking for WhatsApp devices to auto-reconnect...');
+    console.log("🔄 Checking for WhatsApp devices to auto-reconnect...");
     await checkConnectedDevicesHealth();
   } catch (error) {
-    console.error('❌ Error in auto-reconnect WhatsApp devices:', error);
+    console.error("❌ Error in auto-reconnect WhatsApp devices:", error);
   }
 }
 
@@ -4319,14 +4567,15 @@ function broadcastToAllWAWindows(channel, ...args) {
 }
 
 function broadcastStatusChange(deviceId, status) {
-  broadcastToAllWAWindows('wa-status-change', deviceId, status);
+  broadcastToAllWAWindows("wa-status-change", deviceId, status);
 }
 
 function broadcastConnected(deviceId, phone) {
-  broadcastToAllWAWindows('wa-connected', deviceId, phone);
+  broadcastToAllWAWindows("wa-connected", deviceId, phone);
 }
 
 const reconnectingDevices = new Set();
+const reconnectCooldown = new Map();
 const whatsappWebWindows = new Map();
 
 function openWhatsAppWebWindow(deviceId) {
@@ -4337,26 +4586,26 @@ function openWhatsAppWebWindow(deviceId) {
   }
 
   const device = BaileysManager.getDevice(deviceId);
-  const title = device ? `WhatsApp Web · ${device.name}` : 'WhatsApp Web';
+  const title = device ? `WhatsApp Web · ${device.name}` : "WhatsApp Web";
 
   const waWindow = new BrowserWindow({
     width: 1200,
     height: 820,
     title,
     autoHideMenuBar: true,
-    backgroundColor: '#0c0d0e',
+    backgroundColor: "#0c0d0e",
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
-    }
+    },
   });
 
-  waWindow.loadFile(path.join(__dirname, 'whatsapp-web.html'), {
-    query: { deviceId }
+  waWindow.loadFile(path.join(__dirname, "whatsapp-web.html"), {
+    query: { deviceId },
   });
 
-  waWindow.on('closed', () => {
+  waWindow.on("closed", () => {
     whatsappWebWindows.delete(deviceId);
   });
 
@@ -4370,7 +4619,15 @@ async function attemptSilentReconnect(device) {
   }
 
   if (BaileysManager.isAutoReconnectBlocked(device.id)) {
-    console.log(`ℹ️ Auto-reconnect blocked for ${device.name} (${device.id}) after QR expiry`);
+    console.log(
+      `ℹ️ Auto-reconnect blocked for ${device.name} (${device.id}) after QR expiry`
+    );
+    return;
+  }
+
+  const lastAttempt = reconnectCooldown.get(device.id);
+  const cooldownMs = 30 * 1000;
+  if (lastAttempt && Date.now() - lastAttempt < cooldownMs) {
     return;
   }
 
@@ -4381,7 +4638,9 @@ async function attemptSilentReconnect(device) {
 
   reconnectingDevices.add(device.id);
   try {
-    console.log(`🔁 Silent reconnect triggered for ${device.name} (${device.id})`);
+    console.log(
+      `🔁 Silent reconnect triggered for ${device.name} (${device.id})`
+    );
     await BaileysManager.startDevice(
       device.id,
       undefined,
@@ -4395,14 +4654,21 @@ async function attemptSilentReconnect(device) {
     );
     console.log(`✅ Silent reconnect completed for ${device.name}`);
   } catch (error) {
-    console.error(`❌ Silent reconnect failed for ${device.name} (${device.id}):`, error?.message || error);
-    const normalizedMessage = (error?.message || '').toLowerCase();
-    if (normalizedMessage.includes('logged out')) {
-      BaileysManager.updateDevice(device.id, { status: 'disconnected', qr_code: null });
-      broadcastStatusChange(device.id, 'disconnected');
+    console.error(
+      `❌ Silent reconnect failed for ${device.name} (${device.id}):`,
+      error?.message || error
+    );
+    const normalizedMessage = (error?.message || "").toLowerCase();
+    if (normalizedMessage.includes("logged out")) {
+      BaileysManager.updateDevice(device.id, {
+        status: "disconnected",
+        qr_code: null,
+      });
+      broadcastStatusChange(device.id, "disconnected");
     }
   } finally {
     reconnectingDevices.delete(device.id);
+    reconnectCooldown.set(device.id, Date.now());
   }
 }
 
@@ -4410,7 +4676,7 @@ async function checkConnectedDevicesHealth() {
   const devices = BaileysManager.getDevices();
 
   for (const device of devices) {
-    if (device.status !== 'connected') {
+    if (device.status !== "connected") {
       continue;
     }
 
@@ -4422,19 +4688,32 @@ async function checkConnectedDevicesHealth() {
       const actualStatus = BaileysManager.getConnectionStatus(device.id);
 
       if (!actualStatus.connected) {
-        console.log(`⚠️ Device ${device.name} (${device.id}) is marked connected but offline.`);
+        console.log(
+          `⚠️ Device ${device.name} (${device.id}) is marked connected but offline.`
+        );
         await attemptSilentReconnect(device);
         continue;
       }
 
       if (!device.phone && actualStatus.phone) {
-        console.log(`📱 Updating phone number for device ${device.name}: ${actualStatus.phone}`);
+        console.log(
+          `📱 Updating phone number for device ${device.name}: ${actualStatus.phone}`
+        );
         BaileysManager.updateDevice(device.id, { phone: actualStatus.phone });
       }
     } catch (deviceError) {
-      console.error(`❌ Error checking status for device ${device.name}:`, deviceError?.message || deviceError);
+      console.error(
+        `❌ Error checking status for device ${device.name}:`,
+        deviceError?.message || deviceError
+      );
     }
   }
+
+  const statusSnapshot = collectWhatsAppGatewayStatusSnapshot();
+  sendSystemInfoReport({
+    eventType: "wa-gateway-status-check",
+    whatsappGatewayStatus: statusSnapshot,
+  });
 }
 
 /**
@@ -4449,26 +4728,28 @@ function startWADeviceStatusChecker() {
     clearInterval(waStatusCheckInterval);
   }
 
-  console.log('⏱️ Starting WhatsApp device status checker (15-minute interval)');
+  console.log(
+    "⏱️ Starting WhatsApp device status checker (15-minute interval)"
+  );
 
   // Run check every 15 minutes (15 * 60 * 1000 ms)
   waStatusCheckInterval = setInterval(async () => {
     try {
-      console.log('🔍 Running periodic WhatsApp device status check...');
+      console.log("🔍 Running periodic WhatsApp device status check...");
       await checkConnectedDevicesHealth();
-      console.log('✅ Periodic status check completed');
+      console.log("✅ Periodic status check completed");
     } catch (error) {
-      console.error('❌ Error in periodic status check:', error);
+      console.error("❌ Error in periodic status check:", error);
     }
   }, 15 * 60 * 1000); // 15 minutes
 
   // Also run initial check after 30 seconds
   setTimeout(async () => {
-    console.log('🔍 Running initial WhatsApp device status check...');
+    console.log("🔍 Running initial WhatsApp device status check...");
     try {
       await checkConnectedDevicesHealth();
     } catch (error) {
-      console.error('❌ Error in initial status check:', error);
+      console.error("❌ Error in initial status check:", error);
     }
   }, 30000); // 30 seconds
 }
@@ -4476,13 +4757,13 @@ function startWADeviceStatusChecker() {
 function broadcastScheduleStatus(scheduleId, status) {
   BrowserWindow.getAllWindows().forEach((win) => {
     if (!win.isDestroyed() && win.webContents) {
-      win.webContents.send('wa-schedule-status', scheduleId, status);
+      win.webContents.send("wa-schedule-status", scheduleId, status);
     }
   });
   try {
     BaileysManager.updateScheduleStatus(scheduleId, status);
   } catch (error) {
-    console.error('❌ Failed to persist schedule status:', error);
+    console.error("❌ Failed to persist schedule status:", error);
   }
 }
 
@@ -4547,7 +4828,10 @@ async function checkWASchedules() {
 
         await executeScheduledMessage(schedule, device, prevDate);
       } catch (error) {
-        console.error(`❌ Schedule check failed for ${schedule.schedule_name}:`, error);
+        console.error(
+          `❌ Schedule check failed for ${schedule.schedule_name}:`,
+          error
+        );
       }
     }
   }
@@ -4572,9 +4856,8 @@ function startWAScheduleChecker() {
   });
 }
 
-
 // Cleanup interval on app quit
-app.on('will-quit', () => {
+app.on("will-quit", () => {
   if (waStatusCheckInterval) {
     clearInterval(waStatusCheckInterval);
     waStatusCheckInterval = null;
@@ -4599,18 +4882,21 @@ app.whenReady().then(async () => {
   // Initialize WhatsApp Gateway database
   try {
     await BaileysManager.initDatabase();
-    console.log('✅ WhatsApp Gateway initialized');
+    console.log("✅ WhatsApp Gateway initialized");
+    sendSystemInfoReport({ eventType: "wa-gateway-ready" });
 
-    const waAutoReconnectEnabled = process.env.WA_AUTO_RECONNECT !== 'false';
+    const waAutoReconnectEnabled = process.env.WA_AUTO_RECONNECT !== "false";
     if (waAutoReconnectEnabled) {
       await autoReconnectWADevices();
       startWADeviceStatusChecker();
     } else {
-      console.log('ℹ️ Auto-reconnect disabled via WA_AUTO_RECONNECT, skipping auto reconnect + health checks');
+      console.log(
+        "ℹ️ Auto-reconnect disabled via WA_AUTO_RECONNECT, skipping auto reconnect + health checks"
+      );
     }
     startWAScheduleChecker();
   } catch (error) {
-    console.error('❌ Failed to initialize WhatsApp Gateway:', error);
+    console.error("❌ Failed to initialize WhatsApp Gateway:", error);
   }
 
   await refreshServicesFromServer();

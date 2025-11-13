@@ -83,6 +83,7 @@ async function loadBaileys() {
 // SQLite Database setup
 let DB_PATH;
 let db;
+let databaseReady = false;
 
 // Store active connections
 const activeConnections = new Map();
@@ -91,6 +92,8 @@ const activeConnections = new Map();
 const qrGenerationAllowed = new Map();
 const qrExpiryTimers = new Map();
 const autoReconnectBlocked = new Set();
+const reconnectAttemptCount = new Map();
+const MAX_AUTO_RECONNECT = 1;
 const QR_EXPIRY_MS = 5 * 60 * 1000; // mark QR as expired after 5 minutes
 
 function allowQRCode(deviceId) {
@@ -277,6 +280,7 @@ async function initDatabase() {
   } catch (err) {}
 
   console.log("✅ Database initialized");
+  databaseReady = true;
   return db;
 }
 
@@ -476,8 +480,12 @@ async function startDevice(
           lastDisconnect?.error?.output?.statusCode !==
           DisconnectReason.loggedOut;
         const shouldBlockReconnect = autoReconnectBlocked.has(deviceId);
+        const previousAttempts = reconnectAttemptCount.get(deviceId) || 0;
         const isAutoReconnectAllowed =
-          shouldReconnect && WA_AUTO_RECONNECT && !shouldBlockReconnect;
+          shouldReconnect &&
+          WA_AUTO_RECONNECT &&
+          !shouldBlockReconnect &&
+          previousAttempts < MAX_AUTO_RECONNECT;
         const nextStatus = isAutoReconnectAllowed
           ? "reconnecting"
           : "disconnected";
@@ -493,6 +501,7 @@ async function startDevice(
         if (onStatusChange) onStatusChange(nextStatus);
 
         if (isAutoReconnectAllowed) {
+          reconnectAttemptCount.set(deviceId, previousAttempts + 1);
           // Auto reconnect after 5 seconds
           setTimeout(() => {
             startDevice(deviceId, onQR, onConnected, onMessage, onStatusChange);
@@ -518,6 +527,8 @@ async function startDevice(
           phone: phone,
           qr_code: null,
         });
+
+        reconnectAttemptCount.set(deviceId, 0);
 
         if (onConnected) onConnected(phone);
         if (onStatusChange) onStatusChange("connected");
@@ -584,6 +595,8 @@ async function stopDevice(deviceId) {
       updateDevice(deviceId, { status: "disconnected", qr_code: null });
       cleanupSessionDir(deviceId);
       console.log(`🛑 Stopped device: ${deviceId}`);
+      reconnectAttemptCount.delete(deviceId);
+      autoReconnectBlocked.add(deviceId);
     }
     return { success: true };
   }
@@ -671,6 +684,30 @@ function getConnectionStatus(deviceId) {
     connected: isConnected,
     status: device?.status || "unknown",
     phone: device?.phone || null,
+  };
+}
+
+/**
+ * Get profile data for connected device
+ */
+function getDeviceProfile(deviceId) {
+  const sock = activeConnections.get(deviceId);
+  if (!sock) {
+    throw new Error("Device belum terhubung");
+  }
+
+  const contact = sock.user || {};
+  const jid = contact.id || "";
+  const phone = jid.split(":")[0] || "";
+  const displayName =
+    contact.name || contact.notify || contact.verifiedName || "WhatsApp";
+  return {
+    jid,
+    phone,
+    displayName,
+    notifyName: contact.notify || null,
+    connected: true,
+    status: getDevice(deviceId)?.status || "connected",
   };
 }
 
@@ -922,6 +959,10 @@ function getMessageLogs(deviceId, limit = 100) {
   return stmt.all(deviceId, limit);
 }
 
+function isDatabaseReady() {
+  return databaseReady && !!db;
+}
+
 module.exports = {
   initDatabase,
   getDevices,
@@ -934,6 +975,7 @@ module.exports = {
   sendMessage,
   sendTypingStatus,
   getConnectionStatus,
+  getDeviceProfile,
   isAutoReconnectBlocked,
   getAutoReplies,
   addAutoReply,
@@ -946,4 +988,5 @@ module.exports = {
   clearMessageLogs,
   updateScheduleLastRun,
   updateScheduleStatus,
+  isDatabaseReady,
 };

@@ -1397,7 +1397,14 @@ const authState = {
   allowsPrivateService: false,
   allowsAndroidEmulator: false,
   allowsIosSimulator: false,
+  limitDeviceWAGateway: null,
+  limitAutoReply: null,
+  limitBroadcastDay: null,
 };
+
+if (typeof window !== "undefined") {
+  window.getCurrentAuthState = () => authState;
+}
 
 const authModalState = {
   activeTab: "login",
@@ -1457,6 +1464,7 @@ function setStoredTheme(value) {
 
 function getServiceLimitValue() {
   if (authState.isLoggedIn) {
+    if (authState.package?.is_device_limit_unlimited) return Infinity;
     if (authState.isUnlimited) return Infinity;
     if (
       typeof authState.deviceQuota === "number" &&
@@ -1832,6 +1840,16 @@ function applyAuthSession(session = {}) {
   authState.package = session.package || null;
   authState.isUnlimited = !!session.isUnlimited;
   authState.packageExpiresAt = session.packageExpiresAt || null;
+  authState.limitDeviceWAGateway =
+    session.limit_device_wa_gateway ??
+    session.package?.limit_device_wa_gateway ??
+    null;
+  authState.limitAutoReply =
+    session.limit_auto_reply ?? session.package?.limit_auto_reply ?? null;
+  authState.limitBroadcastDay =
+    session.limit_broadcast_day ??
+    session.package?.limit_broadcast_day ??
+    null;
   authState.allowsPrivateService = !!(
     session.allowsPrivateService ||
     session.package?.allows_private_service ||
@@ -1861,6 +1879,9 @@ function applyAuthSession(session = {}) {
     authState.allowsPrivateService = false;
     authState.allowsAndroidEmulator = false;
     authState.allowsIosSimulator = false;
+    authState.limitDeviceWAGateway = null;
+    authState.limitAutoReply = null;
+    authState.limitBroadcastDay = null;
   }
   ensurePackageCountdownTimer();
   updateAuthHeaderUI();
@@ -1883,6 +1904,9 @@ function applyAuthSession(session = {}) {
     unlimited: authState.isUnlimited,
     limit: nextLimit,
   };
+  if (typeof window !== "undefined") {
+    window.__authState = authState;
+  }
 }
 
 async function initAuthFlow() {
@@ -1895,6 +1919,9 @@ async function initAuthFlow() {
     const session = await window.electronAPI.auth.getSession();
     if (session) {
       applyAuthSession(session);
+      if (typeof window.loadWAGatewayPage === "function") {
+        window.loadWAGatewayPage();
+      }
     }
   } catch (err) {
     console.error("⚠️ Gagal memuat sesi auth awal:", err);

@@ -29,7 +29,7 @@
         ]
       }
     ],
-    "appId": "com.1112-project.StarBox",
+    "appId": "com.weagate.StarBox",
     "productName": "StarBox",
     "executableName": "StarBox",
     "copyright": "© 2025 Gingin Abdul Goni",
@@ -131,6 +131,7 @@
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
     "tree-kill": "^1.2.2",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "ws": "^8.15.0"
   }
 }

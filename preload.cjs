@@ -45,12 +45,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       }
     });
   },
-  auth: {
-    getSession: () => ipcRenderer.invoke('auth-get-session'),
-    login: (credentials) => ipcRenderer.invoke('auth-login', credentials),
-    register: (payload) => ipcRenderer.invoke('auth-register', payload),
-    logout: () => ipcRenderer.invoke('auth-logout'),
-    onSessionChanged: (callback) => {
+    auth: {
+      getSession: () => ipcRenderer.invoke('auth-get-session'),
+      login: (credentials) => ipcRenderer.invoke('auth-login', credentials),
+      register: (payload) => ipcRenderer.invoke('auth-register', payload),
+      logout: () => ipcRenderer.invoke('auth-logout'),
+      refreshPackage: () => ipcRenderer.invoke('auth-refresh-package'),
+      onSessionChanged: (callback) => {
       if (typeof callback !== 'function') return undefined;
       const listener = (_event, session) => callback(session);
       ipcRenderer.on('auth-session-updated', listener);
@@ -111,6 +112,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteDevice: (deviceId) => ipcRenderer.invoke('wa-delete-device', deviceId),
     sendMessage: (deviceId, phone, message) => ipcRenderer.invoke('wa-send-message', deviceId, phone, message),
     getStatus: (deviceId) => ipcRenderer.invoke('wa-get-status', deviceId),
+    getDeviceProfile: (deviceId) => ipcRenderer.invoke('wa-get-profile', deviceId),
 
     // Auto-reply
     getAutoReplies: (deviceId) => ipcRenderer.invoke('wa-get-auto-replies', deviceId),
