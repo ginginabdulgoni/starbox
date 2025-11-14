@@ -4,7 +4,7 @@
  * Handles multi-device connections with SQLite session storage
  */
 
-const Database = require("better-sqlite3");
+const { WAGatewayStorage } = require("./wa-storage");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -82,7 +82,15 @@ async function loadBaileys() {
 
 // SQLite Database setup
 let DB_PATH;
-let db;
+let storage;
+
+function ensureStorage() {
+  if (!storage) {
+    const baseDir = path.dirname(DB_PATH || getElectronApp().getPath("userData"));
+    storage = new WAGatewayStorage(baseDir);
+  }
+  return storage;
+}
 let databaseReady = false;
 
 // Store active connections
@@ -196,158 +204,71 @@ function cleanupSessionDir(deviceId) {
  * Initialize SQLite database
  */
 async function initDatabase() {
-  // Initialize DB_PATH when app is ready
   if (!DB_PATH) {
     DB_PATH = path.join(
       getElectronApp().getPath("userData"),
-      "whatsapp-gateway.db"
+      "wa-gateway-data.json"
     );
   }
-
-  console.log("🗄️ Initializing WhatsApp Gateway database at:", DB_PATH);
-
-  // Load Baileys first
+  // Log only to console without writing to file
+  if (process.env.NODE_ENV === "development") {
+    process.stdout.write(`🗄️ Initializing WhatsApp Gateway storage at: ${DB_PATH}\n`);
+  }
   await loadBaileys();
-
-  db = new Database(DB_PATH);
-
-  // Create tables
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS wa_devices (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      phone TEXT,
-      status TEXT DEFAULT 'disconnected',
-      qr_code TEXT,
-      auto_reply_enabled INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS wa_sessions (
-      device_id TEXT PRIMARY KEY,
-      session_data TEXT,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (device_id) REFERENCES wa_devices(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS wa_auto_replies (
-      id TEXT PRIMARY KEY,
-      device_id TEXT NOT NULL,
-      keyword TEXT NOT NULL,
-      reply_message TEXT NOT NULL,
-      scope TEXT DEFAULT 'both',
-      match_type TEXT DEFAULT 'contains',
-      is_active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (device_id) REFERENCES wa_devices(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS wa_schedules (
-      id TEXT PRIMARY KEY,
-      device_id TEXT NOT NULL,
-      schedule_name TEXT NOT NULL,
-      cron_expression TEXT NOT NULL,
-      message TEXT NOT NULL,
-      recipients TEXT NOT NULL,
-      is_active INTEGER DEFAULT 1,
-      last_run TEXT,
-      last_status TEXT DEFAULT 'pending',
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (device_id) REFERENCES wa_devices(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS wa_message_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      device_id TEXT NOT NULL,
-      phone TEXT NOT NULL,
-      message TEXT,
-      type TEXT,
-      status TEXT,
-      timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (device_id) REFERENCES wa_devices(id) ON DELETE CASCADE
-    );
-  `);
-
-  try {
-    db.exec("ALTER TABLE wa_auto_replies ADD COLUMN scope TEXT DEFAULT 'both'");
-  } catch (err) {}
-  try {
-    db.exec("ALTER TABLE wa_auto_replies ADD COLUMN match_type TEXT DEFAULT 'contains'");
-  } catch (err) {}
-  try {
-    db.exec("ALTER TABLE wa_schedules ADD COLUMN last_status TEXT DEFAULT 'pending'");
-  } catch (err) {}
-
-  console.log("✅ Database initialized");
+  storage = new WAGatewayStorage(path.dirname(DB_PATH));
+  if (process.env.NODE_ENV === "development") {
+    process.stdout.write("✅ JSON storage initialized\n");
+  }
   databaseReady = true;
-  return db;
+  return storage;
 }
 
 /**
  * Get all WA Gateway devices
  */
 function getDevices() {
-  const stmt = db.prepare("SELECT * FROM wa_devices ORDER BY created_at DESC");
-  return stmt.all();
+  return ensureStorage().getDevices();
 }
 
 /**
  * Get single device
  */
 function getDevice(deviceId) {
-  const stmt = db.prepare("SELECT * FROM wa_devices WHERE id = ?");
-  return stmt.get(deviceId);
+  return ensureStorage().getDevice(deviceId);
 }
 
 /**
  * Create new WA Gateway device
  */
 function createDevice(deviceId, name) {
-  const stmt = db.prepare(`
-    INSERT INTO wa_devices (id, name, status)
-    VALUES (?, ?, 'disconnected')
-  `);
-
-  stmt.run(deviceId, name);
-
-  return getDevice(deviceId);
+  return ensureStorage().saveDevice({
+    id: deviceId,
+    name,
+    status: "disconnected",
+  });
 }
 
 /**
  * Update device status and info
  */
 function updateDevice(deviceId, updates) {
-  const fields = [];
-  const values = [];
-
-  for (const [key, value] of Object.entries(updates)) {
-    fields.push(`${key} = ?`);
-    values.push(value);
-  }
-
-  values.push(deviceId);
-
-  const stmt = db.prepare(`
-    UPDATE wa_devices
-    SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `);
-
-  stmt.run(...values);
-  return getDevice(deviceId);
+  const store = ensureStorage();
+  const device = store.getDevice(deviceId);
+  if (!device) return null;
+  return store.saveDevice({
+    ...device,
+    ...updates,
+    id: deviceId,
+  });
 }
 
 /**
  * Delete device
  */
 function deleteDevice(deviceId) {
-  // Stop connection if active
   if (activeConnections.has(deviceId)) {
     stopDevice(deviceId);
   }
-
-  // Delete session folder
   const sessionPath = path.join(
     getElectronApp().getPath("userData"),
     "wa-sessions",
@@ -356,10 +277,7 @@ function deleteDevice(deviceId) {
   if (fs.existsSync(sessionPath)) {
     fs.rmSync(sessionPath, { recursive: true, force: true });
   }
-
-  const stmt = db.prepare("DELETE FROM wa_devices WHERE id = ?");
-  stmt.run(deviceId);
-
+  ensureStorage().deleteDevice(deviceId);
   return { success: true };
 }
 
@@ -474,6 +392,14 @@ async function startDevice(
         scheduleQRCodeExpiry(deviceId);
       }
 
+      if (connection === "connecting") {
+        clearQRCodeExpiry(deviceId);
+        console.log(`🔄 QR scanned for ${deviceId}, waiting for login sync`);
+        updateDevice(deviceId, { status: "connecting", qr_code: null });
+        if (onStatusChange) onStatusChange("connecting");
+        return;
+      }
+
       if (connection === "close") {
         clearQRCodeExpiry(deviceId);
         const shouldReconnect =
@@ -554,7 +480,9 @@ async function startDevice(
         console.log(`📨 Message from ${from}: ${messageText}`);
 
         // Log message
-        logMessage(deviceId, from, messageText, "received", "success");
+    logMessage(deviceId, from, messageText, "received", "success", {
+      source: "received",
+    });
 
         // Trigger callback
         if (onMessage) onMessage(from, messageText, msg);
@@ -607,7 +535,7 @@ async function stopDevice(deviceId) {
 /**
  * Send message via WhatsApp
  */
-async function sendMessage(deviceId, phone, message) {
+async function sendMessage(deviceId, phone, message, options = {}) {
   console.log(`📤 Attempting to send message from device: ${deviceId}`);
   console.log(`📤 Active connections count: ${activeConnections.size}`);
   console.log(
@@ -640,10 +568,11 @@ async function sendMessage(deviceId, phone, message) {
     console.log(`✅ Message sent successfully to ${phone}`);
 
     // Log message
-    logMessage(deviceId, phone, message, "sent", "success", {
-      fromMe: true,
-      allowFromMe: true,
-    });
+      logMessage(deviceId, phone, message, "sent", "success", {
+        fromMe: true,
+        allowFromMe: true,
+        source: options.source || "manual",
+      });
 
     return { success: true };
   } catch (error) {
@@ -656,6 +585,7 @@ async function sendMessage(deviceId, phone, message) {
     logMessage(deviceId, phone, message, "sent", "failed", {
       fromMe: true,
       allowFromMe: true,
+      source: options.source || "manual",
     });
     throw error;
   }
@@ -701,10 +631,17 @@ function getDeviceProfile(deviceId) {
   const phone = jid.split(":")[0] || "";
   const displayName =
     contact.name || contact.notify || contact.verifiedName || "WhatsApp";
+  const pictureUrl =
+    contact.pictureUrl ||
+    contact.imgUrl ||
+    contact.avatar ||
+    contact.profilePicture ||
+    null;
   return {
     jid,
     phone,
     displayName,
+    pictureUrl,
     notifyName: contact.notify || null,
     connected: true,
     status: getDevice(deviceId)?.status || "connected",
@@ -721,12 +658,9 @@ async function handleAutoReply(deviceId, sock, from, messageText) {
     return;
   }
 
-  const stmt = db.prepare(`
-    SELECT * FROM wa_auto_replies
-    WHERE device_id = ? AND is_active = 1
-  `);
-
-  const autoReplies = stmt.all(deviceId);
+  const autoReplies = ensureStorage()
+    .getAutoReplies(deviceId)
+    .filter((rule) => rule.is_active);
 
   for (const rule of autoReplies) {
     const keywordRaw = (rule.keyword || "").toLowerCase();
@@ -771,6 +705,7 @@ async function handleAutoReply(deviceId, sock, from, messageText) {
       logMessage(deviceId, from, rule.reply_message, "auto_reply", "success", {
         fromMe: true,
         allowFromMe: true,
+        source: "auto_reply",
       });
     } catch (error) {
       console.error("❌ Auto-reply error:", error);
@@ -800,55 +735,33 @@ function logMessage(deviceId, phone, message, type, status, options = {}) {
     return;
   }
 
-  const stmt = db.prepare(`
-    INSERT INTO wa_message_logs (device_id, phone, message, type, status)
-    VALUES (?, ?, ?, ?, ?)
-  `);
-
-  stmt.run(deviceId, phone, message, type, status);
+  ensureStorage().logMessage({
+    device_id: deviceId,
+    phone,
+    message,
+    type,
+    status,
+    source: options.source,
+  });
 }
 
 function updateScheduleLastRun(scheduleId, timestamp) {
-  const stmt = db.prepare("UPDATE wa_schedules SET last_run = ? WHERE id = ?");
-  stmt.run(timestamp, scheduleId);
+  ensureStorage().updateSchedule(scheduleId, { last_run: timestamp });
 }
 
 function updateScheduleStatus(scheduleId, status) {
-  const stmt = db.prepare("UPDATE wa_schedules SET last_status = ? WHERE id = ?");
-  stmt.run(status, scheduleId);
+  ensureStorage().updateSchedule(scheduleId, { last_status: status });
 }
 
 function clearMessageLogs(deviceId, olderThanDays = 0) {
-  if (!deviceId) {
-    throw new Error("Device ID is required");
-  }
-
-  const days = Number(olderThanDays);
-  const thresholdDate =
-    days > 0 ? new Date(Date.now() - days * 24 * 60 * 60 * 1000) : new Date(0);
-  const threshold = thresholdDate.toISOString();
-  const stmt = db.prepare(`
-    DELETE FROM wa_message_logs
-    WHERE device_id = ? AND timestamp < ?
-  `);
-
-  const info = stmt.run(deviceId, threshold);
-  return { success: true, deleted: info.changes };
+  ensureStorage().clearMessageLogs(olderThanDays);
+  return { success: true };
 }
 
-/**
- * Get auto-replies for a device
- */
 function getAutoReplies(deviceId) {
-  const stmt = db.prepare(
-    "SELECT * FROM wa_auto_replies WHERE device_id = ? ORDER BY created_at DESC"
-  );
-  return stmt.all(deviceId);
+  return ensureStorage().getAutoReplies(deviceId);
 }
 
-/**
- * Add auto-reply rule
- */
 function addAutoReply(
   deviceId,
   keyword,
@@ -856,55 +769,31 @@ function addAutoReply(
   scope = "both",
   matchType = "contains"
 ) {
-  const { v4: uuidv4 } = require("uuid");
-  const id = uuidv4();
-
-  const stmt = db.prepare(`
-    INSERT INTO wa_auto_replies (id, device_id, keyword, reply_message, scope, match_type)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-
-  stmt.run(id, deviceId, keyword, replyMessage, scope, matchType);
-
-  return {
-    id,
+  return ensureStorage().addAutoReply({
     device_id: deviceId,
     keyword,
     reply_message: replyMessage,
     scope,
     match_type: matchType,
-    is_active: 1,
-  };
+    is_active: true,
+  });
 }
 
-/**
- * Delete auto-reply rule
- */
 function deleteAutoReply(replyId) {
-  const stmt = db.prepare("DELETE FROM wa_auto_replies WHERE id = ?");
-  stmt.run(replyId);
+  ensureStorage().deleteAutoReply(replyId);
   return { success: true };
 }
 
-/**
- * Toggle auto-reply rule
- */
 function toggleAutoReply(replyId, isActive) {
-  const stmt = db.prepare(
-    "UPDATE wa_auto_replies SET is_active = ? WHERE id = ?"
-  );
-  stmt.run(isActive ? 1 : 0, replyId);
-  return { success: true };
+  const reply = ensureStorage().toggleAutoReply(replyId, isActive);
+  return { success: !!reply };
 }
 
 /**
  * Get schedules for a device
  */
 function getSchedules(deviceId) {
-  const stmt = db.prepare(
-    "SELECT * FROM wa_schedules WHERE device_id = ? ORDER BY created_at DESC"
-  );
-  return stmt.all(deviceId);
+  return ensureStorage().getSchedules(deviceId);
 }
 
 /**
@@ -919,30 +808,21 @@ function addSchedule(
 ) {
   const { v4: uuidv4 } = require("uuid");
   const id = uuidv4();
-
-  const stmt = db.prepare(`
-    INSERT INTO wa_schedules (id, device_id, schedule_name, cron_expression, message, recipients)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-
-  stmt.run(
+  return ensureStorage().addSchedule({
     id,
-    deviceId,
-    scheduleName,
-    cronExpression,
+    device_id: deviceId,
+    schedule_name: scheduleName,
+    cron_expression: cronExpression,
     message,
-    JSON.stringify(recipients)
-  );
-
-  return { id, device_id: deviceId, schedule_name: scheduleName };
+    recipients: JSON.stringify(recipients),
+  });
 }
 
 /**
  * Delete schedule
  */
 function deleteSchedule(scheduleId) {
-  const stmt = db.prepare("DELETE FROM wa_schedules WHERE id = ?");
-  stmt.run(scheduleId);
+  ensureStorage().deleteSchedule(scheduleId);
   return { success: true };
 }
 
@@ -950,17 +830,11 @@ function deleteSchedule(scheduleId) {
  * Get message logs
  */
 function getMessageLogs(deviceId, limit = 100) {
-  const stmt = db.prepare(`
-    SELECT * FROM wa_message_logs
-    WHERE device_id = ?
-    ORDER BY timestamp DESC
-    LIMIT ?
-  `);
-  return stmt.all(deviceId, limit);
+  return ensureStorage().getMessageLogs(deviceId, limit);
 }
 
 function isDatabaseReady() {
-  return databaseReady && !!db;
+  return databaseReady && !!storage;
 }
 
 module.exports = {

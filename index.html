@@ -49,6 +49,56 @@
         >
           <i class="bi bi-box-arrow-in-right"></i> Masuk / Daftar
         </button>
+        <div class="navbar-theme-dropdown">
+          <button
+            id="themeDropdownToggle"
+            type="button"
+            class="navbar-btn-theme"
+          >
+            <i class="bi bi-palette"></i>
+            <span>Tema</span>
+          </button>
+          <div
+            id="themeSelector"
+            class="theme-selector"
+            data-visible="false"
+            data-enabled="false"
+          >
+            <span>Pilih Tema StarBox</span>
+            <div class="theme-options">
+              <button
+                type="button"
+                class="theme-option is-active"
+                data-theme="default"
+              >
+                <span class="theme-dot theme-dot-default"></span> Indigo
+              </button>
+              <button type="button" class="theme-option" data-theme="mint">
+                <span class="theme-dot theme-dot-mint"></span> Mint
+              </button>
+              <button type="button" class="theme-option" data-theme="sunset">
+                <span class="theme-dot theme-dot-sunset"></span> Sunset
+              </button>
+              <button type="button" class="theme-option" data-theme="midnight">
+                <span class="theme-dot theme-dot-midnight"></span> Midnight
+              </button>
+              <button
+                type="button"
+                class="theme-option mode-option"
+                data-mode="dark"
+              >
+                <span class="theme-dot theme-dot-dark"></span> Dark Mode
+              </button>
+              <button
+                type="button"
+                class="theme-option mode-option"
+                data-mode="light"
+              >
+                <span class="theme-dot theme-dot-light"></span> Light Mode
+              </button>
+            </div>
+          </div>
+        </div>
         <button
           id="userProfileButton"
           onclick="openAccountModal()"
@@ -60,6 +110,27 @@
         </button>
       </div>
     </nav>
+    <script>
+      (function registerWAGatewayPlaceholder() {
+        if (window.loadWAGatewayPagePlaceholderInstalled) return;
+        window.loadWAGatewayPagePlaceholderInstalled = true;
+        window.loadWAGatewayReady = false;
+        let resolveReady;
+        window.loadWAGatewayReadyPromise = new Promise((resolve) => {
+          resolveReady = resolve;
+        });
+        window._resolveWAGatewayReady = resolveReady;
+
+        window.loadWAGatewayPage = async function (...args) {
+          if (!window.loadWAGatewayReady) {
+            await window.loadWAGatewayReadyPromise;
+          }
+          if (typeof window.loadWAGatewayPageActual === "function") {
+            return window.loadWAGatewayPageActual(...args);
+          }
+        };
+      })();
+    </script>
 
     <!-- Sidebar Overlay for Mobile -->
     <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
@@ -76,15 +147,7 @@
           <i class="bi bi-laptop"></i>
           <span>Web Emulator</span>
         </a>
-        <a
-          href="#"
-          class="sidebar-item"
-          data-page="android-ios"
-          onclick="switchPage('android-ios')"
-        >
-          <i class="bi bi-phone"></i>
-          <span>Android / iOS</span>
-        </a>
+
         <a
           href="#"
           class="sidebar-item"
@@ -93,6 +156,15 @@
         >
           <i class="bi bi-whatsapp"></i>
           <span>WhatsApp Gateway</span>
+        </a>
+        <!-- <a
+          href="#"
+          class="sidebar-item"
+          data-page="android-ios"
+          onclick="switchPage('android-ios')"
+        >
+          <i class="bi bi-phone"></i>
+          <span>Android / iOS</span>
         </a>
         <a
           href="#"
@@ -120,7 +192,7 @@
         >
           <i class="bi bi-camera-video"></i>
           <span>CCTV</span>
-        </a>
+        </a> -->
       </div>
 
       <div class="sidebar-footer">
@@ -135,23 +207,10 @@
         <a
           href="#"
           class="sidebar-item sidebar-footer-item"
-          onclick="event.preventDefault(); openPackageModal()"
+          onclick="event.preventDefault(); openLogsModal()"
         >
-          <i class="bi bi-boxes"></i>
-          <span>Cek Paket</span>
-        </a>
-        <a
-          href="#"
-          class="sidebar-item sidebar-footer-item"
-          onclick="event.preventDefault(); window.triggerVersionCheck && window.triggerVersionCheck()"
-        >
-          <i class="bi bi-arrow-repeat"></i>
-          <span>Cek Versi</span>
-          <span
-            id="versionUpdateDotSidebar"
-            class="version-dot"
-            aria-hidden="true"
-          ></span>
+          <i class="bi bi-journal-text"></i>
+          <span>Logs</span>
         </a>
         <a
           href="#"
@@ -220,24 +279,54 @@
             <button onclick="openModal()">
               <i class="bi bi-plus-circle"></i> Tambah Device
             </button>
-            <button onclick="runAllDevices()">
-              <i class="bi bi-play-fill"></i> Run All Device
-            </button>
-            <button onclick="runSelectedDevices()">
-              <i class="bi bi-play-btn-fill"></i> Run Selected
-            </button>
-            <button onclick="restartSelectedDevices()">
-              <i class="bi bi-arrow-clockwise"></i> Restart Selected
-            </button>
-            <button onclick="restartAllDevices()">
-              <i class="bi bi-arrow-repeat"></i> Restart All
-            </button>
-            <button onclick="stopSelectedDevices()">
-              <i class="bi bi-stop-circle"></i> Stop Selected
-            </button>
-            <button onclick="stopAllDevices()">
-              <i class="bi bi-stop-btn-fill"></i> Stop All
-            </button>
+            <div class="toolbar-actions-dropdown">
+              <button
+                type="button"
+                class="toolbar-actions-toggle"
+                onclick="toggleToolbarActions(event)"
+              >
+                <i class="bi bi-menu-button-wide"></i> Actions
+                <i class="bi bi-chevron-down ms"></i>
+              </button>
+              <div class="toolbar-actions-menu" id="toolbarActionsMenu">
+                <button
+                  type="button"
+                  onclick="closeToolbarActionsMenu(); runAllDevices()"
+                >
+                  <i class="bi bi-play-fill"></i> Run All Device
+                </button>
+                <button
+                  type="button"
+                  onclick="closeToolbarActionsMenu(); runSelectedDevices()"
+                >
+                  <i class="bi bi-play-btn-fill"></i> Run Selected
+                </button>
+                <button
+                  type="button"
+                  onclick="closeToolbarActionsMenu(); restartSelectedDevices()"
+                >
+                  <i class="bi bi-arrow-clockwise"></i> Restart Selected
+                </button>
+                <button
+                  type="button"
+                  onclick="closeToolbarActionsMenu(); restartAllDevices()"
+                >
+                  <i class="bi bi-arrow-repeat"></i> Restart All
+                </button>
+                <button
+                  type="button"
+                  onclick="closeToolbarActionsMenu(); stopSelectedDevices()"
+                >
+                  <i class="bi bi-stop-circle"></i> Stop Selected
+                </button>
+                <button
+                  type="button"
+                  onclick="closeToolbarActionsMenu(); stopAllDevices()"
+                >
+                  <i class="bi bi-stop-btn-fill"></i> Stop All
+                </button>
+              </div>
+            </div>
             <div class="device-search-wrapper">
               <i class="bi bi-search"></i>
               <input
@@ -436,6 +525,36 @@
               </a>
             </li>
           </ul>
+          <div style="margin-top: 1rem">
+            <button
+              class="modal-button"
+              onclick="handleVersionCheckFromAbout()"
+            >
+              <i class="bi bi-arrow-repeat"></i> Cek Versi
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="logsModal" class="modal">
+        <div class="modal-content" style="max-width: 640px">
+          <span class="close" onclick="closeLogsModal()">&times;</span>
+          <h3>Log StarBox</h3>
+          <p style="color: #94a3b8">
+            Menampilkan isi terakhir <code>starbox.log</code>. Gunakan tombol
+            hapus jika perlu.
+          </p>
+          <div class="logs-info">
+            <span id="logsSizeText">Ukuran: -</span>
+            <!-- <span id="logsPathText"></span> -->
+          </div>
+          <pre id="logsContent" class="logs-content">Memuat log...</pre>
+          <div class="modal-buttons" style="justify-content: space-between">
+            <button class="btn-danger" onclick="clearLogsFile()">
+              <i class="bi bi-trash"></i> Clear Log
+            </button>
+            <button class="ghost" onclick="closeLogsModal()">Tutup</button>
+          </div>
         </div>
       </div>
 
@@ -447,27 +566,33 @@
             Silakan berikan masukan atau pertanyaan seputar StarBox ke WhatsApp
             berikut:
           </p>
-          <ul class="support-list">
-            <li>
-              <strong>WhatsApp</strong>:
+          <div class="support-list">
+            <div class="support-item support-highlight">
+              <div class="support-title">WhatsApp</div>
               <a
                 href="https://wa.me/6285283935826"
                 target="_blank"
                 rel="noreferrer"
-                >62-8528-3935-826</a
+                class="support-link"
+                >6285283935826</a
               >
-            </li>
-            <li>
-              <strong>eWallet DANA</strong>: A/N Gingin Abdul Goni
-              <span class="support-highlight">62-8528-3935-826</span>
-            </li>
-            <li>
-              <strong>PayPal</strong>:
-              <a href="https://paypal.me/ginginabdulgoni" target="_blank"
+            </div>
+            <div class="support-item support-dana">
+              <div class="support-title">eWallet DANA</div>
+              <p class="support-link">A/N Gingin Abdul Goni</p>
+              <p class="support-bold">6285283935826</p>
+            </div>
+            <div class="support-item">
+              <div class="support-title">PayPal</div>
+              <a
+                href="https://paypal.me/ginginabdulgoni"
+                target="_blank"
+                rel="noreferrer"
+                class="support-link"
                 >ginginabdulgoni@gmail.com</a
               >
-            </li>
-          </ul>
+            </div>
+          </div>
           <p>
             Terima kasih atas dukungan Anda. Setiap masukan membantu membangun
             fitur yang lebih baik.
@@ -810,28 +935,10 @@
             Jika Anda sudah upgrade paket namun informasi belum berubah, silakan
             keluar lalu login kembali agar data ter-refresh.
           </div>
-          <div id="themeSelector" class="theme-selector" style="display: none">
-            <span>Pilih Tema StarBox</span>
-            <div class="theme-options">
-              <button
-                type="button"
-                class="theme-option is-active"
-                data-theme="default"
-              >
-                <span class="theme-dot theme-dot-default"></span> Indigo
-              </button>
-              <button type="button" class="theme-option" data-theme="mint">
-                <span class="theme-dot theme-dot-mint"></span> Mint
-              </button>
-              <button type="button" class="theme-option" data-theme="sunset">
-                <span class="theme-dot theme-dot-sunset"></span> Sunset
-              </button>
-              <button type="button" class="theme-option" data-theme="midnight">
-                <span class="theme-dot theme-dot-midnight"></span> Midnight
-              </button>
-            </div>
-          </div>
           <div class="account-actions">
+            <button class="ghost" onclick="openPackageFromAccount()">
+              Cek Paket
+            </button>
             <button class="ghost" onclick="closeAccountModal()">Tutup</button>
             <button class="danger" onclick="handleLogout()">Logout</button>
           </div>
@@ -1130,6 +1237,14 @@
             <i class="bi bi-info-circle"></i>
             <span id="qrStatusText">Menunggu scan...</span>
           </div>
+
+          <p
+            id="qrTimerIndicator"
+            class="qr-refresh-timer"
+            style="display: none"
+          >
+            QR akan refresh otomatis dalam <span id="qrTimerValue">60</span>s
+          </p>
 
           <div class="modal-buttons" style="margin-top: 1.5rem">
             <button
@@ -1724,7 +1839,8 @@
             const quotaNote = session.package?.is_device_limit_unlimited
               ? `<p class="package-detail-note">Setiap layanan (WA, TikTok, Web Emulator,
                   dll.) dapat berjalan tanpa batas perangkat secara bersamaan.</p>`
-              : session.package?.device_limit && session.package.device_limit > 0
+              : session.package?.device_limit &&
+                session.package.device_limit > 0
               ? `<p class="package-detail-note">Setiap layanan (WA, TikTok, Web Emulator,
                   dll.) dapat berjalan maksimal ${escapeHtml(
                     String(session.package.device_limit)
@@ -1740,7 +1856,9 @@
               session.package?.price_display || session.package?.price || "";
             const description = session.package?.description || "";
             const billing = session.package?.billing_cycle
-              ? `${session.package.billing_cycle}/${session.package.billing_interval || 1}`
+              ? `${session.package.billing_cycle}/${
+                  session.package.billing_interval || 1
+                }`
               : "N/A";
             const limitWAGateway =
               session.limit_device_wa_gateway ??
@@ -2750,7 +2868,72 @@
       let waDevicesCache = {}; // Cache devices data for quick access
       let currentAutoReplyCount = 0;
       const scheduleStatusMap = new Map();
+      const QR_REFRESH_INTERVAL_SECONDS = 60;
+      let qrAutoRefreshTimerId = null;
+      let qrAutoRefreshRemainingSeconds = QR_REFRESH_INTERVAL_SECONDS;
+      let qrAutoRefreshTargetDeviceId = null;
+      const CAMPAIGN_LOG_SOURCES = new Set(["campaign", "broadcast"]);
+      const CAMPAIGN_LOG_FETCH_LIMIT = 500;
 
+      function isQRModalVisible() {
+        const modal = document.getElementById("qrModalWA");
+        return modal && modal.style.display === "flex";
+      }
+
+      function updateQRTimerIndicator(visible) {
+        const timerEl = document.getElementById("qrTimerIndicator");
+        const timerValue = document.getElementById("qrTimerValue");
+        if (!timerEl || !timerValue) return;
+        if (visible && qrAutoRefreshRemainingSeconds > 0) {
+          timerValue.textContent = String(qrAutoRefreshRemainingSeconds);
+          timerEl.style.display = "block";
+        } else {
+          timerEl.style.display = "none";
+        }
+      }
+
+      function stopQRAutoRefreshTimer() {
+        if (qrAutoRefreshTimerId) {
+          clearInterval(qrAutoRefreshTimerId);
+          qrAutoRefreshTimerId = null;
+        }
+        qrAutoRefreshTargetDeviceId = null;
+        qrAutoRefreshRemainingSeconds = QR_REFRESH_INTERVAL_SECONDS;
+        updateQRTimerIndicator(false);
+      }
+
+      function startQRAutoRefreshTimer(deviceId) {
+        if (
+          !deviceId ||
+          !isQRModalVisible() ||
+          currentQRDeviceId !== deviceId
+        ) {
+          return;
+        }
+        stopQRAutoRefreshTimer();
+        qrAutoRefreshTargetDeviceId = deviceId;
+        qrAutoRefreshRemainingSeconds = QR_REFRESH_INTERVAL_SECONDS;
+        updateQRTimerIndicator(true);
+        qrAutoRefreshTimerId = setInterval(() => {
+          if (
+            !isQRModalVisible() ||
+            currentQRDeviceId !== deviceId ||
+            qrAutoRefreshTargetDeviceId !== deviceId
+          ) {
+            stopQRAutoRefreshTimer();
+            return;
+          }
+          qrAutoRefreshRemainingSeconds -= 1;
+          if (qrAutoRefreshRemainingSeconds <= 0) {
+            stopQRAutoRefreshTimer();
+            if (isQRModalVisible() && currentQRDeviceId === deviceId) {
+              refreshQRCode();
+            }
+            return;
+          }
+          updateQRTimerIndicator(true);
+        }, 1000);
+      }
       function getWAGatewayDeviceLimit() {
         const state =
           (typeof window !== "undefined" && window.getCurrentAuthState
@@ -2779,15 +2962,55 @@
         return Infinity;
       }
 
-      function getCampaignBroadcastLimit() {
+      async function getCampaignBroadcastLimit() {
         const state =
           (typeof window !== "undefined" && window.getCurrentAuthState
             ? window.getCurrentAuthState()
             : null) || {};
-        if (typeof state.limitBroadcastDay === "number") {
-          return state.limitBroadcastDay;
+        const totalLimit =
+          typeof state.limitBroadcastDay === "number"
+            ? state.limitBroadcastDay
+            : Infinity;
+        if (!Number.isFinite(totalLimit)) {
+          return { total: Infinity, remaining: Infinity };
         }
-        return Infinity;
+        const deviceId = currentWADeviceId;
+        if (!deviceId || !window.electronAPI?.whatsappGateway?.getMessageLogs) {
+          return { total: totalLimit, remaining: totalLimit };
+        }
+
+        try {
+          const result =
+            await window.electronAPI.whatsappGateway.getMessageLogs(
+              deviceId,
+              CAMPAIGN_LOG_FETCH_LIMIT
+            );
+          if (!result.success) {
+            console.warn(
+              "Unable to read campaign logs, falling back to quota limit:",
+              result.error
+            );
+            return { total: totalLimit, remaining: totalLimit };
+          }
+          const todayStart = new Date();
+          todayStart.setHours(0, 0, 0, 0);
+          const usedCount = (result.logs || []).filter((log) => {
+            if (!log || !log.source) return false;
+            if (!CAMPAIGN_LOG_SOURCES.has(String(log.source).toLowerCase())) {
+              return false;
+            }
+            const timestamp = log.timestamp ? new Date(log.timestamp) : null;
+            if (!timestamp || Number.isNaN(timestamp.getTime())) return false;
+            return timestamp.getTime() >= todayStart.getTime();
+          }).length;
+          return {
+            total: totalLimit,
+            remaining: Math.max(0, totalLimit - usedCount),
+          };
+        } catch (error) {
+          console.error("Failed to compute campaign broadcast usage:", error);
+          return { total: totalLimit, remaining: totalLimit };
+        }
       }
 
       // Load WA devices
@@ -3346,99 +3569,111 @@
           return;
         }
 
-        // Check if device has QR code
-        if (!device.qr_code) {
+        const qrContainer = document.getElementById("qrCodeContainer");
+        const refreshBtn = document.getElementById("refreshQRBtn");
+        const shouldGenerateQR = autoRefresh || !device.qr_code;
+
+        if (shouldGenerateQR) {
+          const fallbackStatus =
+            ["connecting", "reconnecting", "disconnected"].includes(
+              device.status
+            ) && device.status
+              ? device.status
+              : "hidden";
+          updateQRModalStatus(fallbackStatus);
+
           if (autoRefresh) {
-            console.log("🔄 Auto-refreshing QR code for device:", deviceId);
-          } else {
-            console.warn(
-              "⚠️ Device has no QR code yet, waiting for generation"
-            );
-          }
-
-          // Show loading state
-          const qrContainer = document.getElementById("qrCodeContainer");
-          if (qrContainer) {
-            qrContainer.innerHTML =
-              '<div style="padding: 2rem;"><i class="bi bi-hourglass-split" style="font-size: 2rem; color: #6b7280;"></i><p style="color: #6b7280; margin-top: 1rem;">Generating QR Code...</p></div>';
-          }
-
-          // Manage refresh button
-          const refreshBtn = document.getElementById("refreshQRBtn");
-          if (refreshBtn) {
             if (autoRefresh) {
-              refreshBtn.disabled = true;
-              refreshBtn.innerHTML =
-                '<i class="bi bi-hourglass-split"></i> Generating...';
+              console.log("🔄 Auto-refreshing QR code for device:", deviceId);
             } else {
-              refreshBtn.disabled = false;
-              refreshBtn.innerHTML =
-                '<i class="bi bi-arrow-clockwise"></i> Refresh QR';
+              console.warn(
+                "⚠️ Device has no QR code yet, waiting for generation"
+              );
             }
-          }
 
-          if (autoRefresh) {
-            // Restart device to generate new QR
-            try {
-              // Stop device first if it's running
-              if (device.status !== "disconnected") {
-                await window.electronAPI.whatsappGateway.stopDevice(deviceId);
-                await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second
-              }
+            // Show loading state
+            if (qrContainer) {
+              qrContainer.innerHTML =
+                '<div style="padding: 2rem;"><i class="bi bi-hourglass-split" style="font-size: 2rem; color: #6b7280;"></i><p style="color: #6b7280; margin-top: 1rem;">Generating QR Code...</p></div>';
+            }
 
-              // Start device again
-              const result =
-                await window.electronAPI.whatsappGateway.startDevice(deviceId);
-              if (!result.success) {
-                throw new Error(result.message || "Failed to start device");
-              }
-
-              console.log("✅ Device restarted, waiting for QR code...");
-            } catch (error) {
-              console.error("❌ Failed to restart device:", error);
-              if (qrContainer) {
-                qrContainer.innerHTML =
-                  '<div style="padding: 2rem;"><i class="bi bi-x-circle" style="font-size: 2rem; color: #ef4444;"></i><p style="color: #ef4444; margin-top: 1rem;">Failed to generate QR. Please try again.</p></div>';
-              }
-            } finally {
-              if (refreshBtn) {
+            // Manage refresh button
+            if (refreshBtn) {
+              if (autoRefresh) {
+                refreshBtn.disabled = true;
+                refreshBtn.innerHTML =
+                  '<i class="bi bi-hourglass-split"></i> Generating...';
+              } else {
                 refreshBtn.disabled = false;
                 refreshBtn.innerHTML =
                   '<i class="bi bi-arrow-clockwise"></i> Refresh QR';
               }
             }
+
+            if (autoRefresh) {
+              // Restart device to generate new QR
+              try {
+                // Stop device first if it's running
+                if (device.status !== "disconnected") {
+                  await window.electronAPI.whatsappGateway.stopDevice(deviceId);
+                  await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second
+                }
+
+                // Start device again
+                const result =
+                  await window.electronAPI.whatsappGateway.startDevice(
+                    deviceId
+                  );
+                if (!result.success) {
+                  throw new Error(result.message || "Failed to start device");
+                }
+
+                console.log("✅ Device restarted, waiting for QR code...");
+              } catch (error) {
+                console.error("❌ Failed to restart device:", error);
+                if (qrContainer) {
+                  qrContainer.innerHTML =
+                    '<div style="padding: 2rem;"><i class="bi bi-x-circle" style="font-size: 2rem; color: #ef4444;"></i><p style="color: #ef4444; margin-top: 1rem;">Failed to generate QR. Please try again.</p></div>';
+                }
+              } finally {
+                if (refreshBtn) {
+                  refreshBtn.disabled = false;
+                  refreshBtn.innerHTML =
+                    '<i class="bi bi-arrow-clockwise"></i> Refresh QR';
+                }
+              }
+            }
+
+            return;
           }
 
-          return;
-        }
+          // Clear previous QR code first
+          const img = document.getElementById("qrImage");
+          const canvas = document.getElementById("qrCanvas");
+          if (img) {
+            img.src = "";
+            img.style.display = "none";
+          }
+          if (canvas) {
+            const ctx = canvas.getContext("2d");
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            canvas.style.display = "none";
+          }
 
-        // Clear previous QR code first
-        const img = document.getElementById("qrImage");
-        const canvas = document.getElementById("qrCanvas");
-        if (img) {
-          img.src = "";
-          img.style.display = "none";
-        }
-        if (canvas) {
-          const ctx = canvas.getContext("2d");
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          canvas.style.display = "none";
-        }
+          // Restore QR container structure if needed
+          if (qrContainer && !qrContainer.querySelector("#qrImage")) {
+            qrContainer.innerHTML =
+              '<img id="qrImage" style="width: 300px; height: 300px; display: none;" /><canvas id="qrCanvas" style="display: block;"></canvas>';
+          }
 
-        // Restore QR container structure if needed
-        const qrContainer = document.getElementById("qrCodeContainer");
-        if (qrContainer && !qrContainer.querySelector("#qrImage")) {
-          qrContainer.innerHTML =
-            '<img id="qrImage" style="width: 300px; height: 300px; display: none;" /><canvas id="qrCanvas" style="display: block;"></canvas>';
+          // Render the QR code for THIS specific device
+          console.log("📱 Rendering QR code for device:", deviceId);
+          renderQRCode(device.qr_code);
+          updateQRModalStatus(device.status || "qr_ready");
+
+          console.log("✅ Modal displayed with QR code");
         }
-
-        // Render the QR code for THIS specific device
-        console.log("📱 Rendering QR code for device:", deviceId);
-        renderQRCode(device.qr_code);
-
-        console.log("✅ Modal displayed with QR code");
       }
-
       // Refresh QR code - regenerate new QR
       async function refreshQRCode() {
         if (!currentQRDeviceId) {
@@ -3468,6 +3703,7 @@
       // Close QR modal
       function closeQRModal() {
         console.log("📱 Closing QR modal");
+        updateQRModalStatus("hidden");
         const modal = document.getElementById("qrModalWA");
         if (modal) modal.style.display = "none";
 
@@ -3562,6 +3798,100 @@
         );
       }
 
+      const QR_MODAL_STATUS_CONFIGS = {
+        qr_ready: {
+          message:
+            "QR siap dipindai — buka WhatsApp dan pilih Linked Devices → Link a Device.",
+          icon: "bi bi-qr-code",
+          iconSpin: false,
+          showMessage: true,
+          showGraphics: true,
+          disableRefresh: false,
+          buttonLabel: '<i class="bi bi-arrow-clockwise"></i> Refresh QR',
+        },
+        connecting: {
+          message:
+            "Terlihat sudah discan, sedang menyimpan session dan sinkronisasi...",
+          icon: "bi bi-arrow-repeat",
+          iconSpin: true,
+          showMessage: true,
+          showGraphics: false,
+          disableRefresh: true,
+          buttonLabel:
+            '<i class="bi bi-hourglass-split"></i> Menyimpan session...',
+        },
+        reconnecting: {
+          message: "Koneksi terputus, mencoba menyambung kembali...",
+          icon: "bi bi-arrow-repeat",
+          iconSpin: true,
+          showMessage: true,
+          showGraphics: false,
+          disableRefresh: true,
+          buttonLabel: '<i class="bi bi-arrow-repeat"></i> Mencoba ulang...',
+        },
+        disconnected: {
+          message:
+            "QR sudah kedaluwarsa atau sesi terputus. Tekan Refresh untuk membuat ulang.",
+          icon: "bi bi-x-circle",
+          iconSpin: false,
+          showMessage: true,
+          showGraphics: false,
+          disableRefresh: false,
+          buttonLabel: '<i class="bi bi-arrow-clockwise"></i> Refresh QR',
+        },
+        hidden: {
+          showMessage: false,
+          showGraphics: true,
+          disableRefresh: false,
+        },
+      };
+
+      function updateQRModalStatus(statusKey = "hidden") {
+        const banner = document.getElementById("qrStatusMessage");
+        const textEl = document.getElementById("qrStatusText");
+        if (!banner || !textEl) return;
+
+        const iconEl = banner.querySelector("i");
+        const config =
+          QR_MODAL_STATUS_CONFIGS[statusKey] || QR_MODAL_STATUS_CONFIGS.hidden;
+
+        if (config.showMessage) {
+          banner.style.display = "flex";
+          textEl.textContent = config.message;
+          if (iconEl) {
+            iconEl.className = config.iconSpin
+              ? `${config.icon} bi-spin`
+              : config.icon;
+          }
+        } else {
+          banner.style.display = "none";
+        }
+
+        const qrImage = document.getElementById("qrImage");
+        const qrCanvas = document.getElementById("qrCanvas");
+        const showGraphics = config.showGraphics ?? true;
+        if (qrImage) {
+          qrImage.style.display = showGraphics ? "block" : "none";
+        }
+        if (qrCanvas) {
+          qrCanvas.style.display = showGraphics ? "block" : "none";
+        }
+
+        const refreshBtn = document.getElementById("refreshQRBtn");
+        if (refreshBtn) {
+          refreshBtn.disabled = !!config.disableRefresh;
+          if (config.buttonLabel) {
+            refreshBtn.innerHTML = config.buttonLabel;
+          }
+        }
+
+        if (statusKey === "qr_ready") {
+          startQRAutoRefreshTimer(currentQRDeviceId);
+        } else {
+          stopQRAutoRefreshTimer();
+        }
+      }
+
       // Open WA settings modal
       async function openWASettingsModal(deviceId) {
         currentWADeviceId = deviceId;
@@ -3642,16 +3972,22 @@
         const statusText = profile.status
           ? `Status koneksi: ${profile.status}`
           : "Terhubung";
+        const avatarSrc = profile.pictureUrl || "";
+        const avatarElement = avatarSrc
+          ? `<img src="${avatarSrc}" alt="Avatar ${escapeHtml(displayName)}" />`
+          : `<i class="bi bi-person-circle"></i>`;
 
         body.innerHTML = `
-          <div class="wa-profile-avatar">
-            <i class="bi bi-person-circle"></i>
-          </div>
-          <div class="wa-profile-content">
-            <h4>${escapeHtml(displayName)}</h4>
-            <p class="wa-profile-phone">${escapeHtml(phone)}</p>
-            <p class="wa-profile-jid">${escapeHtml(jid)}</p>
-            <p class="wa-profile-status">${escapeHtml(statusText)}</p>
+          <div class="wa-profile-card">
+            <div class="wa-profile-avatar">
+              ${avatarElement}
+            </div>
+            <div class="wa-profile-content">
+              <h4>${escapeHtml(displayName)}</h4>
+              <p class="wa-profile-phone">${escapeHtml(phone)}</p>
+              <p class="wa-profile-jid">${escapeHtml(jid)}</p>
+              <p class="wa-profile-status">${escapeHtml(statusText)}</p>
+            </div>
           </div>
         `;
       }
@@ -3711,11 +4047,11 @@
         try {
           const result =
             await window.electronAPI.whatsappGateway.getAutoReplies(deviceId);
-            console.log("📝 Auto-replies result:", result);
+          console.log("📝 Auto-replies result:", result);
 
-            if (!result.success) {
-              console.error("Failed to load auto-replies:", result.error);
-              container.innerHTML =
+          if (!result.success) {
+            console.error("Failed to load auto-replies:", result.error);
+            container.innerHTML =
               '<p style="text-align: center; color: #ef4444;">Failed to load auto-replies</p>';
             return;
           }
@@ -4031,14 +4367,15 @@
           Swal.fire("Error", "Tidak ada pesan campaign untuk dikirim", "error");
           return;
         }
-        const broadcastLimit = getCampaignBroadcastLimit();
+        const broadcastQuota = await getCampaignBroadcastLimit();
+        const remainingQuota = broadcastQuota.remaining;
         if (
-          typeof broadcastLimit === "number" &&
-          campaignMessages.length > broadcastLimit
+          Number.isFinite(remainingQuota) &&
+          campaignMessages.length > remainingQuota
         ) {
           Swal.fire(
             "Limit campaign tercapai",
-            `Paket Anda hanya dapat mengirim ${broadcastLimit} broadcast per hari.`,
+            `Paket Anda hanya dapat mengirim ${broadcastQuota.total} broadcast per hari. Sisa untuk hari ini: ${remainingQuota}.`,
             "warning"
           );
           return;
@@ -4074,7 +4411,8 @@
             const result = await window.electronAPI.whatsappGateway.sendMessage(
               currentWADeviceId,
               row.phone,
-              row.message
+              row.message,
+              { source: "campaign" }
             );
             row.status = result.success ? "sent" : "failed";
           } catch (error) {
@@ -4498,6 +4836,7 @@
 
             // Render new QR code
             renderQRCode(qr);
+            updateQRModalStatus("qr_ready");
 
             // Re-enable refresh button
             const refreshBtn = document.getElementById("refreshQRBtn");
@@ -4540,6 +4879,18 @@
         window.electronAPI.whatsappGateway.onStatusChange(
           (deviceId, status) => {
             console.log("Status changed:", deviceId, status);
+            const modal = document.getElementById("qrModalWA");
+            if (
+              currentQRDeviceId === deviceId &&
+              modal &&
+              modal.style.display === "flex"
+            ) {
+              if (status === "connected") {
+                updateQRModalStatus("hidden");
+              } else {
+                updateQRModalStatus(status);
+              }
+            }
             loadWADevices();
           }
         );
@@ -4566,14 +4917,150 @@
 
       // Load WA devices when switching to WA Gateway page
       // This will be called by switchPage function in renderer.js
+      window.loadWAGatewayPageActual = loadWADevices;
+      window.loadWAGatewayReady = true;
+      if (typeof window._resolveWAGatewayReady === "function") {
+        window._resolveWAGatewayReady();
+      }
+      window.dispatchEvent(new Event("loadWAGatewayReady"));
       window.loadWAGatewayPage = loadWADevices;
       if (window.electronAPI?.auth?.onSessionChanged) {
         window.electronAPI.auth.onSessionChanged(() => {
           loadWADevices();
         });
       }
+
+      function toggleThemeDropdown(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        const menu = document.getElementById("themeSelector");
+        if (!menu) return;
+        const isVisible = menu.dataset.visible === "true";
+        menu.dataset.visible = isVisible ? "false" : "true";
+      }
+
+      function bindThemeDropdownToggle() {
+        const themeDropdownTrigger = document.getElementById(
+          "themeDropdownToggle"
+        );
+        if (themeDropdownTrigger) {
+          themeDropdownTrigger.addEventListener("click", toggleThemeDropdown);
+        }
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", bindThemeDropdownToggle);
+      } else {
+        bindThemeDropdownToggle();
+      }
+
+      function toggleToolbarActions(event) {
+        const menu = document.getElementById("toolbarActionsMenu");
+        if (!menu) return;
+        event.preventDefault();
+        event.stopPropagation();
+        menu.classList.toggle("show");
+      }
+
+      function closeToolbarActionsMenu() {
+        const menu = document.getElementById("toolbarActionsMenu");
+        if (menu) {
+          menu.classList.remove("show");
+        }
+      }
+
+      document.addEventListener("click", (event) => {
+        const themeMenu = document.getElementById("themeSelector");
+        if (themeMenu && themeMenu.dataset.visible === "true") {
+          if (!event.target.closest(".navbar-theme-dropdown")) {
+            themeMenu.dataset.visible = "false";
+          }
+        }
+
+        const actionMenu = document.getElementById("toolbarActionsMenu");
+        if (actionMenu && actionMenu.classList.contains("show")) {
+          if (!event.target.closest(".toolbar-actions-dropdown")) {
+            actionMenu.classList.remove("show");
+          }
+        }
+      });
     </script>
 
+    <script>
+      function handleVersionCheckFromAbout() {
+        if (window.triggerVersionCheck) {
+          window.triggerVersionCheck();
+        } else {
+          Swal.fire(
+            "Cek Versi",
+            "Fitur cek versi belum tersedia di environment ini.",
+            "info"
+          );
+        }
+      }
+
+      async function openLogsModal() {
+        const modal = document.getElementById("logsModal");
+        if (!modal) return;
+        await loadLogData();
+        modal.style.display = "flex";
+      }
+
+      function closeLogsModal() {
+        const modal = document.getElementById("logsModal");
+        if (modal) modal.style.display = "none";
+      }
+
+      async function loadLogData() {
+        const content = document.getElementById("logsContent");
+        const sizeEl = document.getElementById("logsSizeText");
+        const pathEl = document.getElementById("logsPathText");
+        if (content) content.textContent = "Memuat log...";
+        if (!window.electronAPI?.logs?.get) {
+          if (content) content.textContent = "API log tidak tersedia.";
+          return;
+        }
+        try {
+          const result = await window.electronAPI.logs.get();
+          if (!result.success) {
+            content.textContent = result.error || "Gagal memuat log.";
+            return;
+          }
+          const lines = result.lines || [];
+          content.textContent = lines.length ? lines.join("\n") : "Log kosong.";
+          if (sizeEl) {
+            sizeEl.textContent = `Ukuran: ${(
+              (result.size || 0) /
+              1024 /
+              1024
+            ).toFixed(2)} MB`;
+          }
+          if (pathEl) {
+            pathEl.textContent = result.path ? `• ${result.path}` : "";
+          }
+        } catch (err) {
+          content.textContent = "Error memuat log: " + (err?.message || err);
+        }
+      }
+
+      async function clearLogsFile() {
+        const result = await Swal.fire({
+          title: "Kosongkan log?",
+          text: "Semua isi log akan dihapus.",
+          icon: "warning",
+          showCancelButton: true,
+        });
+        if (!result.isConfirmed) return;
+        if (!window.electronAPI?.logs?.clear) return;
+        const res = await window.electronAPI.logs.clear();
+        if (res.success) {
+          Swal.fire("Berhasil", "Log telah dikosongkan.", "success");
+          await loadLogData();
+        } else {
+          Swal.fire("Gagal", res.error || "Gagal menghapus log.", "error");
+        }
+      }
+    </script>
     <script src="renderer.js"></script>
   </body>
 </html>

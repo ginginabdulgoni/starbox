@@ -51,6 +51,20 @@ function logDev(...args) {
   }
 }
 
+// Log only to console, not to file
+function logConsoleOnly(...args) {
+  const message = args
+    .map((a) => (typeof a === "object" ? JSON.stringify(a) : a))
+    .join(" ");
+  if (SHOULD_MIRROR_CONSOLE && originalConsoleLog) {
+    try {
+      originalConsoleLog(message);
+    } catch {
+      process.stdout.write(message + "\n");
+    }
+  }
+}
+
 function generateAvdName(uid = "") {
   const base =
     (uid || uuidv4())
@@ -197,10 +211,10 @@ function initializeLogging() {
   iosManager = new iOSManager();
 
   console.log("✅ Paths and managers initialized");
-  console.log("   DB_PATH:", DB_PATH);
-  console.log("   Store:", store ? "Ready" : "Failed");
-  console.log("   Android Manager:", androidManager ? "Ready" : "Failed");
-  console.log("   iOS Manager:", iosManager ? "Ready" : "Failed");
+  logConsoleOnly("   DB_PATH:", DB_PATH);
+  logConsoleOnly("   Store:", store ? "Ready" : "Failed");
+  logConsoleOnly("   Android Manager:", androidManager ? "Ready" : "Failed");
+  logConsoleOnly("   iOS Manager:", iosManager ? "Ready" : "Failed");
   if (authSession?.isLoggedIn && authSession?.user?.email) {
     console.log(
       `   Auth Session: Logged in as ${authSession.user.email} (kuota: ${
@@ -539,7 +553,7 @@ async function sendSystemInfoReport(context = {}) {
       JSON.stringify(payload, null, 2)
     );
     logDev(`📦 Total device terdeteksi: ${payload.devices.total || 0}`);
-    console.log("🎯 Endpoint laporan user-agent:", USER_AGENT_REPORT_URL);
+    logConsoleOnly("🎯 Endpoint laporan user-agent:", USER_AGENT_REPORT_URL);
     await requestJson({
       url: USER_AGENT_REPORT_URL,
       method: "POST",
@@ -550,7 +564,7 @@ async function sendSystemInfoReport(context = {}) {
       body: payload,
     });
 
-    console.log("📡 Info sistem dikirim ke endpoint Starbox.");
+    logConsoleOnly("📡 Info sistem dikirim ke endpoint Starbox.");
   } catch (err) {
     console.error(
       "❌ Gagal mengirim info sistem:",
@@ -723,7 +737,23 @@ async function refreshAuthToken() {
     console.log("✅ Token berhasil diperbarui.");
   } catch (err) {
     console.error("❌ Gagal memperbarui token autentikasi:", err);
-    clearAuthSession();
+    // Hanya logout jika refresh token benar-benar invalid (401/403)
+    // Untuk error jaringan atau server error, tetap pertahankan session
+    const isAuthError = err?.status === 401 || err?.status === 403;
+    if (isAuthError) {
+      console.warn("⚠️ Refresh token tidak valid. Logout otomatis.");
+      clearAuthSession();
+    } else {
+      console.warn(
+        "⚠️ Refresh token gagal karena error jaringan/server. Session tetap dipertahankan."
+      );
+      // Jadwalkan ulang refresh untuk dicoba lagi nanti (5 menit)
+      authRefreshTimer = setTimeout(() => {
+        refreshAuthToken().catch((err) => {
+          console.error("❌ Retry refresh token gagal:", err?.message || err);
+        });
+      }, 5 * 60 * 1000);
+    }
   }
 }
 
@@ -741,7 +771,7 @@ function sanitizeAuthSession() {
     allowsAndroidEmulator: !!rest?.allowsAndroidEmulator,
     allowsIosSimulator: !!rest?.allowsIosSimulator,
     hasToken: !!token,
-    isLoggedIn: !!(rest?.isLoggedIn && token),
+    isLoggedIn: !!(rest?.isLoggedIn || token),
     isUnlimited: !!rest?.isUnlimited,
     guestServiceLimit: getGuestServiceLimit(),
     limit_device_wa_gateway: rest?.limit_device_wa_gateway ?? null,
@@ -1062,10 +1092,10 @@ async function fetchPackageDetails(authToken = null) {
         Accept: "application/json",
       },
     });
-    console.log("📦 GET /api/package response:", data);
+    // console.log("📦 GET /api/package response:", data);
     return data;
   } catch (err) {
-    console.error(
+    logConsoleOnly(
       "❌ Gagal mengambil data paket dari API /package:",
       err?.message || err
     );
@@ -4368,15 +4398,23 @@ ipcMain.handle("wa-delete-device", async (_event, deviceId) => {
   }
 });
 
-ipcMain.handle("wa-send-message", async (_event, deviceId, phone, message) => {
-  try {
-    const result = await BaileysManager.sendMessage(deviceId, phone, message);
-    return result;
-  } catch (error) {
-    console.error("❌ Failed to send WA message:", error);
-    return { success: false, error: error.message };
+ipcMain.handle(
+  "wa-send-message",
+  async (_event, deviceId, phone, message, options = {}) => {
+    try {
+      const result = await BaileysManager.sendMessage(
+        deviceId,
+        phone,
+        message,
+        options
+      );
+      return result;
+    } catch (error) {
+      console.error("❌ Failed to send WA message:", error);
+      return { success: false, error: error.message };
+    }
   }
-});
+);
 
 ipcMain.handle("wa-get-status", (_event, deviceId) => {
   try {
@@ -4540,6 +4578,72 @@ ipcMain.handle("wa-send-typing", async (_event, deviceId, target) => {
 
 // ============================================
 // End of WhatsApp Gateway IPC Handlers
+// ============================================
+
+// ============================================
+// Logs IPC Handlers
+// ============================================
+
+ipcMain.handle("get-logs", async () => {
+  try {
+    const logPath = path.join(userDataPath, "starbox.log");
+
+    // Check if log file exists
+    if (!fs.existsSync(logPath)) {
+      return {
+        success: true,
+        lines: [],
+        size: 0,
+        path: logPath,
+      };
+    }
+
+    // Get file size
+    const stats = fs.statSync(logPath);
+    const fileSize = stats.size;
+
+    // Read last 2000 lines
+    const content = fs.readFileSync(logPath, "utf-8");
+    const allLines = content.split("\n");
+    const lastLines = allLines.slice(-2000);
+
+    return {
+      success: true,
+      lines: lastLines,
+      size: fileSize,
+      path: logPath,
+    };
+  } catch (error) {
+    console.error("❌ Error reading logs:", error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+});
+
+ipcMain.handle("clear-logs", async () => {
+  try {
+    const logPath = path.join(userDataPath, "starbox.log");
+
+    // Clear log file
+    fs.writeFileSync(logPath, "");
+
+    console.log("✅ Logs cleared successfully");
+    return {
+      success: true,
+    };
+  } catch (error) {
+    console.error("❌ Error clearing logs:", error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+});
+
+// ============================================
+// End of Logs IPC Handlers
 // ============================================
 
 // ============================================
@@ -4785,7 +4889,9 @@ async function executeScheduledMessage(schedule, device, runAt) {
       await BaileysManager.sendTypingStatus(device.id, phone);
       const typingDelay = Math.min(Math.max(message.length * 120, 800), 3200);
       await sleep(typingDelay);
-      await BaileysManager.sendMessage(device.id, phone, message);
+      await BaileysManager.sendMessage(device.id, phone, message, {
+        source: "schedule",
+      });
       broadcastScheduleStatus(schedule.id, "sent");
     } catch (error) {
       console.error(`❌ Scheduled message failed for ${phone}:`, error);

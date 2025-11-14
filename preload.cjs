@@ -110,7 +110,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     startDevice: (deviceId) => ipcRenderer.invoke('wa-start-device', deviceId),
     stopDevice: (deviceId) => ipcRenderer.invoke('wa-stop-device', deviceId),
     deleteDevice: (deviceId) => ipcRenderer.invoke('wa-delete-device', deviceId),
-    sendMessage: (deviceId, phone, message) => ipcRenderer.invoke('wa-send-message', deviceId, phone, message),
+    sendMessage: (deviceId, phone, message, options = {}) =>
+      ipcRenderer.invoke('wa-send-message', deviceId, phone, message, options),
     getStatus: (deviceId) => ipcRenderer.invoke('wa-get-status', deviceId),
     getDeviceProfile: (deviceId) => ipcRenderer.invoke('wa-get-profile', deviceId),
 
@@ -160,5 +161,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('resolve-asset-url', assetName),
   getCountryCodes: () => ipcRenderer.invoke('get-country-codes'),
   checkLatestVersion: (channel = 'stable') =>
-    ipcRenderer.invoke('check-latest-version', channel)
+    ipcRenderer.invoke('check-latest-version', channel),
+
+  // Logs API
+  logs: {
+    get: () => ipcRenderer.invoke('get-logs'),
+    clear: () => ipcRenderer.invoke('clear-logs')
+  }
 });

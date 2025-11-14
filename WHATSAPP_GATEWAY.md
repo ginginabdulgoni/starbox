@@ -232,7 +232,7 @@ Format: `detik menit jam tanggal bulan hari_minggu`
 ### Dependencies Added:
 
 - `@whiskeysockets/baileys@7.0.0-rc.6` - WhatsApp Web API
-- `better-sqlite3` - SQLite database
+- `wa-gateway-data.json` - file JSON untuk menyimpan device, auto-reply, schedule, dan log; semua operasi dilakukan lewat helper JS tanpa native dependency
 - `qrcode-terminal` - QR code display
 - `qrcode` - QR code canvas rendering
 - `pino` - Logger for Baileys

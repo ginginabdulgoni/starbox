@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "NODE_ENV=development ./node_modules/.bin/electron .",
     "start": "NODE_ENV=production ./node_modules/.bin/electron .",
+    "postinstall": "electron-builder install-app-deps",
     "prebuild": "node update-version.js",
     "prebuild:mac": "node update-version.js",
     "prebuild:win": "node update-version.js",

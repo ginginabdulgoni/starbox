@@ -1106,6 +1106,8 @@ const STORAGE_KEYS = {
   theme: "starboxThemePreference",
 };
 
+const MODE_STORAGE_KEY = "starboxThemeMode";
+
 const THEME_OPTIONS = [
   { id: "default", label: "Indigo" },
   { id: "mint", label: "Mint" },
@@ -1115,6 +1117,7 @@ const THEME_OPTIONS = [
 
 let preferredTheme = getStoredTheme();
 let activeTheme = preferredTheme;
+let preferredThemeMode = getStoredThemeMode();
 
 function sanitizeServiceId(value) {
   return (value || "").toString().trim().toLowerCase();
@@ -1319,31 +1322,33 @@ function setSelectedService(selectId = "deviceService", serviceId = "wa") {
 }
 
 function canUseThemeSelector() {
-  if (!authState.isLoggedIn) return false;
-  const pkg = authState.package || {};
-  const pkgName = (pkg.name || "").toLowerCase();
-  const priceValue = Number(
-    pkg.price ?? pkg.price_value ?? pkg.amount ?? pkg.total ?? NaN
-  );
-  const priceDisplay = (pkg.price_display || "").toLowerCase();
-  const isFree =
-    pkgName === "free" ||
-    pkgName === "gratis" ||
-    (Number.isFinite(priceValue) && priceValue <= 0) ||
-    priceDisplay.includes("gratis") ||
-    priceDisplay.includes("free") ||
-    priceDisplay === "💰 gratis";
-  return !isFree;
+  return true;
 }
 
 function updateThemeButtons() {
   const wrapper = document.getElementById("themeSelector");
   if (!wrapper) return;
   wrapper
-    .querySelectorAll(".theme-option")
+    .querySelectorAll(".theme-option[data-theme]")
     .forEach((btn) =>
       btn.classList.toggle("is-active", btn.dataset.theme === preferredTheme)
     );
+  updateModeButtons();
+}
+
+function updateModeButtons() {
+  const wrapper = document.getElementById("themeSelector");
+  if (!wrapper) return;
+  const isDefaultTheme = activeTheme === "default";
+  wrapper
+    .querySelectorAll(".theme-option.mode-option")
+    .forEach((btn) => {
+      btn.classList.toggle("mode-active", btn.dataset.mode === preferredThemeMode);
+      // Disable mode buttons when theme is not default
+      btn.style.opacity = isDefaultTheme ? "1" : "0.4";
+      btn.style.pointerEvents = isDefaultTheme ? "auto" : "none";
+      btn.title = isDefaultTheme ? "" : "Mode hanya tersedia untuk tema Indigo";
+    });
 }
 
 function applyTheme(themeId, options = {}) {
@@ -1354,6 +1359,12 @@ function applyTheme(themeId, options = {}) {
     const classes = THEME_OPTIONS.map((theme) => `theme-${theme.id}`);
     body.classList.remove(...classes);
     body.classList.add(`theme-${normalized}`);
+
+    // Reapply mode classes based on new theme
+    clearThemeModeClasses();
+    if (normalized === "default") {
+      body.classList.add(`theme-mode-${preferredThemeMode}`);
+    }
   }
   if (!options.skipStore) {
     preferredTheme = normalized;
@@ -1364,14 +1375,13 @@ function applyTheme(themeId, options = {}) {
 
 function syncThemeSelector() {
   const wrapper = document.getElementById("themeSelector");
-  if (!wrapper) return;
-  const allowed = canUseThemeSelector();
-  wrapper.style.display = allowed ? "flex" : "none";
-  if (allowed) {
-    applyTheme(preferredTheme || "default", { skipStore: true });
-  } else {
-    applyTheme("default", { skipStore: true });
-  }
+  const toggleBtn = document.getElementById("themeDropdownToggle");
+  if (!wrapper || !toggleBtn) return;
+  wrapper.dataset.enabled = "true";
+  wrapper.dataset.visible = "false";
+  applyTheme(preferredTheme || "default", { skipStore: true });
+  toggleBtn.style.setProperty("display", "inline-flex");
+  applyThemeMode(preferredThemeMode);
 }
 
 function initThemeSelector() {
@@ -1379,11 +1389,16 @@ function initThemeSelector() {
   if (!wrapper) return;
   wrapper.querySelectorAll(".theme-option").forEach((btn) => {
     btn.addEventListener("click", () => {
+      if (btn.dataset.mode) {
+        applyThemeMode(btn.dataset.mode);
+        return;
+      }
       if (!canUseThemeSelector()) return;
       applyTheme(btn.dataset.theme);
     });
   });
 }
+
 const authState = {
   isLoggedIn: false,
   user: null,
@@ -1460,6 +1475,54 @@ function setStoredTheme(value) {
   try {
     localStorage.setItem(STORAGE_KEYS.theme, sanitizeThemeId(value));
   } catch {}
+}
+
+function getStoredThemeMode() {
+  try {
+    const stored = localStorage.getItem(MODE_STORAGE_KEY);
+    if (stored === "light") return "light";
+  } catch {}
+  return "dark";
+}
+
+function setStoredThemeMode(value) {
+  try {
+    localStorage.setItem(MODE_STORAGE_KEY, value === "light" ? "light" : "dark");
+  } catch {}
+}
+
+function clearThemeModeClasses() {
+  const body = document.body;
+  if (!body) return;
+  body.classList.remove("theme-mode-dark", "theme-mode-light");
+}
+
+function applyThemeMode(mode) {
+  const normalized = mode === "light" ? "light" : "dark";
+  preferredThemeMode = normalized;
+  setStoredThemeMode(normalized);
+  const body = document.body;
+  if (body) {
+    clearThemeModeClasses();
+    // Only apply mode classes if current theme is default
+    // Other themes (mint, sunset, midnight) use their own color schemes
+    if (activeTheme === "default") {
+      body.classList.add(`theme-mode-${normalized}`);
+    }
+  }
+  updateModeButtons();
+}
+
+function toggleThemeMode() {
+  const nextMode = preferredThemeMode === "dark" ? "light" : "dark";
+  applyThemeMode(nextMode);
+}
+
+function initThemeModeToggle() {
+  const modeBtn = document.getElementById("themeModeToggle");
+  if (!modeBtn) return;
+  modeBtn.addEventListener("click", toggleThemeMode);
+  updateModeButtons();
 }
 
 function getServiceLimitValue() {
@@ -1783,13 +1846,7 @@ function updateAuthHeaderUI() {
   const authButton = document.getElementById("authButton");
   const userProfileButton = document.getElementById("userProfileButton");
   const userProfileName = document.getElementById("userProfileName");
-  const statusLabel = document.getElementById("authStatusLabel");
   const layoutToggle = document.getElementById("layoutToggle");
-
-  const guestLabel =
-    authState.guestServiceLimit > 0
-      ? `Mode tamu • ${authState.guestServiceLimit} device/layanan`
-      : "Mode tamu";
 
   // Update navbar buttons
   if (authState.isLoggedIn) {
@@ -1909,6 +1966,18 @@ function applyAuthSession(session = {}) {
   }
 }
 
+async function refreshAuthState() {
+  if (!window.electronAPI?.auth?.getSession) return;
+  try {
+    const currentSession = await window.electronAPI.auth.getSession();
+    if (currentSession) {
+      applyAuthSession(currentSession);
+    }
+  } catch (err) {
+    console.error("⚠️ Gagal memuat sesi auth:", err);
+  }
+}
+
 async function initAuthFlow() {
   if (!window.electronAPI?.auth) {
     console.warn("Auth API tidak tersedia di preload.");
@@ -1916,12 +1985,9 @@ async function initAuthFlow() {
   }
 
   try {
-    const session = await window.electronAPI.auth.getSession();
-    if (session) {
-      applyAuthSession(session);
-      if (typeof window.loadWAGatewayPage === "function") {
-        window.loadWAGatewayPage();
-      }
+    await refreshAuthState();
+    if (typeof window.loadWAGatewayPage === "function") {
+      window.loadWAGatewayPage();
     }
   } catch (err) {
     console.error("⚠️ Gagal memuat sesi auth awal:", err);
@@ -2016,12 +2082,16 @@ async function submitLoginForm(event) {
       password,
     });
     if (result.success) {
+      if (result.session) {
+        applyAuthSession(result.session);
+      }
       if (rememberMe) {
         saveRememberedLogin(email, true);
       } else {
         saveRememberedLogin("", false);
       }
       showToast(result.message || "Berhasil login.", 3500, "success");
+      await refreshAuthState();
       closeAuthModal();
     } else {
       if (!rememberMe) {
@@ -2151,6 +2221,13 @@ function openAccountModal() {
   }
   populateAccountModal();
   modal.style.display = "flex";
+}
+
+function openPackageFromAccount() {
+  closeAccountModal();
+  if (typeof openPackageModal === "function") {
+    openPackageModal();
+  }
 }
 
 function closeAccountModal() {
@@ -3486,19 +3563,31 @@ function renderSystemInfoBadge(info, error) {
   }`;
 }
 
+let systemInfoBadgeRetryCount = 0;
+const SYSTEM_INFO_BADGE_MAX_RETRIES = 3;
+
 async function loadSystemInfoBadge() {
+  const badge = document.getElementById("system-info-badge");
+  if (badge) {
+    badge.textContent = "Mengambil info…";
+  }
   try {
     const info = await window.electronAPI.getSystemInfo();
     renderSystemInfoBadge(info);
     systemPlatform =
       info?.platform || info?.system || info?.release || navigator.userAgent;
     updateIOSButtonVisibility();
+    systemInfoBadgeRetryCount = 0;
   } catch (err) {
     console.error("⚠️ Gagal memuat system info:", err);
     renderSystemInfoBadge(null, err);
     systemPlatform =
       typeof navigator !== "undefined" ? navigator.userAgent : null;
     updateIOSButtonVisibility();
+    systemInfoBadgeRetryCount += 1;
+    if (systemInfoBadgeRetryCount < SYSTEM_INFO_BADGE_MAX_RETRIES) {
+      setTimeout(loadSystemInfoBadge, 1500 * systemInfoBadgeRetryCount);
+    }
   }
 }
 
@@ -4848,6 +4937,7 @@ window.addEventListener("DOMContentLoaded", () => {
   resolveAssetPath(DEFAULT_ICON_ASSET).catch(() => {});
   hydrateStaticAssetImages();
   initThemeSelector();
+  initThemeModeToggle();
   ensureServiceSelectOptions("deviceService");
   ensureAndroidSpecSelectOptions("androidSpecPreset", "androidSpecDescription");
   ensureAndroidSpecSelectOptions(
@@ -4873,6 +4963,10 @@ window.addEventListener("DOMContentLoaded", () => {
   loadPhoneCodesIntoSelect();
   loadAllDevices();
   loadSystemInfoBadge();
+  document.addEventListener("DOMContentLoaded", loadSystemInfoBadge);
+  window.addEventListener("focus", () => {
+    loadSystemInfoBadge();
+  });
   if (typeof refreshAddAutoSenderUI === "function") refreshAddAutoSenderUI();
   const serviceSelect = document.getElementById("deviceService");
   if (serviceSelect) {
