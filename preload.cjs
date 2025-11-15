@@ -108,7 +108,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getDevices: () => ipcRenderer.invoke('wa-get-devices'),
     createDevice: (deviceId, name) => ipcRenderer.invoke('wa-create-device', deviceId, name),
     startDevice: (deviceId) => ipcRenderer.invoke('wa-start-device', deviceId),
-    stopDevice: (deviceId) => ipcRenderer.invoke('wa-stop-device', deviceId),
+    stopDevice: (deviceId, options = {}) =>
+      ipcRenderer.invoke('wa-stop-device', deviceId, options),
     deleteDevice: (deviceId) => ipcRenderer.invoke('wa-delete-device', deviceId),
     sendMessage: (deviceId, phone, message, options = {}) =>
       ipcRenderer.invoke('wa-send-message', deviceId, phone, message, options),

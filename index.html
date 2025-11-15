@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StarBox v1.2.251112 – MultiService Emulator</title>
+    <title>StarBox v1.3.251115 – MultiService Emulator</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
@@ -2689,7 +2689,7 @@
       </script>
       <footer class="app-footer">
         <span class="footer-left"
-          >StarBox v1.2.251112 &copy; 2025 Gingin Abdul Goni —
+          >StarBox v1.3.251115 &copy; 2025 Gingin Abdul Goni —
           <a
             href="https://1112-project.com"
             target="_blank"
@@ -3348,7 +3348,10 @@
           // Stop device first
           console.log("🛑 Stopping device...");
           const stopResult =
-            await window.electronAPI.whatsappGateway.stopDevice(deviceId);
+            await window.electronAPI.whatsappGateway.stopDevice(deviceId, {
+              logout: false,
+              cleanup: false,
+            });
 
           if (!stopResult.success) {
             console.warn(

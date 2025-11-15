@@ -1,6 +1,6 @@
 {
   "name": "starbox",
-  "version": "1.2.251112",
+  "version": "1.3.251115",
   "description": "StarBox - Emulator ringan multi-layanan",
   "main": "electron-main.js",
   "author": "Gingin Abdul Goni",
@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "NODE_ENV=development ./node_modules/.bin/electron .",
     "start": "NODE_ENV=production ./node_modules/.bin/electron .",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "node scripts/ensure-cacheable-alias.js && electron-builder install-app-deps",
     "prebuild": "node update-version.js",
     "prebuild:mac": "node update-version.js",
     "prebuild:win": "node update-version.js",
@@ -21,6 +21,43 @@
     "build": "electron-builder"
   },
   "build": {
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/@whiskeysockets/baileys/**",
+      "node_modules/libsignal/**",
+      "node_modules/protobufjs/**",
+      "node_modules/@protobufjs/**",
+      "node_modules/long/**",
+      "node_modules/@hapi/**",
+      "node_modules/async-mutex/**",
+      "node_modules/@cacheable/**",
+      "node_modules/cacheable/**",
+      "node_modules/node-cache/**",
+      "node_modules/hookified/**",
+      "node_modules/p-memoize/**",
+      "node_modules/p-cancelable/**",
+      "node_modules/p-finally/**",
+      "node_modules/p-defer/**",
+      "node_modules/p-timeout/**",
+      "node_modules/keyv/**",
+      "node_modules/@keyv/**",
+      "node_modules/@types/**",
+      "node_modules/@tokenizer/**",
+      "node_modules/@sindresorhus/**",
+      "node_modules/@isaacs/**",
+      "node_modules/json-buffer/**",
+      "node_modules/eventemitter3/**",
+      "node_modules/p-queue/**",
+      "node_modules/lru-cache/**",
+      "node_modules/readable-stream/**",
+      "node_modules/music-metadata/**",
+      "node_modules/pino/**",
+      "node_modules/ws/**",
+      "node_modules/mime/**",
+      "node_modules/file-type/**",
+      "node_modules/libphonenumber-js/**",
+      "node_modules/qified/**"
+    ],
     "extraResources": [
       {
         "from": "assets/",
@@ -28,6 +65,14 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "node_modules/eventemitter3",
+        "to": "app.asar.unpacked/node_modules/eventemitter3"
+      },
+      {
+        "from": "node_modules/p-timeout",
+        "to": "app.asar.unpacked/node_modules/p-timeout"
       }
     ],
     "appId": "com.weagate.StarBox",
@@ -66,7 +111,8 @@
       "gatekeeperAssess": false,
       "entitlements": "./build/entitlements.mac.plist",
       "entitlementsInherit": "./build/entitlements.mac.inherit.plist",
-      "identity": null
+      "identity": null,
+      "asar": false
     },
     "win": {
       "target": [
@@ -121,9 +167,9 @@
     "electron-rebuild": "^3.2.9"
   },
   "dependencies": {
+    "@cacheable/node-cache": "^1.7.4",
     "@whiskeysockets/baileys": "^7.0.0-rc.6",
     "adm-zip": "^0.5.16",
-    "better-sqlite3": "^12.4.1",
     "cron-parser": "^4.9.0",
     "electron-store": "^8.1.0",
     "extract-zip": "^2.0.1",

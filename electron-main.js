@@ -11,9 +11,44 @@ const Store = require("electron-store");
 const { v4: uuidv4 } = require("uuid");
 const os = require("os");
 const path = require("path");
+const Module = require("module");
 const fs = require("fs");
 const { pathToFileURL } = require("url");
 const { machineIdSync } = require("node-machine-id");
+
+const isPackaged = app.isPackaged;
+if (isPackaged) {
+  const unpacked = path.join(process.resourcesPath, "app.asar.unpacked", "node_modules");
+  const packed = path.join(process.resourcesPath, "node_modules");
+  Module.globalPaths.push(unpacked);
+  Module.globalPaths.push(packed);
+
+  console.log("[StarBox Resolver] enabled at:", unpacked);
+
+  const originalResolveFilename = Module._resolveFilename;
+
+  Module._resolveFilename = function (request, parent, isMain, options) {
+    try {
+      return originalResolveFilename(request, parent, isMain, options);
+    } catch (e) {
+      const try1 = path.join(unpacked, request);
+      if (fs.existsSync(try1)) return try1;
+
+      const try2 = path.join(unpacked, request, "index.js");
+      if (fs.existsSync(try2)) return try2;
+
+      const try3 = path.join(unpacked, request + ".js");
+      if (fs.existsSync(try3)) return try3;
+
+      throw e;
+    }
+  };
+} else {
+  const unpacked = path.join(process.resourcesPath, "app.asar.unpacked", "node_modules");
+  const packed = path.join(process.resourcesPath, "node_modules");
+  Module.globalPaths.push(unpacked);
+  Module.globalPaths.push(packed);
+}
 const AndroidManager = require("./android-manager");
 const iOSManager = require("./ios-manager");
 const BaileysManager = require("./baileys-manager");
@@ -1660,7 +1695,7 @@ async function refreshServicesFromServer() {
   const seenUrls = new Set();
 
   try {
-    console.log("🌐 Memuat daftar layanan dari server:", endpoint);
+    logConsoleOnly("🌐 Memuat daftar layanan dari server:", endpoint);
     const response = await fetch(endpoint, {
       method: "GET",
       headers: {
@@ -4363,9 +4398,9 @@ ipcMain.handle("wa-start-device", async (event, deviceId) => {
   }
 });
 
-ipcMain.handle("wa-stop-device", async (_event, deviceId) => {
+ipcMain.handle("wa-stop-device", async (_event, deviceId, options = {}) => {
   try {
-    const result = await BaileysManager.stopDevice(deviceId);
+    const result = await BaileysManager.stopDevice(deviceId, options);
     return result;
   } catch (error) {
     console.error("❌ Failed to stop WA device:", error);

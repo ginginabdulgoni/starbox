@@ -8,6 +8,7 @@ const { WAGatewayStorage } = require("./wa-storage");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const { pathToFileURL } = require("url");
 
 const WA_AUTO_RECONNECT = process.env.WA_AUTO_RECONNECT !== "false";
 
@@ -34,11 +35,75 @@ let makeWASocket,
   QRCode;
 let baileysLoaded = false;
 
+let baileysEntryPath = null;
+
+function getBaileysEntryPath() {
+  if (baileysEntryPath) {
+    return baileysEntryPath;
+  }
+
+  const electronAppInstance = getElectronApp();
+  const isPackaged = electronAppInstance?.isPackaged;
+  const resources = process.resourcesPath;
+
+  const candidatePaths = [];
+  if (isPackaged) {
+    candidatePaths.push(
+      path.join(
+        resources,
+        "app.asar.unpacked",
+        "node_modules",
+        "@whiskeysockets",
+        "baileys",
+        "lib",
+        "index.js"
+      )
+    );
+    candidatePaths.push(
+      path.join(
+        resources,
+        "app",
+        "node_modules",
+        "@whiskeysockets",
+        "baileys",
+        "lib",
+        "index.js"
+      )
+    );
+    candidatePaths.push(
+      path.join(
+        resources,
+        "app.asar",
+        "node_modules",
+        "@whiskeysockets",
+        "baileys",
+        "lib",
+        "index.js"
+      )
+    );
+  }
+
+  candidatePaths.push(
+    require.resolve("@whiskeysockets/baileys/lib/index.js")
+  );
+
+  const found = candidatePaths.find((candidate) => fs.existsSync(candidate));
+  if (!found) {
+    throw new Error(
+      `Baileys entry not found; paths tried: ${candidatePaths.join(", ")}`
+    );
+  }
+
+  baileysEntryPath = found;
+  return baileysEntryPath;
+}
+
 async function loadBaileys() {
   if (baileysLoaded) return;
 
   try {
-    const baileys = await import("@whiskeysockets/baileys");
+    const baileysPath = getBaileysEntryPath();
+    const baileys = await import(pathToFileURL(baileysPath).href);
     makeWASocket = baileys.default;
     useMultiFileAuthState = baileys.useMultiFileAuthState;
     DisconnectReason = baileys.DisconnectReason;
@@ -505,14 +570,33 @@ async function startDevice(
 /**
  * Stop WhatsApp connection
  */
-async function stopDevice(deviceId) {
+async function stopDevice(deviceId, options = {}) {
   const sock = activeConnections.get(deviceId);
   clearQRCodeExpiry(deviceId);
   autoReconnectBlocked.delete(deviceId);
 
+  const { logout = true, cleanup = logout, closeSocket = true } = options;
+
   if (sock) {
     try {
-      await sock.logout();
+      if (logout) {
+        await sock.logout();
+      } else if (closeSocket) {
+        try {
+          if (sock.ws && typeof sock.ws.close === "function") {
+            sock.ws.close();
+          } else if (typeof sock.close === "function") {
+            sock.close();
+          } else if (typeof sock.end === "function") {
+            sock.end();
+          }
+        } catch (closeError) {
+          console.warn(
+            `⚠️ Failed to close socket for ${deviceId}:`,
+            closeError?.message || closeError
+          );
+        }
+      }
     } catch (error) {
       console.warn(
         `⚠️ Logout failed for ${deviceId}:`,
@@ -521,7 +605,9 @@ async function stopDevice(deviceId) {
     } finally {
       activeConnections.delete(deviceId);
       updateDevice(deviceId, { status: "disconnected", qr_code: null });
-      cleanupSessionDir(deviceId);
+      if (cleanup) {
+        cleanupSessionDir(deviceId);
+      }
       console.log(`🛑 Stopped device: ${deviceId}`);
       reconnectAttemptCount.delete(deviceId);
       autoReconnectBlocked.add(deviceId);
