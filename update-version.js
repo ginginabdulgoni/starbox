@@ -17,12 +17,39 @@ function generateVersionFromDate() {
   return version;
 }
 
+function shouldSkipVersionUpdate() {
+  const skipFlag = process.env.STARBOX_SKIP_VERSION_UPDATE;
+  return skipFlag && skipFlag.toLowerCase() !== "0" && skipFlag !== "false";
+}
+
+function getDesiredVersion() {
+  return process.env.STARBOX_VERSION_OVERRIDE;
+}
+
 // Update package.json
 function updatePackageJson() {
   const packagePath = path.join(__dirname, "package.json");
   const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 
   const oldVersion = packageJson.version;
+  const override = getDesiredVersion();
+
+  if (override) {
+    packageJson.version = override;
+    fs.writeFileSync(
+      packagePath,
+      JSON.stringify(packageJson, null, 2) + "\n",
+      "utf8"
+    );
+    console.log(`✅ Version override: ${oldVersion} → ${override}`);
+    return override;
+  }
+
+  if (shouldSkipVersionUpdate()) {
+    console.log(`⚙️ SKIP version update flag, keeping ${oldVersion}`);
+    return oldVersion;
+  }
+
   const newVersion = generateVersionFromDate();
 
   packageJson.version = newVersion;

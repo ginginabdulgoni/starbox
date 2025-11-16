@@ -1080,17 +1080,20 @@ let cachedWebDevices = [];
 let cachedAndroidDevices = [];
 
 // Function to refresh device list (callable from global scope)
-window.refreshDeviceList = async function() {
-  console.log('🔄 Refreshing device list for page:', window.currentActivePage);
+window.refreshDeviceList = async function () {
+  console.log("🔄 Refreshing device list for page:", window.currentActivePage);
   // Always reload devices from storage to ensure fresh data
-  if (typeof loadAllDevices === 'function') {
+  if (typeof loadAllDevices === "function") {
     await loadAllDevices();
   } else {
     // Fallback: detect current page and render appropriate devices
     const currentPage = document.querySelector(".page-content.active")?.id;
-    if (currentPage === "page-android-ios" && typeof renderDevicesAndroid === 'function') {
+    if (
+      currentPage === "page-android-ios" &&
+      typeof renderDevicesAndroid === "function"
+    ) {
       renderDevicesAndroid(cachedAndroidDevices);
-    } else if (typeof renderDevices === 'function') {
+    } else if (typeof renderDevices === "function") {
       renderDevices(cachedWebDevices);
     }
   }
@@ -1308,7 +1311,7 @@ function renderServiceBrowserGrid(options = {}) {
   updateServiceBrowserSelected(selectId);
 
   // Apply page-based filtering after rendering
-  const currentPage = window.currentActivePage || 'web-emulator';
+  const currentPage = window.currentActivePage || "web-emulator";
   filterServicesByPage(currentPage);
 }
 
@@ -1340,15 +1343,16 @@ function updateModeButtons() {
   const wrapper = document.getElementById("themeSelector");
   if (!wrapper) return;
   const isDefaultTheme = activeTheme === "default";
-  wrapper
-    .querySelectorAll(".theme-option.mode-option")
-    .forEach((btn) => {
-      btn.classList.toggle("mode-active", btn.dataset.mode === preferredThemeMode);
-      // Disable mode buttons when theme is not default
-      btn.style.opacity = isDefaultTheme ? "1" : "0.4";
-      btn.style.pointerEvents = isDefaultTheme ? "auto" : "none";
-      btn.title = isDefaultTheme ? "" : "Mode hanya tersedia untuk tema Indigo";
-    });
+  wrapper.querySelectorAll(".theme-option.mode-option").forEach((btn) => {
+    btn.classList.toggle(
+      "mode-active",
+      btn.dataset.mode === preferredThemeMode
+    );
+    // Disable mode buttons when theme is not default
+    btn.style.opacity = isDefaultTheme ? "1" : "0.4";
+    btn.style.pointerEvents = isDefaultTheme ? "auto" : "none";
+    btn.title = isDefaultTheme ? "" : "Mode hanya tersedia untuk tema Indigo";
+  });
 }
 
 function applyTheme(themeId, options = {}) {
@@ -1399,6 +1403,12 @@ function initThemeSelector() {
   });
 }
 
+const DEFAULT_LIMITS = {
+  limitBroadcastDay: 10,
+  limitAutoReply: 5,
+  limitDeviceWAGateway: 1,
+};
+
 const authState = {
   isLoggedIn: false,
   user: null,
@@ -1412,9 +1422,9 @@ const authState = {
   allowsPrivateService: false,
   allowsAndroidEmulator: false,
   allowsIosSimulator: false,
-  limitDeviceWAGateway: null,
-  limitAutoReply: null,
-  limitBroadcastDay: null,
+  limitDeviceWAGateway: DEFAULT_LIMITS.limitDeviceWAGateway,
+  limitAutoReply: DEFAULT_LIMITS.limitAutoReply,
+  limitBroadcastDay: DEFAULT_LIMITS.limitBroadcastDay,
 };
 
 if (typeof window !== "undefined") {
@@ -1487,7 +1497,10 @@ function getStoredThemeMode() {
 
 function setStoredThemeMode(value) {
   try {
-    localStorage.setItem(MODE_STORAGE_KEY, value === "light" ? "light" : "dark");
+    localStorage.setItem(
+      MODE_STORAGE_KEY,
+      value === "light" ? "light" : "dark"
+    );
   } catch {}
 }
 
@@ -1739,7 +1752,8 @@ function updateIOSButtonVisibility() {
   const canShow = authState.isLoggedIn && authState.allowsIosSimulator && isMac;
 
   if (button) button.style.display = canShow ? "inline-flex" : "none";
-  if (buttonAndroid) buttonAndroid.style.display = canShow ? "inline-flex" : "none";
+  if (buttonAndroid)
+    buttonAndroid.style.display = canShow ? "inline-flex" : "none";
 }
 
 function updateCachedDevices(list = [], type = "web") {
@@ -1850,7 +1864,8 @@ function updateAuthHeaderUI() {
 
   // Update navbar buttons
   if (authState.isLoggedIn) {
-    const displayName = authState.user?.name || authState.user?.email || "Pengguna";
+    const displayName =
+      authState.user?.name || authState.user?.email || "Pengguna";
 
     // Hide login button, show profile button
     if (authButton) authButton.style.display = "none";
@@ -1904,9 +1919,7 @@ function applyAuthSession(session = {}) {
   authState.limitAutoReply =
     session.limit_auto_reply ?? session.package?.limit_auto_reply ?? null;
   authState.limitBroadcastDay =
-    session.limit_broadcast_day ??
-    session.package?.limit_broadcast_day ??
-    null;
+    session.limit_broadcast_day ?? session.package?.limit_broadcast_day ?? null;
   authState.allowsPrivateService = !!(
     session.allowsPrivateService ||
     session.package?.allows_private_service ||
@@ -1939,6 +1952,15 @@ function applyAuthSession(session = {}) {
     authState.limitDeviceWAGateway = null;
     authState.limitAutoReply = null;
     authState.limitBroadcastDay = null;
+  }
+  if (authState.limitDeviceWAGateway == null) {
+    authState.limitDeviceWAGateway = DEFAULT_LIMITS.limitDeviceWAGateway;
+  }
+  if (authState.limitAutoReply == null) {
+    authState.limitAutoReply = DEFAULT_LIMITS.limitAutoReply;
+  }
+  if (authState.limitBroadcastDay == null) {
+    authState.limitBroadcastDay = DEFAULT_LIMITS.limitBroadcastDay;
   }
   ensurePackageCountdownTimer();
   updateAuthHeaderUI();
@@ -3709,7 +3731,9 @@ async function renderDevices(devices) {
   container.innerHTML = "";
 
   // Filter out Android devices - only show web services
-  const webDevices = devices.filter(d => (d.service || '').toLowerCase() !== 'android');
+  const webDevices = devices.filter(
+    (d) => (d.service || "").toLowerCase() !== "android"
+  );
 
   const filteredDevices = filterDevicesBySearch(webDevices);
   const { visible: visibleDevices, hidden: hiddenDevices } =
@@ -4418,7 +4442,11 @@ async function loadAllDevicesWeb() {
 
 // Render Android devices (MUST BE DEFINED BEFORE loadAllDevicesAndroid)
 function renderDevicesAndroid(devices) {
-  console.log("🤖 renderDevicesAndroid called with", devices?.length || 0, "devices");
+  console.log(
+    "🤖 renderDevicesAndroid called with",
+    devices?.length || 0,
+    "devices"
+  );
   const container = document.getElementById("device-list-android");
   if (!container) {
     console.error("⚠️ Container #device-list-android not found!");
@@ -4429,8 +4457,8 @@ function renderDevicesAndroid(devices) {
   container.innerHTML = "";
 
   // Filter to only show Android devices
-  const androidDevices = (devices || []).filter(d =>
-    (d.service || '').toLowerCase() === 'android'
+  const androidDevices = (devices || []).filter(
+    (d) => (d.service || "").toLowerCase() === "android"
   );
 
   if (androidDevices.length === 0) {
@@ -4691,28 +4719,28 @@ function filterServicesByPage(pageName) {
   if (!serviceBrowserGrid) return;
 
   // Clear and rebuild service browser based on page
-  const serviceCards = serviceBrowserGrid.querySelectorAll('.service-card');
+  const serviceCards = serviceBrowserGrid.querySelectorAll(".service-card");
 
-  serviceCards.forEach(card => {
-    const serviceValue = card.dataset.serviceId || '';
+  serviceCards.forEach((card) => {
+    const serviceValue = card.dataset.serviceId || "";
 
-    if (pageName === 'android-ios') {
+    if (pageName === "android-ios") {
       // Show only Android service
-      if (serviceValue.toLowerCase() === 'android') {
-        card.style.display = 'flex';
+      if (serviceValue.toLowerCase() === "android") {
+        card.style.display = "flex";
       } else {
-        card.style.display = 'none';
+        card.style.display = "none";
       }
-    } else if (pageName === 'web-emulator') {
+    } else if (pageName === "web-emulator") {
       // Hide Android service
-      if (serviceValue.toLowerCase() === 'android') {
-        card.style.display = 'none';
+      if (serviceValue.toLowerCase() === "android") {
+        card.style.display = "none";
       } else {
-        card.style.display = 'flex';
+        card.style.display = "flex";
       }
     } else {
       // For other pages, show all
-      card.style.display = 'flex';
+      card.style.display = "flex";
     }
   });
 }
@@ -4722,7 +4750,7 @@ function openModal() {
   updateAddDeviceQuotaHint();
 
   // Filter services based on current page
-  const currentPage = window.currentActivePage || 'web-emulator';
+  const currentPage = window.currentActivePage || "web-emulator";
   filterServicesByPage(currentPage);
 
   syncServiceAvailability();
@@ -5006,7 +5034,9 @@ window.addEventListener("DOMContentLoaded", () => {
       renderDevices(cachedDevices);
     });
   }
-  const deviceSearchInputAndroid = document.getElementById("deviceSearchInputAndroid");
+  const deviceSearchInputAndroid = document.getElementById(
+    "deviceSearchInputAndroid"
+  );
   if (deviceSearchInputAndroid) {
     deviceSearchInputAndroid.addEventListener("input", (event) => {
       deviceSearchQuery = (event.target.value || "").toLowerCase();
@@ -5181,7 +5211,9 @@ function stopSelectedDevices() {
     if (!result.isConfirmed) return;
     selected.forEach((cb) => {
       const uid = cb.value;
-      const card = document.querySelector(`#device-list .device[data-uid="${uid}"]`);
+      const card = document.querySelector(
+        `#device-list .device[data-uid="${uid}"]`
+      );
       const status = (card?.dataset.status || "").toLowerCase();
       if (!["active", "running", "starting"].includes(status)) return;
       stopDevice(uid);
@@ -5190,7 +5222,9 @@ function stopSelectedDevices() {
 }
 
 function stopAllDevices() {
-  const allDevices = Array.from(document.querySelectorAll("#device-list .device"));
+  const allDevices = Array.from(
+    document.querySelectorAll("#device-list .device")
+  );
   if (allDevices.length === 0) return;
   Swal.fire({
     title: "Hentikan semua device?",
@@ -5273,7 +5307,10 @@ window.openModalAndroid = function () {
   document.getElementById("deviceAutoRunAndroid").checked = false;
 
   // Populate Android spec presets
-  populateAndroidSpecPreset("androidSpecPresetAdd", "androidSpecDescriptionAdd");
+  populateAndroidSpecPreset(
+    "androidSpecPresetAdd",
+    "androidSpecDescriptionAdd"
+  );
 
   modal.style.display = "flex";
 };
@@ -5343,7 +5380,9 @@ window.openEditAndroidModal = function (uid) {
 
   // Set current spec
   const currentSpecId = device.androidSpec?.id || DEFAULT_ANDROID_SPEC_ID;
-  const editSpecSelect = document.getElementById("editAndroidSpecPresetAndroid");
+  const editSpecSelect = document.getElementById(
+    "editAndroidSpecPresetAndroid"
+  );
   if (editSpecSelect) {
     editSpecSelect.value = currentSpecId;
   }
@@ -5504,7 +5543,10 @@ window.loadAllDevices = loadAllDevices;
 
 // Main switchPage function with device loading
 window.switchPage = async function (page) {
-  if (typeof event !== "undefined" && typeof event.preventDefault === "function") {
+  if (
+    typeof event !== "undefined" &&
+    typeof event.preventDefault === "function"
+  ) {
     event.preventDefault();
   }
 
@@ -5531,7 +5573,9 @@ window.switchPage = async function (page) {
   document.querySelectorAll(".sidebar-item").forEach((item) => {
     item.classList.remove("active");
   });
-  const activeItem = document.querySelector(`.sidebar-item[data-page="${page}"]`);
+  const activeItem = document.querySelector(
+    `.sidebar-item[data-page="${page}"]`
+  );
   if (activeItem) {
     activeItem.classList.add("active");
   }

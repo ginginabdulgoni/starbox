@@ -161,6 +161,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resolveAssetUrl: (assetName) =>
     ipcRenderer.invoke('resolve-asset-url', assetName),
   getCountryCodes: () => ipcRenderer.invoke('get-country-codes'),
+  isDevBuild: () => ipcRenderer.invoke('is-dev-build'),
   checkLatestVersion: (channel = 'stable') =>
     ipcRenderer.invoke('check-latest-version', channel),
 

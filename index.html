@@ -157,10 +157,11 @@
           <i class="bi bi-whatsapp"></i>
           <span>WhatsApp Gateway</span>
         </a>
-        <!-- <a
+        <a
           href="#"
           class="sidebar-item"
           data-page="android-ios"
+          data-dev-only="true"
           onclick="switchPage('android-ios')"
         >
           <i class="bi bi-phone"></i>
@@ -170,6 +171,7 @@
           href="#"
           class="sidebar-item"
           data-page="remox"
+          data-dev-only="true"
           onclick="switchPage('remox')"
         >
           <i class="bi bi-terminal"></i>
@@ -179,6 +181,7 @@
           href="#"
           class="sidebar-item"
           data-page="os-virtual"
+          data-dev-only="true"
           onclick="switchPage('os-virtual')"
         >
           <i class="bi bi-display"></i>
@@ -188,11 +191,12 @@
           href="#"
           class="sidebar-item"
           data-page="cctv"
+          data-dev-only="true"
           onclick="switchPage('cctv')"
         >
           <i class="bi bi-camera-video"></i>
           <span>CCTV</span>
-        </a> -->
+        </a>
       </div>
 
       <div class="sidebar-footer">
@@ -412,9 +416,19 @@
           </div>
 
           <div class="toolbar">
-            <button onclick="openWAGatewayModal()">
-              <i class="bi bi-plus-circle"></i> Tambah Device WA
-            </button>
+            <div class="toolbar-actions">
+              <button onclick="openWAGatewayModal()">
+                <i class="bi bi-plus-circle"></i> Tambah Device WA
+              </button>
+              <button
+                id="fixWAGatewayButton"
+                class="secondary"
+                onclick="openFixWADepsModal()"
+                style="display: none"
+              >
+                <i class="bi bi-tools"></i> Fix WA Gateway
+              </button>
+            </div>
           </div>
 
           <div id="wa-device-list">Loading...</div>
@@ -603,6 +617,233 @@
         </div>
       </div>
 
+      <!-- Missing Dependencies Modal -->
+      <div id="missingDepsModal" class="modal">
+        <div
+          class="modal-content"
+          style="max-width: 860px; max-height: 90vh; overflow-y: auto"
+        >
+          <span class="close" onclick="closeMissingDepsModal()">&times;</span>
+          <h3>🔧 Fix WhatsApp Gateway Dependencies</h3>
+          <p style="color: #94a3b8; margin-bottom: 16px">
+            Perbaiki dependencies WA Gateway dengan cepat. Pilih Auto Fix
+            (Windows) atau ikuti tutorial manual.
+          </p>
+
+          <div
+            id="missingDepsInfo"
+            style="
+              background: #1e293b;
+              padding: 15px;
+              border-radius: 8px;
+              margin-bottom: 20px;
+              display: none;
+            "
+          >
+            <p
+              style="
+                margin: 0;
+                font-family: monospace;
+                font-size: 13px;
+                color: #f87171;
+              "
+            ></p>
+          </div>
+
+          <div
+            style="
+              display: grid;
+              gap: 16px;
+              grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+              margin-bottom: 20px;
+            "
+          >
+            <section
+              style="
+                background: #0f172a;
+                border-radius: 14px;
+                padding: 18px;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+              "
+            >
+              <h4 style="margin-top: 0; color: #8b5cf6">📺 Tutorial Singkat</h4>
+              <ol
+                id="fixTutorialSteps"
+                style="
+                  color: #cbd5e1;
+                  line-height: 1.8;
+                  margin: 0;
+                  padding-left: 22px;
+                "
+              ></ol>
+            </section>
+            <section
+              style="
+                background: #0f172a;
+                border-radius: 14px;
+                padding: 18px;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+              "
+            >
+              <h4 style="margin-top: 0; color: #22d3ee">📝 Opsi Manual</h4>
+              <ol
+                style="
+                  color: #cbd5e1;
+                  line-height: 1.8;
+                  margin: 0;
+                  padding-left: 22px;
+                "
+              >
+                <li>Pasang Node.js LTS (https://nodejs.org).</li>
+                <li>
+                  Buka terminal/command prompt, lalu arahkan ke folder StarBox.
+                </li>
+                <li>Jalankan <code>npm install</code>.</li>
+                <li>
+                  Kalau tersedia, jalankan <code>npm run build:deps</code>.
+                </li>
+                <li>Restart StarBox agar modul baru dimuat.</li>
+              </ol>
+            </section>
+          </div>
+
+          <div
+            id="fixWarning"
+            style="
+              background: linear-gradient(135deg, #10b981, #059669);
+              padding: 20px;
+              border-radius: 14px;
+              margin-bottom: 20px;
+              box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3);
+              color: white;
+            "
+          >
+            <h4 style="margin-top: 0">✨ Auto Fix - 1 Klik Selesai!</h4>
+            <p
+              id="fixWarningText"
+              style="margin: 0.25rem 0 0; font-size: 13px; line-height: 1.6"
+            ></p>
+          </div>
+
+          <div style="margin-bottom: 20px">
+            <button
+              id="autoInstallDepsBtn"
+              onclick="autoInstallDependencies()"
+              class="btn-primary"
+              style="
+                width: 100%;
+                padding: 15px;
+                font-size: 18px;
+                font-weight: bold;
+                background: #f8fafc;
+                color: #059669;
+                border: none;
+                border-radius: 12px;
+                box-shadow: 0 10px 20px rgba(5, 150, 105, 0.35);
+              "
+            >
+              🚀 Auto Fix Sekarang
+            </button>
+            <div id="installProgress" style="display: none; margin-top: 15px">
+              <div
+                style="
+                  background: #374151;
+                  height: 8px;
+                  border-radius: 4px;
+                  overflow: hidden;
+                "
+              >
+                <div
+                  id="installProgressBar"
+                  style="
+                    background: #8b5cf6;
+                    height: 100%;
+                    width: 0%;
+                    transition: width 0.3s;
+                  "
+                ></div>
+              </div>
+              <p
+                id="installStatus"
+                style="margin: 10px 0 0; font-size: 13px; color: #94a3b8"
+              >
+                Memulai...
+              </p>
+            </div>
+          </div>
+
+          <div
+            style="
+              background: #0f172a;
+              padding: 18px;
+              border-radius: 12px;
+              border: 1px solid rgba(255, 255, 255, 0.05);
+              margin-bottom: 24px;
+            "
+          >
+            <h4 style="margin-top: 0; color: #fbbf24">
+              📂 Instruksi Manual (semua platform)
+            </h4>
+            <ol
+              style="
+                color: #cbd5e1;
+                font-size: 14px;
+                line-height: 1.8;
+                margin: 0;
+                padding-left: 22px;
+              "
+            >
+              <li>
+                Jalankan Node.js LTS yang kompatibel (https://nodejs.org).
+              </li>
+              <li>
+                Buka terminal/command prompt di folder StarBox (<span
+                  id="starboxPath"
+                  style="
+                    background: #1e293b;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                    display: inline-block;
+                    margin-top: 5px;
+                  "
+                  >...</span
+                >).
+              </li>
+              <li>
+                Jalankan
+                <code
+                  style="
+                    background: #1e293b;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                  "
+                  >npm install</code
+                >.
+              </li>
+              <li>
+                Jika ada, jalankan
+                <code
+                  style="
+                    background: #1e293b;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                  "
+                  >npm run build:deps</code
+                >.
+              </li>
+              <li>Restart StarBox.</li>
+            </ol>
+          </div>
+
+          <div
+            class="modal-buttons"
+            style="margin-top: 10px; display: flex; justify-content: flex-end"
+          >
+            <button onclick="closeMissingDepsModal()">Tutup</button>
+          </div>
+        </div>
+      </div>
+
       <div id="packageModal" class="modal">
         <div class="modal-content">
           <span class="close" onclick="closePackageModal()">&times;</span>
@@ -687,6 +928,79 @@
                 placeholder="Kosongkan untuk gunakan default /updatestatusmessage"
               />
             </div>
+            <button
+              type="button"
+              class="btn-link"
+              style="margin-top: 8px"
+              onclick="toggleAutoSenderDocumentation('autoSenderDoc')"
+            >
+              🔍 Detail Auto Sender
+            </button>
+            <div
+              id="autoSenderDoc"
+              style="display:none; background:#0f172a; border:1px solid rgba(255,255,255,0.1); padding:16px; border-radius:12px; margin-top:12px;"
+            >
+              <h4 style="margin-top:0; color:#22d3ee">Dokumentasi Auto Sender</h4>
+              <p style="color:#dbeafe; margin-bottom:8px">✅ Penjelasan langkah-langkah (versi lebih lengkap):</p>
+              <ol style="color:#cbd5e1; line-height:1.8; margin:0 0 12px; padding-left:22px">
+                <li>
+                  StarBox mengirim <strong>POST</strong> ke <code>URL Sumber Pesan Pending</code>
+                  (jika Anda hanya memasukkan domain, sistem otomatis menambahkan <code>/schedule/getpendingmessage</code>)
+                  dengan payload uid &amp; service.
+                </li>
+                <li>
+                  StarBox membuka WhatsApp Web dan masuk ke chat nomor tujuan sesuai respons.
+                </li>
+                <li>
+                  StarBox mensimulasikan tindakan manusia: mengetik, klik kirim, dan jeda antar pesan (anti-ban).
+                </li>
+                <li>
+                  Setelah terkirim, StarBox mengirim laporan status ke <code>URL Callback (opsional)</code>
+                  (fungsi resolver menambahkan <code>/schedule/updatestatusmessage</code> bila Anda tidak menyediakan path lengkap).
+                </li>
+                <li>
+                  Monitor menampilkan antrian, log proses, status kirim, dan statistik real-time.
+                </li>
+              </ol>
+              <p style="color:#dbeafe; margin-bottom:6px">📌 Format respons API (server → StarBox):</p>
+              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0 0 8px;">{
+  "data": [
+    {
+      "id": "msg-id",
+      "phone": "628123456789",
+      "message": "Hello world",
+      "priority": 0
+    }
+  ]
+}</pre>
+              <p style="color:#94a3b8; margin:0 0 6px">
+                Catatan:
+                <br />
+                - <strong>priority</strong> menentukan urutan (default 0 jika kosong).
+                <br />
+                - <strong>phone</strong> dapat diawali <code>+62</code> atau <code>628...</code>.
+                <br />
+                - <strong>message</strong> bisa teks, emoji, atau multiline.
+              </p>
+              <p style="color:#dbeafe; margin:0 0 6px">📡 Payload yang dikirim StarBox saat fetch:</p>
+              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0 0 8px;">{
+  "uid": "device-uid",
+  "service": "whatsapp",
+  "services": "whatsapp"
+}</pre>
+              <p style="color:#dbeafe; margin:0 0 6px">📮 Format callback (StarBox → server):</p>
+              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0 0 8px;">{
+  "status": "success",
+  "message_id": "msg-id",
+  "error_message": ""
+}</pre>
+              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0">{
+  "status": "failed",
+  "message_id": "msg-id",
+  "error_message": "Nomor tidak ditemukan / WA offline"
+}</pre>
+            </div>
+
           </div>
 
           <label for="deviceMode" style="margin-top: 10px">Mode Device</label>
@@ -1075,6 +1389,79 @@
                 placeholder="Kosongkan untuk gunakan default /updatestatusmessage"
               />
             </div>
+            <button
+              type="button"
+              class="btn-link"
+              style="margin-top: 8px"
+              onclick="toggleAutoSenderDocumentation('editAutoSenderDoc')"
+            >
+              🔍 Detail Auto Sender
+            </button>
+            <div
+              id="editAutoSenderDoc"
+              style="display:none; background:#0f172a; border:1px solid rgba(255,255,255,0.1); padding:16px; border-radius:12px; margin-top:12px;"
+            >
+              <h4 style="margin-top:0; color:#22d3ee">Dokumentasi Auto Sender</h4>
+              <p style="color:#dbeafe; margin-bottom:8px">✅ Penjelasan langkah-langkah (versi lebih lengkap):</p>
+              <ol style="color:#cbd5e1; line-height:1.8; margin:0 0 12px; padding-left:22px">
+                <li>
+                  StarBox mengirim <strong>POST</strong> ke <code>URL Sumber Pesan Pending</code>
+                  (jika Anda hanya memasukkan domain, sistem otomatis menyisipkan <code>/schedule/getpendingmessage</code>)
+                  dengan payload uid &amp; service.
+                </li>
+                <li>
+                  StarBox membuka WhatsApp Web dan masuk ke chat nomor yang diperoleh.
+                </li>
+                <li>
+                  StarBox mensimulasikan aktivitas manusia: mengetik, klik kirim, dan jeda antar pesan.
+                </li>
+                <li>
+                  Setelah pesan terkirim, StarBox mengirim laporan status ke <code>URL Callback (opsional)</code>
+                  (resolver menambahkan <code>/schedule/updatestatusmessage</code> jika path tidak lengkap).
+                </li>
+                <li>
+                  Monitor menampilkan antrian, log, statistik, dan status kirim secara real-time.
+                </li>
+              </ol>
+              <p style="color:#dbeafe; margin-bottom:6px">📌 Format respons API (server → StarBox):</p>
+              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0 0 8px;">{
+  "data": [
+    {
+      "id": "msg-id",
+      "phone": "628123456789",
+      "message": "Hello world",
+      "priority": 0
+    }
+  ]
+}</pre>
+              <p style="color:#94a3b8; margin:0 0 6px">
+                Catatan:
+                <br />
+                - <strong>priority</strong> menentukan prioritas (default 0 bila tidak ada).
+                <br />
+                - <strong>phone</strong> dapat berupa <code>+62</code> atau <code>628...</code>.
+                <br />
+                - <strong>message</strong> bisa teks, emoji, atau multiline.
+              </p>
+              <p style="color:#dbeafe; margin:0 0 6px">📡 Payload yang dikirim StarBox saat fetch:</p>
+              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0 0 8px;">{
+  "uid": "device-uid",
+  "service": "whatsapp",
+  "services": "whatsapp"
+}</pre>
+              <p style="color:#dbeafe; margin:0 0 6px">📮 Format callback (StarBox → server):</p>
+              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0 0 8px;">{
+  "status": "success",
+  "message_id": "msg-id",
+  "error_message": ""
+}</pre>
+              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0">{
+  "status": "failed",
+  "message_id": "msg-id",
+  "error_message": "Nomor tidak ditemukan / WA offline"
+}</pre>
+            </div>
+
           </div>
 
           <label style="margin-top: 10px">
@@ -1984,12 +2371,172 @@
           return false;
         }
 
+        function isWindowsPlatform() {
+          const platform = navigator.platform || "";
+          const userAgent = navigator.userAgent || "";
+          const windowsPattern = /win|windows/i;
+
+          if (windowsPattern.test(platform)) return true;
+          if (windowsPattern.test(userAgent)) return true;
+
+          const electronPlatform =
+            typeof window !== "undefined" &&
+            window.process &&
+            window.process.platform;
+          if (electronPlatform && electronPlatform.toLowerCase() === "win32") {
+            return true;
+          }
+
+          if (window.electronAPI?.platform) {
+            return (
+              String(window.electronAPI.platform).toLowerCase() === "win32"
+            );
+          }
+
+          return false;
+        }
+
+        function isWindowsPlatform() {
+          const platform = navigator.platform || "";
+          const userAgent = navigator.userAgent || "";
+          const windowsPattern = /win|windows/i;
+
+          if (windowsPattern.test(platform)) return true;
+          if (windowsPattern.test(userAgent)) return true;
+
+          const electronPlatform =
+            typeof window !== "undefined" &&
+            window.process &&
+            window.process.platform;
+          if (electronPlatform && electronPlatform.toLowerCase() === "win32") {
+            return true;
+          }
+
+          if (window.electronAPI?.platform) {
+            return (
+              String(window.electronAPI.platform).toLowerCase() === "win32"
+            );
+          }
+
+          return false;
+        }
+
+        function isLinuxPlatform() {
+          const platform = navigator.platform || "";
+          const userAgent = navigator.userAgent || "";
+          const linuxPattern = /linux|x11/i;
+
+          if (linuxPattern.test(platform) && !isMacPlatform()) return true;
+          if (linuxPattern.test(userAgent) && !isMacPlatform()) return true;
+
+          const electronPlatform =
+            typeof window !== "undefined" &&
+            window.process &&
+            window.process.platform;
+          if (electronPlatform && electronPlatform.toLowerCase() === "linux") {
+            return true;
+          }
+
+          if (window.electronAPI?.platform) {
+            return (
+              String(window.electronAPI.platform).toLowerCase() === "linux"
+            );
+          }
+
+          return false;
+        }
+
+        const fixTutorialContent = {
+          windows: {
+            steps: [
+              "Jalankan StarBox sebagai Administrator agar installer bisa mengubah node_modules.",
+              'Tekan tombol <strong>"🚀 Auto Fix Sekarang"</strong> di bawah.',
+              "Tunggu proses instalasi selesai (±1-3 menit).",
+              "Silakan restart StarBox saat diminta.",
+              "WhatsApp Gateway siap digunakan.",
+            ],
+            warning:
+              "⚠️ Untuk Windows: pastikan StarBox dijalankan sebagai Administrator ketika tombol Auto Fix ditekan.",
+          },
+          mac: {
+            steps: [
+              "Pastikan Anda memiliki Node.js LTS dan npm terpasang (https://nodejs.org).",
+              "Buka terminal dan arahkan ke folder StarBox (`/Applications/StarBox.app/Contents/Resources`).",
+              "Jalankan `npm install` lalu `npm run build:deps` bila tersedia.",
+              "Restart StarBox setelah proses selesai agar modul baru dimuat.",
+              "WhatsApp Gateway akan berjalan kembali.",
+            ],
+            warning:
+              "👨‍💻 Di macOS, Auto Fix mengarahkan ke tutorial manual karena perizinan berbeda dari Windows.",
+          },
+          linux: {
+            steps: [
+              "Pastikan Node.js dan npm Anda sudah terpasang (`sudo apt install nodejs npm`).",
+              "Buka terminal di direktori StarBox (`/opt/StarBox/resources` atau sesuai instalasi Anda).",
+              "Jalankan `npm install` lalu `npm run build:deps` jika tersedia.",
+              "Restart StarBox agar perubahan diterapkan.",
+              "WhatsApp Gateway siap kembali.",
+            ],
+            warning:
+              "🐧 Linux tidak mendukung Auto Fix 1-klik, jadi ikuti langkah manual di atas.",
+          },
+        };
+
+        function getCurrentPlatformKey() {
+          if (isWindowsPlatform()) return "windows";
+          if (isMacPlatform()) return "mac";
+          if (isLinuxPlatform()) return "linux";
+          return "windows";
+        }
+
+        function updateFixTutorialContent() {
+          const key = getCurrentPlatformKey();
+          const data = fixTutorialContent[key];
+          const stepsList = document.getElementById("fixTutorialSteps");
+          const warningText = document.getElementById("fixWarningText");
+
+          if (stepsList) {
+            stepsList.innerHTML = data.steps
+              .map(
+                (step, index) =>
+                  `<li><strong>Langkah ${index + 1}:</strong> ${step}</li>`
+              )
+              .join("");
+          }
+          if (warningText) {
+            warningText.textContent = data.warning;
+          }
+        }
+
         document.addEventListener("DOMContentLoaded", () => {
           const iosButton = document.getElementById("iosSimulatorButton");
           if (iosButton) {
             iosButton.style.display = isMacPlatform() ? "inline-flex" : "none";
           }
+          const fixButton = document.getElementById("fixWAGatewayButton");
+          if (fixButton) {
+            fixButton.style.display = "inline-flex";
+          }
+          updateFixTutorialContent();
+          initDevOnlyMenu();
         });
+
+        async function initDevOnlyMenu() {
+          const devOnlyLinks = document.querySelectorAll("[data-dev-only]");
+          if (!devOnlyLinks.length) return;
+          if (!window.electronAPI?.isDevBuild) {
+            devOnlyLinks.forEach((link) => link.remove());
+            return;
+          }
+          try {
+            const isDev = await window.electronAPI.isDevBuild();
+            if (!isDev) {
+              devOnlyLinks.forEach((link) => link.remove());
+            }
+          } catch {
+            devOnlyLinks.forEach((link) => link.remove());
+          }
+        }
 
         function openIOSSimulator() {
           // Open iOS Simulator window using electronAPI
@@ -2347,6 +2894,7 @@
           const checkbox = document.getElementById("deviceAutoSender");
           const options = document.getElementById("deviceAutoSenderOptions");
           const callbackInput = document.getElementById("deviceCallbackUrl");
+          const doc = document.getElementById("autoSenderDoc");
           const allowed = window.canUseAutoSender(service);
           if (!section) return;
           section.style.display = allowed ? "block" : "none";
@@ -2354,9 +2902,11 @@
             if (checkbox) checkbox.checked = false;
             if (options) options.style.display = "none";
             if (callbackInput) callbackInput.value = "";
+            if (doc) doc.style.display = "none";
           } else {
             const checked = checkbox?.checked;
             if (options) options.style.display = checked ? "block" : "none";
+            if (doc) doc.style.display = checked ? "block" : "none";
           }
         };
 
@@ -2366,15 +2916,18 @@
           const checkbox = document.getElementById("editAutoSender");
           const options = document.getElementById("editAutoSenderOptions");
           const callbackInput = document.getElementById("editCallbackUrl");
+          const doc = document.getElementById("editAutoSenderDoc");
           const allowed = window.canUseAutoSender(window.currentEditService);
           section.style.display = allowed ? "block" : "none";
           if (!allowed) {
             if (checkbox) checkbox.checked = false;
             if (options) options.style.display = "none";
             if (callbackInput) callbackInput.value = "";
+            if (doc) doc.style.display = "none";
           } else {
             const checked = checkbox?.checked;
             if (options) options.style.display = checked ? "block" : "none";
+            if (doc) doc.style.display = checked ? "block" : "none";
           }
         };
 
@@ -3127,7 +3680,7 @@
             }
             ${
               statusClass === "qr_ready"
-                ? `<button onclick="showQRModal('${device.id}')" class="btn-info">
+                ? `<button onclick="prepareFreshQR('${device.id}')" class="btn-info">
                 <i class="bi bi-qr-code"></i> Show QR
               </button>`
                 : ""
@@ -3742,6 +4295,12 @@
         console.log("✅ QR modal closed and cleared");
       }
 
+      async function prepareFreshQR(deviceId) {
+        console.log("🔁 Preparing fresh QR for device:", deviceId);
+        currentQRDeviceId = deviceId;
+        await refreshQRCode();
+      }
+
       // Render QR code
       function renderQRCode(qrDataURL) {
         console.log("📱 renderQRCode called, data type:", typeof qrDataURL);
@@ -4243,8 +4802,39 @@
       );
       updateScheduleCronField();
 
-      function downloadCampaignTemplate() {
-        document.getElementById("campaignTemplateLink")?.click();
+      async function downloadCampaignTemplate() {
+        const link = document.getElementById("campaignTemplateLink");
+        if (!link) {
+          console.error("⚠️ campaignTemplateLink not found");
+          return;
+        }
+        const assetName = "campaign-template.csv";
+        if (window.electronAPI?.resolveAssetUrl) {
+          try {
+            const resolved = await window.electronAPI.resolveAssetUrl(
+              assetName
+            );
+            if (resolved) {
+              link.href = resolved;
+            }
+          } catch (err) {
+            console.warn("⚠️ Gagal resolve asset:", err?.message || err);
+          }
+        }
+        link.click();
+      }
+
+      function toggleAutoSenderDocumentation(docId) {
+        const panel = document.getElementById(docId);
+        if (!panel) return;
+        const isExpanded = panel.style.display === "block";
+        panel.style.display = isExpanded ? "none" : "block";
+        const btn = document.querySelector(`button[onclick="toggleAutoSenderDocumentation('${docId}')"]`);
+        if (btn) {
+          btn.textContent = isExpanded
+            ? "🔍 Detail Auto Sender"
+            : "🔽 Sembunyikan Dokumentasi";
+        }
       }
 
       let campaignMessages = [];
@@ -4287,29 +4877,102 @@
           .join("");
       }
 
+      function normalizeCampaignRows(rawRows = []) {
+        return rawRows
+          .map((row) => ({
+            phone: (
+              row.phone ||
+              row.nomor ||
+              row.phonenumber ||
+              row["Phone"] ||
+              ""
+            ).trim(),
+            message: (
+              row.message ||
+              row.pesan ||
+              row.body ||
+              row.text ||
+              ""
+            ).trim(),
+            status: "pending",
+          }))
+          .filter((row) => row.phone && row.message);
+      }
+
+      function parseCsvLine(line) {
+        const values = [];
+        let current = "";
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i += 1) {
+          const char = line[i];
+          if (char === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+              current += '"';
+              i += 1;
+              continue;
+            }
+            inQuotes = !inQuotes;
+            continue;
+          }
+          if (char === "," && !inQuotes) {
+            values.push(current.trim());
+            current = "";
+            continue;
+          }
+          current += char;
+        }
+        values.push(current.trim());
+        return values;
+      }
+
+      function parseCampaignText(text) {
+        const lines = text
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+        if (!lines.length) return [];
+        const header = parseCsvLine(lines.shift()).map((h) => h.toLowerCase());
+        const dataRows = lines.map((line) => {
+          const values = parseCsvLine(line);
+          const row = {};
+          header.forEach((column, index) => {
+            if (!column) return;
+            row[column] = values[index] || "";
+          });
+          return row;
+        });
+        return dataRows;
+      }
+
       function handleCampaignFile(input) {
         const file = input?.files?.[0];
         if (!file) return;
-        Papa.parse(file, {
-          header: true,
-          skipEmptyLines: true,
-          complete: (results) => {
-            const rows = (results.data || [])
-              .map((row) => ({
-                phone: (row.phone || row.nomor || "").trim(),
-                message: (row.message || row.pesan || "").trim(),
-                status: "pending",
-              }))
-              .filter((row) => row.phone && row.message);
-            campaignMessages = rows;
-            renderCampaignPreview();
-            updateCampaignControls();
-          },
-          error: (error) => {
-            console.error("❌ Failed to parse campaign file:", error);
-            Swal.fire("Error", "Gagal membaca file campaign.", "error");
-          },
-        });
+        const reader = new FileReader();
+        reader.onload = () => {
+          const text = reader.result;
+          if (!text) {
+            Swal.fire("Error", "File campaign kosong.", "error");
+            return;
+          }
+          let rows = [];
+          if (window.Papa && window.Papa.parse) {
+            const parsed = window.Papa.parse(text, {
+              header: true,
+              skipEmptyLines: true,
+            });
+            rows = normalizeCampaignRows(parsed.data);
+          } else {
+            rows = normalizeCampaignRows(parseCampaignText(text));
+          }
+          campaignMessages = rows;
+          renderCampaignPreview();
+          updateCampaignControls();
+        };
+        reader.onerror = (error) => {
+          console.error("❌ Failed to read campaign file:", error);
+          Swal.fire("Error", "Gagal membaca file campaign.", "error");
+        };
+        reader.readAsText(file, "UTF-8");
       }
 
       function wait(ms) {
@@ -5062,6 +5725,127 @@
         } else {
           Swal.fire("Gagal", res.error || "Gagal menghapus log.", "error");
         }
+      }
+
+      // Missing Dependencies Modal Functions
+      function openMissingDepsModal(errorInfo) {
+        const modal = document.getElementById("missingDepsModal");
+        const infoEl = document.getElementById("missingDepsInfo");
+        const pathEl = document.getElementById("starboxPath");
+
+        if (!modal) return;
+
+        // Show error message if provided
+        if (infoEl && errorInfo && errorInfo.message) {
+          const p = infoEl.querySelector("p");
+          if (p) p.textContent = errorInfo.message || "Modul tidak ditemukan";
+          infoEl.style.display = "block";
+        } else if (infoEl) {
+          infoEl.style.display = "none";
+        }
+
+        // Set StarBox path for manual instructions
+        if (pathEl && errorInfo?.appPath) {
+          pathEl.textContent = `cd "${errorInfo.appPath}"`;
+        } else if (pathEl && window.electronAPI?.invoke) {
+          // Get app path from electron
+          window.electronAPI
+            .invoke("get-app-path")
+            .then((appPath) => {
+              if (appPath) pathEl.textContent = `cd "${appPath}"`;
+            })
+            .catch(() => {});
+        }
+
+        // Reset progress
+        const progressDiv = document.getElementById("installProgress");
+        if (progressDiv) progressDiv.style.display = "none";
+
+        modal.style.display = "flex";
+      }
+
+      // Wrapper function for manual open (from sidebar button)
+      function openFixWADepsModal() {
+        updateFixTutorialContent();
+        openMissingDepsModal({});
+      }
+
+      function closeMissingDepsModal() {
+        const modal = document.getElementById("missingDepsModal");
+        if (modal) modal.style.display = "none";
+      }
+
+      async function autoInstallDependencies() {
+        const btn = document.getElementById("autoInstallDepsBtn");
+        const progressDiv = document.getElementById("installProgress");
+        const progressBar = document.getElementById("installProgressBar");
+        const statusText = document.getElementById("installStatus");
+
+        if (!isWindowsPlatform()) {
+          await Swal.fire({
+            icon: "info",
+            title: "Auto Fix hanya untuk Windows",
+            text: "Silakan ikuti tutorial di atas untuk menginstal dependensi secara manual di macOS/Linux.",
+            confirmButtonText: "Oke",
+          });
+          return;
+        }
+
+        if (!window.electronAPI?.invoke) {
+          alert("API tidak tersedia. Silakan gunakan opsi manual.");
+          return;
+        }
+
+        // Disable button and show progress
+        if (btn) btn.disabled = true;
+        if (progressDiv) progressDiv.style.display = "block";
+        if (statusText) statusText.textContent = "Memeriksa Node.js...";
+        if (progressBar) progressBar.style.width = "10%";
+
+        try {
+          const result = await window.electronAPI.invoke("auto-install-deps");
+
+          if (result.success) {
+            if (progressBar) progressBar.style.width = "100%";
+            if (statusText) statusText.textContent = "✅ Instalasi berhasil!";
+
+            await Swal.fire({
+              icon: "success",
+              title: "Dependencies Terinstall!",
+              text: "Silakan restart StarBox untuk menggunakan WhatsApp Gateway.",
+              confirmButtonText: "Restart Sekarang",
+              showCancelButton: true,
+              cancelButtonText: "Nanti Saja",
+            }).then((res) => {
+              if (res.isConfirmed) {
+                window.electronAPI.invoke("restart-app");
+              }
+            });
+
+            closeMissingDepsModal();
+          } else {
+            throw new Error(result.error || "Instalasi gagal");
+          }
+        } catch (error) {
+          console.error("Auto install error:", error);
+          if (statusText) statusText.textContent = "❌ " + error.message;
+
+          Swal.fire({
+            icon: "error",
+            title: "Instalasi Gagal",
+            text: error.message + ". Silakan gunakan opsi manual install.",
+            confirmButtonText: "OK",
+          });
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      }
+
+      // Listen for missing dependency events from main process
+      if (window.electronAPI?.on) {
+        window.electronAPI.on("show-missing-deps-modal", (event, errorInfo) => {
+          openMissingDepsModal(errorInfo);
+        });
       }
     </script>
     <script src="renderer.js"></script>

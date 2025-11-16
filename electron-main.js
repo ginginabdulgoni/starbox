@@ -1214,27 +1214,29 @@ function requestJson(options = {}) {
       response.on("data", (chunk) => chunks.push(chunk));
       response.on("end", () => {
         if (timer) clearTimeout(timer);
+        const statusCode = response.statusCode || 0;
         const rawBody = Buffer.concat(chunks).toString("utf8");
-        let parsed = rawBody;
-        if (expectJson) {
-          try {
-            parsed = rawBody ? JSON.parse(rawBody) : {};
-          } catch (err) {
-            console.warn("⚠️ Gagal parse JSON:", err?.message || err);
-            parsed = null;
+
+        if (statusCode >= 200 && statusCode < 300) {
+          let parsed = rawBody;
+          if (expectJson) {
+            try {
+              parsed = rawBody ? JSON.parse(rawBody) : {};
+            } catch (err) {
+              console.warn("⚠️ Gagal parse JSON:", err?.message || err);
+              parsed = null;
+            }
           }
-        }
-        if (response.statusCode >= 200 && response.statusCode < 300) {
           resolve(parsed);
-        } else {
-          const error = new Error(
-            (parsed && (parsed.message || parsed.error)) ||
-              `Request gagal (${response.statusCode})`
-          );
-          error.status = response.statusCode;
-          error.details = parsed;
-          reject(error);
+          return;
         }
+
+        const error = new Error(
+          `Request gagal (${statusCode}): ${response.statusMessage || "Unknown"}`
+        );
+        error.status = statusCode;
+        error.response = rawBody;
+        reject(error);
       });
     });
 
@@ -3343,6 +3345,8 @@ ipcMain.handle("get-country-codes", async () => {
   }
 });
 
+ipcMain.handle("is-dev-build", () => IS_DEV_BUILD);
+
 ipcMain.handle("check-latest-version", async (_event, channel = "stable") => {
   try {
     const info = await fetchLatestVersionInfo(channel);
@@ -4332,6 +4336,30 @@ ipcMain.handle("wa-get-devices", async () => {
   }
 });
 
+// Helper function to check if error is missing module error
+function isMissingModuleError(error) {
+  const errorMsg = error.message || error.toString();
+  return (
+    errorMsg.includes("Cannot find module") ||
+    errorMsg.includes("Cannot find package") ||
+    errorMsg.includes("MODULE_NOT_FOUND")
+  );
+}
+
+// Helper function to show missing deps modal
+function showMissingDepsModal(error) {
+  const appPath = app.isPackaged
+    ? path.join(process.resourcesPath, "app")
+    : __dirname;
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("show-missing-deps-modal", {
+      message: error.message || error.toString(),
+      appPath: appPath,
+    });
+  }
+}
+
 ipcMain.handle("wa-create-device", async (_event, deviceId, name) => {
   try {
     const device = BaileysManager.createDevice(deviceId, name);
@@ -4350,6 +4378,12 @@ ipcMain.handle("wa-create-device", async (_event, deviceId, name) => {
     return { success: true, device };
   } catch (error) {
     console.error("❌ Failed to create WA device:", error);
+
+    // Check if it's a missing module error
+    if (isMissingModuleError(error)) {
+      showMissingDepsModal(error);
+    }
+
     return { success: false, error: error.message };
   }
 });
@@ -4394,6 +4428,12 @@ ipcMain.handle("wa-start-device", async (event, deviceId) => {
     return result;
   } catch (error) {
     console.error("❌ Failed to start WA device:", error);
+
+    // Check if it's a missing module error
+    if (isMissingModuleError(error)) {
+      showMissingDepsModal(error);
+    }
+
     return { success: false, error: error.message };
   }
 });
@@ -4679,6 +4719,129 @@ ipcMain.handle("clear-logs", async () => {
 
 // ============================================
 // End of Logs IPC Handlers
+// ============================================
+
+// ============================================
+// Auto Install Dependencies IPC Handlers
+// ============================================
+
+ipcMain.handle("auto-install-deps", async (event) => {
+  try {
+    const { exec } = require("child_process");
+
+    // Find the correct app path with package.json
+    let appPath = __dirname;
+    if (app.isPackaged) {
+      const possiblePaths = [
+        path.join(process.resourcesPath, "app"),
+        path.join(process.resourcesPath, "app.asar.unpacked"),
+        process.resourcesPath,
+      ];
+
+      for (const testPath of possiblePaths) {
+        const packageJsonPath = path.join(testPath, "package.json");
+        if (fs.existsSync(packageJsonPath)) {
+          appPath = testPath;
+          console.log("✅ Found package.json at:", packageJsonPath);
+          break;
+        }
+      }
+    }
+
+    console.log("🔧 Auto-installing dependencies at:", appPath);
+
+    // Verify package.json exists
+    if (!fs.existsSync(path.join(appPath, "package.json"))) {
+      throw new Error(
+        `package.json tidak ditemukan di ${appPath}. ` +
+        `Silakan gunakan opsi manual install.`
+      );
+    }
+
+    // Check if npm is available
+    const checkNpm = () => {
+      return new Promise((resolve) => {
+        exec("npm --version", (error) => {
+          resolve(!error);
+        });
+      });
+    };
+
+    const npmAvailable = await checkNpm();
+    if (!npmAvailable) {
+      throw new Error(
+        "Node.js/npm tidak ditemukan. Silakan install Node.js 20 LTS dari https://nodejs.org"
+      );
+    }
+
+    // Run npm install using exec (more reliable on Windows)
+    return new Promise((resolve, reject) => {
+      const command = process.platform === "win32"
+        ? `cd /d "${appPath}" && npm install`
+        : `cd "${appPath}" && npm install`;
+
+      console.log("🔧 Running command:", command);
+
+      const npmInstall = exec(command, {
+        maxBuffer: 10 * 1024 * 1024, // 10MB buffer for output
+        windowsHide: true,
+      });
+
+      let output = "";
+      npmInstall.stdout.on("data", (data) => {
+        output += data.toString();
+        console.log(`[npm install] ${data.toString()}`);
+      });
+
+      npmInstall.stderr.on("data", (data) => {
+        output += data.toString();
+        console.error(`[npm install error] ${data.toString()}`);
+      });
+
+      npmInstall.on("close", (code) => {
+        if (code === 0) {
+          console.log("✅ Dependencies installed successfully");
+          resolve({
+            success: true,
+            message: "Dependencies berhasil diinstall",
+          });
+        } else {
+          console.error("❌ npm install failed with code:", code);
+          reject(
+            new Error(`npm install gagal (exit code ${code}). Output: ${output}`)
+          );
+        }
+      });
+
+      npmInstall.on("error", (error) => {
+        console.error("❌ Failed to run npm install:", error);
+        reject(new Error(`Gagal menjalankan npm install: ${error.message}`));
+      });
+    });
+  } catch (error) {
+    console.error("❌ Auto install error:", error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+});
+
+ipcMain.handle("restart-app", () => {
+  console.log("🔄 Restarting app...");
+  app.relaunch();
+  app.exit(0);
+});
+
+ipcMain.handle("get-app-path", () => {
+  const appPath = app.isPackaged
+    ? path.join(process.resourcesPath, "app")
+    : __dirname;
+  return appPath;
+});
+
+// ============================================
+// End of Auto Install Dependencies IPC Handlers
 // ============================================
 
 // ============================================

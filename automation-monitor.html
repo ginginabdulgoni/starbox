@@ -546,7 +546,7 @@
           <span id="monitorLastFetch">Sinkron: Belum pernah</span>
         </div>
         <div class="status-meta">
-          <span>Billig MyWiFi Url:</span>
+          <span>URL Sumber Pesan Pending:</span>
           <a
             id="monitorPendingUrl"
             class="status-link is-disabled"
@@ -734,7 +734,7 @@
         if (Number.isFinite(num)) {
           return Math.max(0, Math.floor(num));
         }
-        return 9999;
+        return 0;
       }
 
       function sanitizeQueue(queue) {

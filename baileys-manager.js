@@ -362,16 +362,21 @@ async function startDevice(
     // Ensure Baileys is loaded
     await loadBaileys();
 
-    // Check if already connected
-    if (activeConnections.has(deviceId)) {
-      console.log(`⚠️ Device ${deviceId} already connected`);
-      return { success: false, message: "Device already connected" };
-    }
-
     const device = getDevice(deviceId);
     if (!device) {
       cleanupSessionDir(deviceId);
       throw new Error("Device not found");
+    }
+
+    // Check if already connected
+    const deviceStatus = device.status;
+    const isConnectedStatus =
+      deviceStatus === "connected" || deviceStatus === "connecting";
+    if (activeConnections.has(deviceId) || isConnectedStatus) {
+      console.log(
+        `⚠️ Device ${deviceId} status '${deviceStatus}' already connected/connecting; skipping new start`
+      );
+      return { success: false, message: "Device already connected" };
     }
 
     // Session path
@@ -561,9 +566,17 @@ async function startDevice(
 
     return { success: true, message: "Connection started" };
   } catch (error) {
-    console.error(`❌ Error starting device ${deviceId}:`, error);
+    const normalizedMessage =
+      (error && typeof error === "object" && error.message) ||
+      (typeof error === "string" && error) ||
+      "Unknown error starting device";
+    console.error(
+      `❌ Error starting device ${deviceId}:`,
+      normalizedMessage,
+      error?.stack || error
+    );
     updateDevice(deviceId, { status: "error" });
-    return { success: false, message: error.message };
+    return { success: false, message: normalizedMessage };
   }
 }
 
@@ -708,8 +721,18 @@ function getConnectionStatus(deviceId) {
  */
 function getDeviceProfile(deviceId) {
   const sock = activeConnections.get(deviceId);
+  const device = getDevice(deviceId);
   if (!sock) {
-    throw new Error("Device belum terhubung");
+    return {
+      jid: device?.jid || "",
+      phone: device?.phone || null,
+      displayName: device?.name || "WhatsApp",
+      pictureUrl: null,
+      notifyName: null,
+      connected: false,
+      status: device?.status || "disconnected",
+      fallback: true,
+    };
   }
 
   const contact = sock.user || {};
@@ -730,7 +753,7 @@ function getDeviceProfile(deviceId) {
     pictureUrl,
     notifyName: contact.notify || null,
     connected: true,
-    status: getDevice(deviceId)?.status || "connected",
+    status: device?.status || "connected",
   };
 }
 
