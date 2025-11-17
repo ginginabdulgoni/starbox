@@ -6,6 +6,7 @@ const ipcMain = electron.ipcMain;
 const screen = electron.screen;
 const clipboard = electron.clipboard;
 const net = electron.net;
+const https = require("https");
 
 const Store = require("electron-store");
 const { v4: uuidv4 } = require("uuid");
@@ -79,6 +80,16 @@ const AUTH_BASE_URL =
   process.env.STARBOX_AUTH_BASE_URL || `${DEFAULT_API_BASE_URL}/api/auth`;
 const AUTH_SESSION_STORE_KEY = "authSession";
 const GUEST_SERVICE_DEVICE_LIMIT = 2;
+const CHROME_VERSION_STORE_KEY = "latestChromeUserAgentVersion";
+const CHROME_VERSION_UPDATED_AT_KEY =
+  "latestChromeUserAgentVersionUpdatedAt";
+const DEFAULT_CHROME_VERSION = "132.0.0.0";
+const CHROME_VERSION_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const CHROME_VERSION_API_URL =
+  "https://omahaproxy.appspot.com/all.json?os=win&channel=stable";
+const WHATSAPP_USER_AGENT_PREFIX =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/";
+const WHATSAPP_USER_AGENT_SUFFIX = " Safari/537.36";
 
 function logDev(...args) {
   if (global.__starboxDevLog) {
@@ -107,6 +118,120 @@ function generateAvdName(uid = "") {
       .replace(/[^a-zA-Z0-9]+/g, "")
       .slice(0, 12) || `AVD${Date.now()}`;
   return `StarBox_${base}`;
+}
+
+function buildWhatsAppUserAgent(version = DEFAULT_CHROME_VERSION) {
+  const normalizedVersion = version || DEFAULT_CHROME_VERSION;
+  return `${WHATSAPP_USER_AGENT_PREFIX}${normalizedVersion}${WHATSAPP_USER_AGENT_SUFFIX}`;
+}
+
+function persistChromeVersionData(version, updatedAt) {
+  if (!store) return;
+  try {
+    store.set(CHROME_VERSION_STORE_KEY, version);
+    store.set(CHROME_VERSION_UPDATED_AT_KEY, updatedAt);
+  } catch (err) {
+    console.warn("⚠️ Gagal menyimpan versi Chrome (UA):", err?.message || err);
+  }
+}
+
+function loadCachedChromeVersion() {
+  if (!store) return;
+  try {
+    const storedVersion = store.get(CHROME_VERSION_STORE_KEY);
+    const storedAt = store.get(CHROME_VERSION_UPDATED_AT_KEY);
+    if (typeof storedVersion === "string" && storedVersion.trim()) {
+      cachedChromeVersion = storedVersion;
+    }
+    if (typeof storedAt === "number" && Number.isFinite(storedAt)) {
+      cachedChromeVersionUpdatedAt = storedAt;
+    }
+  } catch (err) {
+    console.warn("⚠️ Gagal baca versi Chrome (UA) dari store:", err?.message || err);
+  }
+}
+
+function fetchLatestChromeVersionFromOmaha() {
+  return new Promise((resolve, reject) => {
+    const req = https.get(CHROME_VERSION_API_URL, (res) => {
+      const { statusCode } = res;
+      if (statusCode !== 200) {
+        res.resume();
+        reject(new Error(`OmahaProxy responded with ${statusCode}`));
+        return;
+      }
+
+      let rawData = "";
+      res.on("data", (chunk) => {
+        rawData += chunk;
+      });
+      res.on("end", () => {
+        try {
+          const parsed = JSON.parse(rawData);
+          if (!Array.isArray(parsed)) {
+            throw new Error("unexpected response shape");
+          }
+          const winEntry = parsed.find((entry) => entry.os === "win");
+          const stableVersion =
+            winEntry?.versions?.find((item) => item.channel === "stable")
+              ?.current_version || null;
+          resolve(stableVersion);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+
+    req.on("error", reject);
+    req.setTimeout(10_000, () => {
+      req.destroy(new Error("timeout"));
+    });
+  });
+}
+
+async function resolveLatestChromeVersion(forceRefresh = false) {
+  const now = Date.now();
+  if (
+    !forceRefresh &&
+    cachedChromeVersion &&
+    now - cachedChromeVersionUpdatedAt < CHROME_VERSION_REFRESH_INTERVAL_MS
+  ) {
+    return cachedChromeVersion;
+  }
+
+  if (chromeVersionFetchPromise) {
+    return chromeVersionFetchPromise;
+  }
+
+  const fetcher = (async () => {
+    try {
+      const version = await fetchLatestChromeVersionFromOmaha();
+      if (version) {
+        cachedChromeVersion = version;
+        cachedChromeVersionUpdatedAt = Date.now();
+        persistChromeVersionData(cachedChromeVersion, cachedChromeVersionUpdatedAt);
+        return cachedChromeVersion;
+      }
+      return cachedChromeVersion;
+    } catch (err) {
+      console.warn(
+        "⚠️ Gagal ambil versi Chrome terbaru, pakai cache:",
+        err?.message || err
+      );
+      return cachedChromeVersion;
+    }
+  })();
+
+  chromeVersionFetchPromise = fetcher;
+  fetcher.finally(() => {
+    chromeVersionFetchPromise = null;
+  });
+  return fetcher;
+}
+
+async function resolveWhatsAppUserAgent(forceRefresh = false) {
+  const version = await resolveLatestChromeVersion(forceRefresh);
+  return buildWhatsAppUserAgent(version);
 }
 
 const DEFAULT_ANDROID_SPEC = Object.freeze({
@@ -177,6 +302,9 @@ let cachedMachineId = null;
 let systemReportTimer = null;
 let authSession = createEmptyAuthSession();
 let authRefreshTimer = null;
+let cachedChromeVersion = DEFAULT_CHROME_VERSION;
+let cachedChromeVersionUpdatedAt = 0;
+let chromeVersionFetchPromise = null;
 
 // Initialize logging after app is ready
 function initializeLogging() {
@@ -238,6 +366,7 @@ function initializeLogging() {
 
   // Initialize store
   store = new Store();
+  loadCachedChromeVersion();
   restoreAuthSessionFromStore();
   scheduleAuthRefresh();
 
@@ -4631,9 +4760,9 @@ ipcMain.handle("wa-clear-logs", (_event, deviceId, days) => {
   }
 });
 
-ipcMain.handle("wa-open-web", (_event, deviceId) => {
+ipcMain.handle("wa-open-web", async (_event, deviceId) => {
   try {
-    openWhatsAppWebWindow(deviceId);
+    await openWhatsAppWebWindow(deviceId);
     return { success: true };
   } catch (error) {
     console.error("❌ Failed to open WhatsApp Web:", error);
@@ -4880,7 +5009,7 @@ const reconnectingDevices = new Set();
 const reconnectCooldown = new Map();
 const whatsappWebWindows = new Map();
 
-function openWhatsAppWebWindow(deviceId) {
+async function openWhatsAppWebWindow(deviceId) {
   const existing = whatsappWebWindows.get(deviceId);
   if (existing && !existing.isDestroyed()) {
     existing.focus();
@@ -4902,6 +5031,9 @@ function openWhatsAppWebWindow(deviceId) {
       contextIsolation: true,
     },
   });
+
+  const userAgent = await resolveWhatsAppUserAgent();
+  waWindow.webContents.setUserAgent(userAgent);
 
   waWindow.loadFile(path.join(__dirname, "whatsapp-web.html"), {
     query: { deviceId },

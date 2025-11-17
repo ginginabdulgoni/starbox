@@ -2434,10 +2434,22 @@ function compareVersions(a = "", b = "") {
 }
 
 function getPreferredPlatformKey() {
-  const ua = (navigator.userAgent || "").toLowerCase();
-  if (ua.includes("windows")) return "windows";
-  if (ua.includes("mac") || ua.includes("darwin")) return "mac";
-  if (ua.includes("linux")) return "linux";
+  let platform = null;
+
+  if (typeof window !== "undefined" && typeof window.electronAPI?.platform === "function") {
+    platform = window.electronAPI.platform();
+  } else if (typeof process !== "undefined" && process.platform) {
+    platform = process.platform;
+  } else if (typeof navigator !== "undefined" && navigator.platform) {
+    platform = navigator.platform;
+  }
+
+  if (!platform) return null;
+
+  const normalized = platform.toString().toLowerCase();
+  if (normalized === "darwin" || normalized.startsWith("mac")) return "mac";
+  if (normalized === "win32" || normalized.includes("win")) return "windows";
+  if (normalized.includes("linux")) return "linux";
   return null;
 }
 

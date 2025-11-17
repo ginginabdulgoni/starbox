@@ -938,32 +938,68 @@
             </button>
             <div
               id="autoSenderDoc"
-              style="display:none; background:#0f172a; border:1px solid rgba(255,255,255,0.1); padding:16px; border-radius:12px; margin-top:12px;"
+              style="
+                display: none;
+                background: #0f172a;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                padding: 16px;
+                border-radius: 12px;
+                margin-top: 12px;
+              "
             >
-              <h4 style="margin-top:0; color:#22d3ee">Dokumentasi Auto Sender</h4>
-              <p style="color:#dbeafe; margin-bottom:8px">✅ Penjelasan langkah-langkah (versi lebih lengkap):</p>
-              <ol style="color:#cbd5e1; line-height:1.8; margin:0 0 12px; padding-left:22px">
+              <h4 style="margin-top: 0; color: #22d3ee">
+                Dokumentasi Auto Sender
+              </h4>
+              <p style="color: #dbeafe; margin-bottom: 8px">
+                ✅ Penjelasan langkah-langkah (versi lebih lengkap):
+              </p>
+              <ol
+                style="
+                  color: #cbd5e1;
+                  line-height: 1.8;
+                  margin: 0 0 12px;
+                  padding-left: 22px;
+                "
+              >
                 <li>
-                  StarBox mengirim <strong>POST</strong> ke <code>URL Sumber Pesan Pending</code>
-                  (jika Anda hanya memasukkan domain, sistem otomatis menambahkan <code>/schedule/getpendingmessage</code>)
-                  dengan payload uid &amp; service.
+                  StarBox mengirim <strong>POST</strong> ke
+                  <code>URL Sumber Pesan Pending</code> (jika Anda hanya
+                  memasukkan domain, sistem otomatis menambahkan
+                  <code>/schedule/getpendingmessage</code>) dengan payload uid
+                  &amp; service.
                 </li>
                 <li>
-                  StarBox membuka WhatsApp Web dan masuk ke chat nomor tujuan sesuai respons.
+                  StarBox membuka WhatsApp Web dan masuk ke chat nomor tujuan
+                  sesuai respons.
                 </li>
                 <li>
-                  StarBox mensimulasikan tindakan manusia: mengetik, klik kirim, dan jeda antar pesan (anti-ban).
+                  StarBox mensimulasikan tindakan manusia: mengetik, klik kirim,
+                  dan jeda antar pesan (anti-ban).
                 </li>
                 <li>
-                  Setelah terkirim, StarBox mengirim laporan status ke <code>URL Callback (opsional)</code>
-                  (fungsi resolver menambahkan <code>/schedule/updatestatusmessage</code> bila Anda tidak menyediakan path lengkap).
+                  Setelah terkirim, StarBox mengirim laporan status ke
+                  <code>URL Callback (opsional)</code> (fungsi resolver
+                  menambahkan <code>/schedule/updatestatusmessage</code> bila
+                  Anda tidak menyediakan path lengkap).
                 </li>
                 <li>
-                  Monitor menampilkan antrian, log proses, status kirim, dan statistik real-time.
+                  Monitor menampilkan antrian, log proses, status kirim, dan
+                  statistik real-time.
                 </li>
               </ol>
-              <p style="color:#dbeafe; margin-bottom:6px">📌 Format respons API (server → StarBox):</p>
-              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0 0 8px;">{
+              <p style="color: #dbeafe; margin-bottom: 6px">
+                📌 Format respons API (server → StarBox):
+              </p>
+              <pre
+                style="
+                  background: #111b24;
+                  color: #f8fafc;
+                  padding: 10px;
+                  border-radius: 8px;
+                  margin: 0 0 8px;
+                "
+              >
+{
   "data": [
     {
       "id": "msg-id",
@@ -972,35 +1008,71 @@
       "priority": 0
     }
   ]
-}</pre>
-              <p style="color:#94a3b8; margin:0 0 6px">
+}</pre
+              >
+              <p style="color: #94a3b8; margin: 0 0 6px">
                 Catatan:
                 <br />
-                - <strong>priority</strong> menentukan urutan (default 0 jika kosong).
+                - <strong>priority</strong> menentukan urutan (default 0 jika
+                kosong).
                 <br />
-                - <strong>phone</strong> dapat diawali <code>+62</code> atau <code>628...</code>.
+                - <strong>phone</strong> dapat diawali <code>+62</code> atau
+                <code>628...</code>.
                 <br />
                 - <strong>message</strong> bisa teks, emoji, atau multiline.
               </p>
-              <p style="color:#dbeafe; margin:0 0 6px">📡 Payload yang dikirim StarBox saat fetch:</p>
-              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0 0 8px;">{
+              <p style="color: #dbeafe; margin: 0 0 6px">
+                📡 Payload yang dikirim StarBox saat fetch:
+              </p>
+              <pre
+                style="
+                  background: #111b24;
+                  color: #f8fafc;
+                  padding: 10px;
+                  border-radius: 8px;
+                  margin: 0 0 8px;
+                "
+              >
+{
   "uid": "device-uid",
   "service": "whatsapp",
   "services": "whatsapp"
-}</pre>
-              <p style="color:#dbeafe; margin:0 0 6px">📮 Format callback (StarBox → server):</p>
-              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0 0 8px;">{
-  "status": "success",
-  "message_id": "msg-id",
+}</pre
+              >
+              <p style="color: #dbeafe; margin: 0 0 6px">
+                📮 Format callback (StarBox → server):
+              </p>
+              <pre
+                style="
+                  background: #111b24;
+                  color: #f8fafc;
+                  padding: 10px;
+                  border-radius: 8px;
+                  margin: 0 0 8px;
+                "
+              >
+{
+  "status": "done",
+  "id": "msg-id",
   "error_message": ""
-}</pre>
-              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0">{
+}</pre
+              >
+              <pre
+                style="
+                  background: #111b24;
+                  color: #f8fafc;
+                  padding: 10px;
+                  border-radius: 8px;
+                  margin: 0;
+                "
+              >
+{
   "status": "failed",
-  "message_id": "msg-id",
+  "id": "msg-id",
   "error_message": "Nomor tidak ditemukan / WA offline"
-}</pre>
+}</pre
+              >
             </div>
-
           </div>
 
           <label for="deviceMode" style="margin-top: 10px">Mode Device</label>
@@ -1039,7 +1111,7 @@
             </optgroup>
             <optgroup label="💻 Desktop">
               <option value="desktop">🖥️ Desktop Standard (1000x700)</option>
-              <option value="desktop-mini">💻 Desktop Mini (800x600)</option>
+              <option value="desktop-mini" selected>💻 Desktop Mini (800x600)</option>
               <option value="desktop-hd">🖥️ Desktop HD (1366x768)</option>
               <option value="desktop-full-hd">🖥️ Full HD (1920x1080)</option>
               <option value="desktop-2k">🖥️ 2K Display (2560x1440)</option>
@@ -1399,32 +1471,68 @@
             </button>
             <div
               id="editAutoSenderDoc"
-              style="display:none; background:#0f172a; border:1px solid rgba(255,255,255,0.1); padding:16px; border-radius:12px; margin-top:12px;"
+              style="
+                display: none;
+                background: #0f172a;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                padding: 16px;
+                border-radius: 12px;
+                margin-top: 12px;
+              "
             >
-              <h4 style="margin-top:0; color:#22d3ee">Dokumentasi Auto Sender</h4>
-              <p style="color:#dbeafe; margin-bottom:8px">✅ Penjelasan langkah-langkah (versi lebih lengkap):</p>
-              <ol style="color:#cbd5e1; line-height:1.8; margin:0 0 12px; padding-left:22px">
+              <h4 style="margin-top: 0; color: #22d3ee">
+                Dokumentasi Auto Sender
+              </h4>
+              <p style="color: #dbeafe; margin-bottom: 8px">
+                ✅ Penjelasan langkah-langkah (versi lebih lengkap):
+              </p>
+              <ol
+                style="
+                  color: #cbd5e1;
+                  line-height: 1.8;
+                  margin: 0 0 12px;
+                  padding-left: 22px;
+                "
+              >
                 <li>
-                  StarBox mengirim <strong>POST</strong> ke <code>URL Sumber Pesan Pending</code>
-                  (jika Anda hanya memasukkan domain, sistem otomatis menyisipkan <code>/schedule/getpendingmessage</code>)
-                  dengan payload uid &amp; service.
+                  StarBox mengirim <strong>POST</strong> ke
+                  <code>URL Sumber Pesan Pending</code> (jika Anda hanya
+                  memasukkan domain, sistem otomatis menyisipkan
+                  <code>/schedule/getpendingmessage</code>) dengan payload uid
+                  &amp; service.
                 </li>
                 <li>
-                  StarBox membuka WhatsApp Web dan masuk ke chat nomor yang diperoleh.
+                  StarBox membuka WhatsApp Web dan masuk ke chat nomor yang
+                  diperoleh.
                 </li>
                 <li>
-                  StarBox mensimulasikan aktivitas manusia: mengetik, klik kirim, dan jeda antar pesan.
+                  StarBox mensimulasikan aktivitas manusia: mengetik, klik
+                  kirim, dan jeda antar pesan.
                 </li>
                 <li>
-                  Setelah pesan terkirim, StarBox mengirim laporan status ke <code>URL Callback (opsional)</code>
-                  (resolver menambahkan <code>/schedule/updatestatusmessage</code> jika path tidak lengkap).
+                  Setelah pesan terkirim, StarBox mengirim laporan status ke
+                  <code>URL Callback (opsional)</code> (resolver menambahkan
+                  <code>/schedule/updatestatusmessage</code> jika path tidak
+                  lengkap).
                 </li>
                 <li>
-                  Monitor menampilkan antrian, log, statistik, dan status kirim secara real-time.
+                  Monitor menampilkan antrian, log, statistik, dan status kirim
+                  secara real-time.
                 </li>
               </ol>
-              <p style="color:#dbeafe; margin-bottom:6px">📌 Format respons API (server → StarBox):</p>
-              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0 0 8px;">{
+              <p style="color: #dbeafe; margin-bottom: 6px">
+                📌 Format respons API (server → StarBox):
+              </p>
+              <pre
+                style="
+                  background: #111b24;
+                  color: #f8fafc;
+                  padding: 10px;
+                  border-radius: 8px;
+                  margin: 0 0 8px;
+                "
+              >
+{
   "data": [
     {
       "id": "msg-id",
@@ -1433,35 +1541,71 @@
       "priority": 0
     }
   ]
-}</pre>
-              <p style="color:#94a3b8; margin:0 0 6px">
+}</pre
+              >
+              <p style="color: #94a3b8; margin: 0 0 6px">
                 Catatan:
                 <br />
-                - <strong>priority</strong> menentukan prioritas (default 0 bila tidak ada).
+                - <strong>priority</strong> menentukan prioritas (default 0 bila
+                tidak ada).
                 <br />
-                - <strong>phone</strong> dapat berupa <code>+62</code> atau <code>628...</code>.
+                - <strong>phone</strong> dapat berupa <code>+62</code> atau
+                <code>628...</code>.
                 <br />
                 - <strong>message</strong> bisa teks, emoji, atau multiline.
               </p>
-              <p style="color:#dbeafe; margin:0 0 6px">📡 Payload yang dikirim StarBox saat fetch:</p>
-              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0 0 8px;">{
+              <p style="color: #dbeafe; margin: 0 0 6px">
+                📡 Payload yang dikirim StarBox saat fetch:
+              </p>
+              <pre
+                style="
+                  background: #111b24;
+                  color: #f8fafc;
+                  padding: 10px;
+                  border-radius: 8px;
+                  margin: 0 0 8px;
+                "
+              >
+{
   "uid": "device-uid",
   "service": "whatsapp",
   "services": "whatsapp"
-}</pre>
-              <p style="color:#dbeafe; margin:0 0 6px">📮 Format callback (StarBox → server):</p>
-              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0 0 8px;">{
-  "status": "success",
-  "message_id": "msg-id",
+}</pre
+              >
+              <p style="color: #dbeafe; margin: 0 0 6px">
+                📮 Format callback (StarBox → server):
+              </p>
+              <pre
+                style="
+                  background: #111b24;
+                  color: #f8fafc;
+                  padding: 10px;
+                  border-radius: 8px;
+                  margin: 0 0 8px;
+                "
+              >
+{
+  "status": "done",
+  "id": "msg-id",
   "error_message": ""
-}</pre>
-              <pre style="background:#111b24;color:#f8fafc;padding:10px;border-radius:8px;margin:0">{
+}</pre
+              >
+              <pre
+                style="
+                  background: #111b24;
+                  color: #f8fafc;
+                  padding: 10px;
+                  border-radius: 8px;
+                  margin: 0;
+                "
+              >
+{
   "status": "failed",
-  "message_id": "msg-id",
+  "id": "msg-id",
   "error_message": "Nomor tidak ditemukan / WA offline"
-}</pre>
+}</pre
+              >
             </div>
-
           </div>
 
           <label style="margin-top: 10px">
@@ -2956,25 +3100,25 @@
           section.style.display = show ? "block" : "none";
         };
 
-        // Auto-set mode to iPad Pro 11" when WhatsApp is selected
+        // Auto-set mode ke desktop saat WhatsApp dicentang
         window.refreshAddModeForWhatsApp = function () {
           const service = document.getElementById("deviceService")?.value || "";
           const modeSelect = document.getElementById("deviceMode");
           if (!modeSelect) return;
           const isWhatsApp = (service || "").toLowerCase() === "wa";
           if (isWhatsApp && !isModeValidForWhatsApp(modeSelect.value)) {
-            modeSelect.value = "tablet-ipad-pro";
+            modeSelect.value = "desktop-mini";
           }
         };
 
-        // Auto-set mode to iPad Pro 11" when WhatsApp is selected in edit modal
+        // Auto-set mode ke desktop saat WhatsApp dicentang di modal edit
         window.refreshEditModeForWhatsApp = function () {
           const service = window.currentEditService || "";
           const modeSelect = document.getElementById("editMode");
           if (!modeSelect) return;
           const isWhatsApp = (service || "").toLowerCase() === "wa";
           if (isWhatsApp && !isModeValidForWhatsApp(modeSelect.value)) {
-            modeSelect.value = "tablet-ipad-pro";
+            modeSelect.value = "desktop-mini";
           }
         };
 
@@ -3007,11 +3151,11 @@
           const isWhatsApp = (service || "").toLowerCase() === "wa";
           if (isWhatsApp && !isModeValidForWhatsApp(this.value)) {
             showToast(
-              'Untuk layanan WhatsApp, mode minimal harus 📘 iPad Pro 11" (834x1194).',
+              "Untuk layanan WhatsApp, mode harus menggunakan mode desktop agar User-Agent tetap Chrome Desktop.",
               3000,
               "warning"
             );
-            this.value = "tablet-ipad-pro";
+            this.value = "desktop-mini";
           }
         });
 
@@ -3022,11 +3166,11 @@
           const isWhatsApp = (service || "").toLowerCase() === "wa";
           if (isWhatsApp && !isModeValidForWhatsApp(this.value)) {
             showToast(
-              'Untuk layanan WhatsApp, mode minimal harus 📘 iPad Pro 11" (834x1194).',
+              "Untuk layanan WhatsApp, mode harus menggunakan mode desktop agar User-Agent tetap Chrome Desktop.",
               3000,
               "warning"
             );
-            this.value = "tablet-ipad-pro";
+            this.value = "desktop-mini";
           }
         });
 
@@ -3088,16 +3232,12 @@
           }
         }
 
-        // Helper function to check if mode is valid for WhatsApp (minimal iPad Pro 11" 834x1194)
+        // Helper function to check if mode is valid for WhatsApp (Chrome Desktop mode)
         function isModeValidForWhatsApp(mode) {
           if (!mode) return false;
           // Mode yang valid untuk WhatsApp: tablet-* atau desktop-*
-          // Minimal: tablet-ipad-pro (834x1194)
+          // Minimal: desktop-mini
           const validModes = [
-            "tablet-ipad-pro",
-            "tablet-ipad-pro-13",
-            "tablet-android",
-            "tablet-samsung",
             "desktop",
             "desktop-mini",
             "desktop-hd",
@@ -3120,19 +3260,19 @@
 
           if (!name || !window.currentEditUID) return;
 
-          // Validasi mode untuk WhatsApp: minimal iPad Pro 11" (834x1194)
+          // Validasi mode untuk WhatsApp: harus desktop agar UA tetap Chrome Desktop
           const isWhatsApp =
             (window.currentEditService || "").toLowerCase() === "wa";
           if (isWhatsApp && !isModeValidForWhatsApp(mode)) {
             showToast(
-              'Untuk layanan WhatsApp, mode minimal harus 📘 iPad Pro 11" (834x1194). Mode di bawah itu tidak bisa dibuka.',
+              "Untuk layanan WhatsApp, mode harus menggunakan mode desktop agar User-Agent tetap Chrome Desktop. Mode lain akan di-reset.",
               5000,
               "warning"
             );
-            // Auto-set ke tablet-ipad-pro jika mode tidak valid
+            // Auto-set ke desktop-mini jika mode tidak valid
             const modeSelect = document.getElementById("editMode");
             if (modeSelect) {
-              modeSelect.value = "tablet-ipad-pro";
+              modeSelect.value = "desktop-mini";
             }
             return;
           }
@@ -4829,7 +4969,9 @@
         if (!panel) return;
         const isExpanded = panel.style.display === "block";
         panel.style.display = isExpanded ? "none" : "block";
-        const btn = document.querySelector(`button[onclick="toggleAutoSenderDocumentation('${docId}')"]`);
+        const btn = document.querySelector(
+          `button[onclick="toggleAutoSenderDocumentation('${docId}')"]`
+        );
         if (btn) {
           btn.textContent = isExpanded
             ? "🔍 Detail Auto Sender"
