@@ -178,6 +178,7 @@
     "@cacheable/node-cache": "^1.7.4",
     "@whiskeysockets/baileys": "^7.0.0-rc.6",
     "adm-zip": "^0.5.16",
+    "cacheable": "^2.2.0",
     "cron-parser": "^4.9.0",
     "electron-store": "^8.1.0",
     "extract-zip": "^2.0.1",

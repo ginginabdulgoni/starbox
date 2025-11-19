@@ -8,7 +8,136 @@ const { WAGatewayStorage } = require("./wa-storage");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const https = require("https");
 const { pathToFileURL } = require("url");
+
+const CHROME_VERSIONS_URL =
+  "https://cdn.jsdelivr.net/gh/berstend/chrome-versions/data/stable/all/version/latest.json";
+const CHROME_VERSION_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 jam
+const PLATFORM_TO_CHROME_KEY = {
+  win32: "windows",
+  darwin: "mac",
+  linux: "linux",
+};
+const DEFAULT_BROWSER_VERSION = "120.0.0";
+
+let chromeVersionCache = {
+  version: DEFAULT_BROWSER_VERSION,
+  updatedAt: 0,
+};
+
+const RANDOM_BROWSER_VARIANTS = [
+  () =>
+    typeof Browsers?.macOS === "function" ? Browsers.macOS("Desktop") : null,
+  () => (process.platform === "darwin" ? ["Safari", "Safari"] : null),
+  () =>
+    typeof Browsers?.windows === "function"
+      ? Browsers.windows("Desktop")
+      : null,
+  () =>
+    typeof Browsers?.linux === "function" ? Browsers.linux("Desktop") : null,
+  () => ["Chrome", "Chrome"],
+  () => ["Firefox", "Firefox"],
+  () => ["Edge", "Edge"],
+];
+
+function parseChromeVersionResponse(buffer) {
+  try {
+    const payload = JSON.parse(buffer.toString());
+    if (!payload || typeof payload !== "object") {
+      throw new Error("Payload Chrome version invalid");
+    }
+    return payload;
+  } catch (err) {
+    throw new Error(`Gagal parse versi Chrome: ${err?.message || err}`);
+  }
+}
+
+async function fetchLatestChromeVersions() {
+  return new Promise((resolve, reject) => {
+    https
+      .get(CHROME_VERSIONS_URL, (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          reject(
+            new Error(
+              `Chrome versions API responded with status ${res.statusCode}`
+            )
+          );
+          return;
+        }
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => {
+          try {
+            const payload = parseChromeVersionResponse(Buffer.concat(chunks));
+            resolve(payload);
+          } catch (err) {
+            reject(err);
+          }
+        });
+      })
+      .on("error", (err) => {
+        reject(err);
+      });
+  });
+}
+
+async function resolveChromeBrowserVersion() {
+  const now = Date.now();
+  if (now - chromeVersionCache.updatedAt < CHROME_VERSION_REFRESH_INTERVAL_MS) {
+    return chromeVersionCache.version;
+  }
+
+  try {
+    const payload = await fetchLatestChromeVersions();
+    const platformKey = PLATFORM_TO_CHROME_KEY[process.platform] || "windows";
+    const entry =
+      payload[platformKey] ||
+      payload.windows ||
+      payload.mac ||
+      payload.linux ||
+      null;
+    const version = entry?.version || DEFAULT_BROWSER_VERSION;
+    chromeVersionCache = { version, updatedAt: now };
+    console.log(
+      `🌐 Menggunakan versi Chrome ${version} (platform ${platformKey})`
+    );
+    return version;
+  } catch (err) {
+    console.warn(
+      "⚠️ Gagal mendapatkan versi Chrome terbaru, gunakan fallback:",
+      err?.message || err
+    );
+    return chromeVersionCache.version || DEFAULT_BROWSER_VERSION;
+  }
+}
+
+function getRandomBrowserDescriptor(chromeVersion) {
+  const variants = [...RANDOM_BROWSER_VARIANTS];
+  for (let i = variants.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [variants[i], variants[j]] = [variants[j], variants[i]];
+  }
+
+  for (const generator of variants) {
+    try {
+      const candidate = generator();
+      if (!candidate) continue;
+      if (Array.isArray(candidate)) {
+        if (candidate.length === 2) {
+          return [...candidate, chromeVersion];
+        }
+        return candidate;
+      }
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+
+  return ["Chrome", "Chrome", chromeVersion];
+}
 
 const WA_AUTO_RECONNECT = process.env.WA_AUTO_RECONNECT !== "false";
 
@@ -31,6 +160,7 @@ let makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  Browsers,
   P,
   QRCode;
 let baileysLoaded = false;
@@ -83,9 +213,7 @@ function getBaileysEntryPath() {
     );
   }
 
-  candidatePaths.push(
-    require.resolve("@whiskeysockets/baileys/lib/index.js")
-  );
+  candidatePaths.push(require.resolve("@whiskeysockets/baileys/lib/index.js"));
 
   const found = candidatePaths.find((candidate) => fs.existsSync(candidate));
   if (!found) {
@@ -108,6 +236,7 @@ async function loadBaileys() {
     useMultiFileAuthState = baileys.useMultiFileAuthState;
     DisconnectReason = baileys.DisconnectReason;
     fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion;
+    Browsers = baileys.Browsers;
 
     // Load QRCode library
     try {
@@ -151,7 +280,9 @@ let storage;
 
 function ensureStorage() {
   if (!storage) {
-    const baseDir = path.dirname(DB_PATH || getElectronApp().getPath("userData"));
+    const baseDir = path.dirname(
+      DB_PATH || getElectronApp().getPath("userData")
+    );
     storage = new WAGatewayStorage(baseDir);
   }
   return storage;
@@ -277,7 +408,9 @@ async function initDatabase() {
   }
   // Log only to console without writing to file
   if (process.env.NODE_ENV === "development") {
-    process.stdout.write(`🗄️ Initializing WhatsApp Gateway storage at: ${DB_PATH}\n`);
+    process.stdout.write(
+      `🗄️ Initializing WhatsApp Gateway storage at: ${DB_PATH}\n`
+    );
   }
   await loadBaileys();
   storage = new WAGatewayStorage(path.dirname(DB_PATH));
@@ -330,9 +463,9 @@ function updateDevice(deviceId, updates) {
 /**
  * Delete device
  */
-function deleteDevice(deviceId) {
+async function deleteDevice(deviceId) {
   if (activeConnections.has(deviceId)) {
-    stopDevice(deviceId);
+    await stopDevice(deviceId);
   }
   const sessionPath = path.join(
     getElectronApp().getPath("userData"),
@@ -413,12 +546,15 @@ async function startDevice(
       };
     }
 
+    const chromeBrowserVersion = await resolveChromeBrowserVersion();
+    const browserDescriptor = getRandomBrowserDescriptor(chromeBrowserVersion);
+
     const sock = makeWASocket({
       version,
       auth: state,
       printQRInTerminal: false,
       logger,
-      browser: ["StarBox WA Gateway", "Chrome", "120.0.0"],
+      browser: browserDescriptor,
       defaultQueryTimeoutMs: undefined,
     });
 
@@ -536,10 +672,17 @@ async function startDevice(
 
     // Message handler
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
+      const [firstMessage] = messages;
+      if (firstMessage) {
+        console.log(
+          `📥 messages.upsert (${type}) from ${firstMessage.key?.remoteJid || "unknown"}:`,
+          JSON.stringify(firstMessage, null, 2)
+        );
+      }
       if (type !== "notify") return;
 
       for (const msg of messages) {
-        if (!msg.message || msg.key.fromMe) continue;
+        if (!msg.message) continue;
 
         const from = msg.key.remoteJid;
         const messageText =
@@ -547,18 +690,20 @@ async function startDevice(
           msg.message.extendedTextMessage?.text ||
           "";
 
-        console.log(`📨 Message from ${from}: ${messageText}`);
+        // Always log to storage
+        logMessage(deviceId, from, messageText, "received", "success", {
+          source: "received",
+        });
 
-        // Log message
-    logMessage(deviceId, from, messageText, "received", "success", {
-      source: "received",
-    });
+        const isFromMe = Boolean(msg.key?.fromMe);
+        if (!isFromMe) {
+          console.log(`📨 Message from ${from}: ${messageText}`);
 
-        // Trigger callback
-        if (onMessage) onMessage(from, messageText, msg);
-
-        // Check auto-reply
-        await handleAutoReply(deviceId, sock, from, messageText);
+          if (onMessage) onMessage(from, messageText, msg);
+          await handleAutoReply(deviceId, sock, from, messageText);
+        } else {
+          if (onMessage) onMessage(from, messageText, msg);
+        }
       }
     });
 
@@ -584,11 +729,10 @@ async function startDevice(
  * Stop WhatsApp connection
  */
 async function stopDevice(deviceId, options = {}) {
+  const { logout = true, cleanup = logout, closeSocket = true } = options;
   const sock = activeConnections.get(deviceId);
   clearQRCodeExpiry(deviceId);
-  autoReconnectBlocked.delete(deviceId);
-
-  const { logout = true, cleanup = logout, closeSocket = true } = options;
+  autoReconnectBlocked.add(deviceId);
 
   if (sock) {
     try {
@@ -623,12 +767,14 @@ async function stopDevice(deviceId, options = {}) {
       }
       console.log(`🛑 Stopped device: ${deviceId}`);
       reconnectAttemptCount.delete(deviceId);
-      autoReconnectBlocked.add(deviceId);
     }
     return { success: true };
   }
 
-  return { success: false, message: "Device not connected" };
+  console.warn(`⚠️ stopDevice called but ${deviceId} had no active socket.`);
+  updateDevice(deviceId, { status: "disconnected", qr_code: null });
+  reconnectAttemptCount.delete(deviceId);
+  return { success: true, message: "Device already disconnected" };
 }
 
 /**
@@ -667,11 +813,11 @@ async function sendMessage(deviceId, phone, message, options = {}) {
     console.log(`✅ Message sent successfully to ${phone}`);
 
     // Log message
-      logMessage(deviceId, phone, message, "sent", "success", {
-        fromMe: true,
-        allowFromMe: true,
-        source: options.source || "manual",
-      });
+    logMessage(deviceId, phone, message, "sent", "success", {
+      fromMe: true,
+      allowFromMe: true,
+      source: options.source || "manual",
+    });
 
     return { success: true };
   } catch (error) {
@@ -785,6 +931,16 @@ async function handleAutoReply(deviceId, sock, from, messageText) {
       continue;
     }
 
+    if (
+      !from?.endsWith("@s.whatsapp.net") &&
+      !from?.endsWith("@g.us")
+    ) {
+      console.log(
+        `⚠️ Skip auto-reply for ${from} because it is not a personal/group JID`
+      );
+      continue;
+    }
+
     const matchType = (rule.match_type || "contains").toLowerCase();
     const matches =
       matchType === "exact"
@@ -798,11 +954,14 @@ async function handleAutoReply(deviceId, sock, from, messageText) {
     console.log(`🤖 Auto-reply triggered for keyword: ${keywordRaw}`);
 
     try {
-      const replyText = rule.reply_message || '';
+      const replyText = rule.reply_message || "";
       const typingSpeed = 120;
       const minDelay = 500;
       const maxDelay = 3200;
-      const baseDelay = Math.min(Math.max(replyText.length * typingSpeed, minDelay), maxDelay);
+      const baseDelay = Math.min(
+        Math.max(replyText.length * typingSpeed, minDelay),
+        maxDelay
+      );
       const jitter = Math.floor(Math.random() * 500);
       const composeDelay = baseDelay + jitter;
 

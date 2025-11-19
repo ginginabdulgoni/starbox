@@ -83,10 +83,15 @@ const GUEST_SERVICE_DEVICE_LIMIT = 2;
 const CHROME_VERSION_STORE_KEY = "latestChromeUserAgentVersion";
 const CHROME_VERSION_UPDATED_AT_KEY =
   "latestChromeUserAgentVersionUpdatedAt";
-const DEFAULT_CHROME_VERSION = "132.0.0.0";
+const DEFAULT_CHROME_VERSION = "142.0.7444.176";
 const CHROME_VERSION_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const CHROME_VERSION_API_URL =
-  "https://omahaproxy.appspot.com/all.json?os=win&channel=stable";
+  "https://cdn.jsdelivr.net/gh/berstend/chrome-versions/data/stable/all/version/latest.json";
+const PLATFORM_TO_CHROME_KEY = {
+  win32: "windows",
+  darwin: "mac",
+  linux: "linux",
+};
 const WHATSAPP_USER_AGENT_PREFIX =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/";
 const WHATSAPP_USER_AGENT_SUFFIX = " Safari/537.36";
@@ -167,14 +172,18 @@ function fetchLatestChromeVersionFromOmaha() {
       });
       res.on("end", () => {
         try {
-          const parsed = JSON.parse(rawData);
-          if (!Array.isArray(parsed)) {
+          const payload = JSON.parse(rawData);
+          if (!payload || typeof payload !== "object") {
             throw new Error("unexpected response shape");
           }
-          const winEntry = parsed.find((entry) => entry.os === "win");
-          const stableVersion =
-            winEntry?.versions?.find((item) => item.channel === "stable")
-              ?.current_version || null;
+          const platformKey = PLATFORM_TO_CHROME_KEY[process.platform] || "windows";
+          const entry =
+            payload[platformKey] ||
+            payload.windows ||
+            payload.mac ||
+            payload.linux ||
+            null;
+          const stableVersion = entry?.version || null;
           resolve(stableVersion);
         } catch (err) {
           reject(err);
@@ -2948,6 +2957,8 @@ function createDeviceWindow(uid, service, options = {}) {
   let width = 1000;
   let height = 700;
   let userAgent = "";
+  const getDesktopChromeUserAgent = () =>
+    buildWhatsAppUserAgent(cachedChromeVersion || DEFAULT_CHROME_VERSION);
 
   switch (mode) {
     // Mobile Phones
@@ -3049,83 +3060,70 @@ function createDeviceWindow(uid, service, options = {}) {
     case "desktop":
       width = 1000;
       height = 700;
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      userAgent = getDesktopChromeUserAgent();
       break;
     case "desktop-mini":
       width = 800;
       height = 600;
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      userAgent = getDesktopChromeUserAgent();
       break;
     case "desktop-hd":
       width = 1366;
       height = 768;
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      userAgent = getDesktopChromeUserAgent();
       break;
     case "desktop-full-hd":
       width = 1920;
       height = 1080;
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      userAgent = getDesktopChromeUserAgent();
       break;
     case "desktop-2k":
       width = 2560;
       height = 1440;
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      userAgent = getDesktopChromeUserAgent();
       break;
     case "desktop-wide":
       width = 1280;
       height = 800;
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      userAgent = getDesktopChromeUserAgent();
       break;
     case "desktop-ultrawide":
       width = 2560;
       height = 1080;
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      userAgent = getDesktopChromeUserAgent();
       break;
     case "desktop-4k":
       width = 3840;
       height = 2160;
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      userAgent = getDesktopChromeUserAgent();
       break;
 
     // Special Modes
     case "compact":
       width = 600;
       height = 400;
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      userAgent = getDesktopChromeUserAgent();
       break;
     case "square":
       width = 700;
       height = 700;
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      userAgent = getDesktopChromeUserAgent();
       break;
     case "portrait":
       width = 600;
       height = 900;
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      userAgent = getDesktopChromeUserAgent();
       break;
     case "landscape":
       width = 900;
       height = 600;
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      userAgent = getDesktopChromeUserAgent();
       break;
 
     default:
       width = 1000;
       height = 700;
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
+      userAgent = getDesktopChromeUserAgent();
       break;
   }
 
@@ -4580,7 +4578,7 @@ ipcMain.handle("wa-stop-device", async (_event, deviceId, options = {}) => {
 ipcMain.handle("wa-delete-device", async (_event, deviceId) => {
   try {
     const device = BaileysManager.getDevice(deviceId);
-    const result = BaileysManager.deleteDevice(deviceId);
+    const result = await BaileysManager.deleteDevice(deviceId);
     if (result.success) {
       sendSystemInfoReport({
         eventType: "wa-gateway-device-removed",
@@ -5075,6 +5073,11 @@ async function attemptSilentReconnect(device) {
     console.log(
       `🔁 Silent reconnect triggered for ${device.name} (${device.id})`
     );
+    await BaileysManager.stopDevice(device.id, {
+      logout: false,
+      cleanup: false,
+      closeSocket: true,
+    });
     await BaileysManager.startDevice(
       device.id,
       undefined,
@@ -5125,6 +5128,7 @@ async function checkConnectedDevicesHealth() {
         console.log(
           `⚠️ Device ${device.name} (${device.id}) is marked connected but offline.`
         );
+        BaileysManager.updateDevice(device.id, { status: "disconnected" });
         await attemptSilentReconnect(device);
         continue;
       }
@@ -5314,6 +5318,12 @@ args.forEach((arg) => {
 app.whenReady().then(async () => {
   // Initialize logging first
   initializeLogging();
+  resolveLatestChromeVersion().catch((err) => {
+    console.warn(
+      "⚠️ Gagal memperbarui versi Chrome untuk user-agent:",
+      err?.message || err
+    );
+  });
 
   // Initialize WhatsApp Gateway database
   try {
