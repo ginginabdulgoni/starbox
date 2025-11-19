@@ -2086,6 +2086,51 @@ function resolveWindowMetrics(mode = "desktop") {
   return metrics;
 }
 
+function createTimeoutSignal(ms = 1500) {
+  if (
+    typeof AbortSignal !== "undefined" &&
+    typeof AbortSignal.timeout === "function"
+  ) {
+    try {
+      return AbortSignal.timeout(ms);
+    } catch {
+      // fallback below
+    }
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  if (typeof timer?.unref === "function") {
+    timer.unref();
+  }
+  return controller.signal;
+}
+
+function isChromeBlankTarget(target = {}) {
+  if (!target) return false;
+  const url = String(target.url || "").trim();
+  const title = String(target.title || "").trim();
+  if (!url) return true;
+  if (CHROME_BLANK_TITLE_SET.has(title)) return true;
+  if (url.startsWith("devtools://")) return false;
+  return CHROME_BLANK_TARGET_PATTERNS.some((regex) => regex.test(url));
+}
+
+async function closeChromeTarget(debugPort, targetId) {
+  if (!debugPort || !targetId) return;
+  try {
+    await fetch(`http://127.0.0.1:${debugPort}/json/close/${targetId}`, {
+      method: "GET",
+      signal: createTimeoutSignal(1500),
+    });
+    console.log(`🧹 Menutup tab tambahan Chrome (targetId: ${targetId}).`);
+  } catch (err) {
+    console.warn(
+      `⚠️ Gagal menutup target Chrome ${targetId}:`,
+      err?.message || err
+    );
+  }
+}
+
 function stopChromeTargetMonitor(uid) {
   const session = chromeSessions[uid];
   if (!session) return;
@@ -2107,7 +2152,7 @@ function startChromeTargetMonitor(uid, debugPort) {
     try {
       const response = await fetch(`http://127.0.0.1:${debugPort}/json/list`, {
         cache: "no-store",
-        signal: AbortSignal.timeout(1500),
+        signal: createTimeoutSignal(1500),
       });
       if (!response.ok) {
         return;
@@ -2116,22 +2161,29 @@ function startChromeTargetMonitor(uid, debugPort) {
       if (!Array.isArray(targets)) {
         return;
       }
-      const hasVisiblePage = targets.some((target) => {
+      const blankTargets = [];
+      let hasVisiblePage = false;
+      targets.forEach((target) => {
         if (
           target.type !== "page" &&
           target.type !== "app" &&
           target.type !== "tab"
         ) {
-          return false;
+          return;
         }
-        if (!target.url) {
-          return false;
+        if (isChromeBlankTarget(target)) {
+          blankTargets.push(target);
+          return;
         }
-        if (target.url.startsWith("devtools://")) {
-          return false;
+        if (target.url && !target.url.startsWith("devtools://")) {
+          hasVisiblePage = true;
         }
-        return true;
       });
+      if (blankTargets.length) {
+        blankTargets.forEach((target) => {
+          closeChromeTarget(debugPort, target.id).catch(() => {});
+        });
+      }
       if (!hasVisiblePage) {
         stopChromeNativeSession(uid);
       }
@@ -2191,8 +2243,7 @@ function resolveChromeExecutablePath() {
   if (override) {
     return override;
   }
-  const candidates =
-    CHROME_EXECUTABLE_CANDIDATES[process.platform] || [];
+  const candidates = CHROME_EXECUTABLE_CANDIDATES[process.platform] || [];
   for (const candidate of candidates) {
     if (candidate && fs.existsSync(candidate)) {
       return candidate;
@@ -2202,8 +2253,18 @@ function resolveChromeExecutablePath() {
 }
 
 function getChromeProfilesRoot() {
-  if (!userDataPath) return null;
-  return path.join(userDataPath, CHROME_PROFILE_DIR_NAME);
+  const envRoot = process.env.STARBOX_CHROME_PROFILE_ROOT;
+  if (envRoot && String(envRoot).trim()) {
+    return path.resolve(envRoot);
+  }
+  const homeDir = typeof os.homedir === "function" ? os.homedir() : null;
+  if (homeDir) {
+    return path.join(homeDir, "starbox", "chrome-sessions");
+  }
+  if (userDataPath) {
+    return path.join(userDataPath, CHROME_PROFILE_DIR_NAME);
+  }
+  return null;
 }
 
 function sanitizeChromeProfileId(uid = "") {
@@ -2304,20 +2365,42 @@ function launchChromeNativeSession(uid, device = {}) {
 
   const metrics = resolveWindowMetrics(device.mode);
   const debugPort = getChromeDebugPort(uid);
+  const profileSlug = sanitizeChromeProfileId(uid);
+  const chromeClassName = `starbox-chrome-${profileSlug}`;
+  const chromeAppId = `com.starbox.chrome.${profileSlug}`;
   const args = [
     `--user-data-dir=${profileDir}`,
+    "--profile-directory=Default",
+    `--class=${chromeClassName}`,
+    `--app-id=${chromeAppId}`,
+    `--app=${targetUrl}`,
     "--no-default-browser-check",
     "--no-first-run",
-    "--disable-background-networking",
     "--disable-sync",
+    "--disable-default-apps",
+    "--disable-background-networking",
+    "--disable-background-mode",
+    "--disable-component-extensions-with-background-pages",
     "--disable-infobars",
     "--disable-session-crashed-bubble",
-    "--ash-hide-titlebar",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-popup-blocking",
+    "--disable-renderer-backgrounding",
+    "--disable-features=EnableEphemeralGuestProfiles",
+    "--force-device-scale-factor=1",
+    "--disable-features=OptimizationGuideModelDownloading",
+    "--disable-features=TabHoverCardImages",
+    "--disable-features=ChromeWhatsNewUI",
+    "--disable-features=ChromeWhatsNewUIForOSUpdate",
+    "--disable-features=ChromeLabs",
+    "--disable-new-tab-tiling",
+    "--disable-features=chrome://flags/#passwords-account-storage",
+    "--disable-features=AutofillServerCommunication",
     "--silent-launch",
+    "--overscroll-history-navigation=0",
     `--remote-debugging-port=${debugPort}`,
     `--window-size=${metrics.width},${metrics.height}`,
-    "--window-position=150,120",
-    `--app=${targetUrl}`,
+    "--window-position=-32000,-32000",
   ];
 
   const child = spawn(chromePath, args, {
@@ -2328,8 +2411,7 @@ function launchChromeNativeSession(uid, device = {}) {
   chromeSessions[uid] = { process: child, pid: child.pid, debugPort };
   startChromeTargetMonitor(uid, debugPort);
 
-  const cleanup = () =>
-    cleanupChromeNativeSession(uid, { updateStatus: true });
+  const cleanup = () => cleanupChromeNativeSession(uid, { updateStatus: true });
   child.once("exit", cleanup);
   child.once("error", (err) => {
     console.error(
@@ -4262,14 +4344,9 @@ function startDevice(uid, service) {
 }
 
 ipcMain.on("stop-device", (event, uid) => {
-  const win = deviceWindows[uid];
-  if (win) {
-    console.log(`🔌 Stopping device ${uid} by closing its window.`);
-    win.close(); // Ini akan memicu event 'close' dan 'closed'
-  } else {
-    console.warn(`⚠️ Attempted to stop device ${uid} but no window was found.`);
-    updateDeviceStatus(uid, "stopped"); // Failsafe
-  }
+  stopDevice(uid).catch((err) => {
+    console.error(`❌ stopDevice gagal untuk ${uid}:`, err?.message || err);
+  });
 });
 
 ipcMain.on("focus-device", (event, uid) => {
@@ -5906,3 +5983,24 @@ app.on("activate", () => {
     createMainWindow();
   }
 });
+const CHROME_BLANK_TARGET_PATTERNS = [
+  new RegExp("^chrome://new-tab-page", "i"),
+  new RegExp("^chrome://newtab", "i"),
+  new RegExp("^chrome://startpage", "i"),
+  new RegExp("^chrome-search://local-ntp", "i"),
+  new RegExp("^chrome://welcome", "i"),
+  new RegExp("^chrome://apps", "i"),
+  new RegExp("^chrome://new-tab-page-3", "i"),
+  new RegExp("^https://www\\.google\\.com/_", "i"),
+  new RegExp("^https://www\\.google\\.com/chrome/newtab", "i"),
+  new RegExp("^https://www\\.google\\.com/_/chrome/newtab", "i"),
+  new RegExp("^https://www\\.google\\.com/_/chrome/signin", "i"),
+];
+const CHROME_BLANK_TITLE_SET = new Set([
+  "New Tab",
+  "New tab",
+  "Tab baru",
+  "Tab Baru",
+  "Blank Tab",
+  "New page",
+]);
