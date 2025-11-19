@@ -3984,6 +3984,14 @@ async function renderDevices(devices) {
           device.callbackUrl ?? ""
         );
       }
+      if (typeof window.setEditChromeNativeState === "function") {
+        window.setEditChromeNativeState(!!device.useChromeNative);
+      } else {
+        const chromeCheckbox = document.getElementById("editUseChromeNative");
+        if (chromeCheckbox) {
+          chromeCheckbox.checked = !!device.useChromeNative;
+        }
+      }
       const editCustomInput = document.getElementById("editCustomServiceUrl");
       if (editCustomInput) {
         editCustomInput.value = device.customUrl || "";
@@ -4879,7 +4887,8 @@ async function submitDevice() {
   const pendingUrlInput = document.getElementById("devicePendingUrl");
   const customUrlInput = document.getElementById("customServiceUrl");
   const isWhatsApp = (service || "").toLowerCase() === "wa";
-  const autoSenderEnabled = isWhatsApp && autoSenderCheckbox?.checked;
+  const autoSenderRequested = isWhatsApp && autoSenderCheckbox?.checked;
+  const autoSenderEnabled = autoSenderRequested && !useChromeNative;
   const pendingUrl = autoSenderEnabled
     ? (pendingUrlInput?.value || "").trim()
     : "";
@@ -4889,6 +4898,9 @@ async function submitDevice() {
   const callbackUrl = autoSenderEnabled
     ? (callbackInput?.value || "").trim()
     : "";
+  const chromeNativeCheckbox = document.getElementById("deviceUseChromeNative");
+  const useChromeNative =
+    service !== "android" && !!(chromeNativeCheckbox && chromeNativeCheckbox.checked);
   const androidSpecSelect = document.getElementById("androidSpecPreset");
   const selectedAndroidSpecId =
     service === "android"
@@ -4949,6 +4961,7 @@ async function submitDevice() {
       pendingUrl,
       callbackUrl,
       customUrl,
+      useChromeNative,
       androidSpec,
     });
     if (result.success) {
@@ -5008,12 +5021,16 @@ window.addEventListener("DOMContentLoaded", () => {
     loadSystemInfoBadge();
   });
   if (typeof refreshAddAutoSenderUI === "function") refreshAddAutoSenderUI();
+  if (typeof refreshAddChromeNativeUI === "function") refreshAddChromeNativeUI();
   const serviceSelect = document.getElementById("deviceService");
   if (serviceSelect) {
     serviceSelect.addEventListener("change", () => {
       updateAddDeviceQuotaHint();
       if (typeof refreshAddAutoSenderUI === "function") {
         refreshAddAutoSenderUI();
+      }
+      if (typeof refreshAddChromeNativeUI === "function") {
+        refreshAddChromeNativeUI();
       }
       toggleCustomServiceSection(serviceSelect.value === "other");
       renderServiceBrowserGrid();

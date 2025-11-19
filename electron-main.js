@@ -7,6 +7,7 @@ const screen = electron.screen;
 const clipboard = electron.clipboard;
 const net = electron.net;
 const https = require("https");
+const { spawn } = require("child_process");
 
 const Store = require("electron-store");
 const { v4: uuidv4 } = require("uuid");
@@ -19,7 +20,11 @@ const { machineIdSync } = require("node-machine-id");
 
 const isPackaged = app.isPackaged;
 if (isPackaged) {
-  const unpacked = path.join(process.resourcesPath, "app.asar.unpacked", "node_modules");
+  const unpacked = path.join(
+    process.resourcesPath,
+    "app.asar.unpacked",
+    "node_modules"
+  );
   const packed = path.join(process.resourcesPath, "node_modules");
   Module.globalPaths.push(unpacked);
   Module.globalPaths.push(packed);
@@ -45,7 +50,11 @@ if (isPackaged) {
     }
   };
 } else {
-  const unpacked = path.join(process.resourcesPath, "app.asar.unpacked", "node_modules");
+  const unpacked = path.join(
+    process.resourcesPath,
+    "app.asar.unpacked",
+    "node_modules"
+  );
   const packed = path.join(process.resourcesPath, "node_modules");
   Module.globalPaths.push(unpacked);
   Module.globalPaths.push(packed);
@@ -81,8 +90,7 @@ const AUTH_BASE_URL =
 const AUTH_SESSION_STORE_KEY = "authSession";
 const GUEST_SERVICE_DEVICE_LIMIT = 2;
 const CHROME_VERSION_STORE_KEY = "latestChromeUserAgentVersion";
-const CHROME_VERSION_UPDATED_AT_KEY =
-  "latestChromeUserAgentVersionUpdatedAt";
+const CHROME_VERSION_UPDATED_AT_KEY = "latestChromeUserAgentVersionUpdatedAt";
 const DEFAULT_CHROME_VERSION = "142.0.7444.176";
 const CHROME_VERSION_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const CHROME_VERSION_API_URL =
@@ -152,7 +160,10 @@ function loadCachedChromeVersion() {
       cachedChromeVersionUpdatedAt = storedAt;
     }
   } catch (err) {
-    console.warn("⚠️ Gagal baca versi Chrome (UA) dari store:", err?.message || err);
+    console.warn(
+      "⚠️ Gagal baca versi Chrome (UA) dari store:",
+      err?.message || err
+    );
   }
 }
 
@@ -176,7 +187,8 @@ function fetchLatestChromeVersionFromOmaha() {
           if (!payload || typeof payload !== "object") {
             throw new Error("unexpected response shape");
           }
-          const platformKey = PLATFORM_TO_CHROME_KEY[process.platform] || "windows";
+          const platformKey =
+            PLATFORM_TO_CHROME_KEY[process.platform] || "windows";
           const entry =
             payload[platformKey] ||
             payload.windows ||
@@ -218,7 +230,10 @@ async function resolveLatestChromeVersion(forceRefresh = false) {
       if (version) {
         cachedChromeVersion = version;
         cachedChromeVersionUpdatedAt = Date.now();
-        persistChromeVersionData(cachedChromeVersion, cachedChromeVersionUpdatedAt);
+        persistChromeVersionData(
+          cachedChromeVersion,
+          cachedChromeVersionUpdatedAt
+        );
         return cachedChromeVersion;
       }
       return cachedChromeVersion;
@@ -1370,7 +1385,9 @@ function requestJson(options = {}) {
         }
 
         const error = new Error(
-          `Request gagal (${statusCode}): ${response.statusMessage || "Unknown"}`
+          `Request gagal (${statusCode}): ${
+            response.statusMessage || "Unknown"
+          }`
         );
         error.status = statusCode;
         error.response = rawBody;
@@ -1928,6 +1945,167 @@ const MONITOR_DIMENSIONS = Object.freeze({
   headerHeight: 80,
   screenGap: 16,
 });
+
+const chromeSessions = {};
+const CHROME_PROFILE_DIR_NAME = "chrome-profiles";
+const CHROME_EXECUTABLE_CANDIDATES = {
+  win32: [
+    path.join(
+      "C:",
+      "Program Files",
+      "Google",
+      "Chrome",
+      "Application",
+      "chrome.exe"
+    ),
+    path.join(
+      "C:",
+      "Program Files (x86)",
+      "Google",
+      "Chrome",
+      "Application",
+      "chrome.exe"
+    ),
+  ],
+  darwin: ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"],
+  linux: [
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+  ],
+};
+
+function resolveChromeExecutablePath() {
+  const override =
+    process.env.STARBOX_CHROME_PATH ||
+    process.env.CHROME_PATH ||
+    process.env.CHROME_BIN;
+  if (override) {
+    return override;
+  }
+  const candidates =
+    CHROME_EXECUTABLE_CANDIDATES[process.platform] || [];
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function getChromeProfilesRoot() {
+  if (!userDataPath) return null;
+  return path.join(userDataPath, CHROME_PROFILE_DIR_NAME);
+}
+
+function sanitizeChromeProfileId(uid = "") {
+  return (uid || "profile")
+    .toString()
+    .replace(/[^a-zA-Z0-9_-]/g, "_")
+    .slice(0, 64);
+}
+
+function makeChromeProfileDir(uid = "") {
+  const root = getChromeProfilesRoot();
+  if (!root) return null;
+  const profileName = sanitizeChromeProfileId(uid);
+  const profileDir = path.join(root, profileName);
+  try {
+    fs.mkdirSync(profileDir, { recursive: true });
+  } catch (err) {
+    console.warn(
+      `⚠️ Gagal membuat direktori profil Chrome (${profileDir}):`,
+      err?.message || err
+    );
+    return null;
+  }
+  return profileDir;
+}
+
+function resolveChromeNativeTargetUrl(device = {}) {
+  const serviceKey = (device.service || "").toLowerCase();
+  if (serviceKey === "other") {
+    const custom = sanitizeCustomUrl(device.customUrl || "");
+    if (custom) return custom;
+  }
+  const selected = services[serviceKey] || services.wa;
+  return selected?.url || null;
+}
+
+function cleanupChromeNativeSession(uid, options = {}) {
+  if (!uid) return;
+  if (chromeSessions[uid]) {
+    delete chromeSessions[uid];
+  }
+  if (options.updateStatus) {
+    updateDeviceStatus(uid, "stopped");
+  }
+}
+
+function stopChromeNativeSession(uid) {
+  const session = chromeSessions[uid];
+  if (!session) return false;
+  try {
+    session.kill();
+  } catch (err) {
+    console.warn(
+      `⚠️ Gagal menghentikan sesi Chrome native (${uid}):`,
+      err?.message || err
+    );
+  }
+  cleanupChromeNativeSession(uid);
+  return true;
+}
+
+function launchChromeNativeSession(uid, device = {}) {
+  const chromePath = resolveChromeExecutablePath();
+  if (!chromePath) {
+    throw new Error(
+      "Chrome asli tidak ditemukan. Silakan set STARBOX_CHROME_PATH jika perlu."
+    );
+  }
+  const profileDir = makeChromeProfileDir(uid);
+  if (!profileDir) {
+    throw new Error("Tidak dapat membuat folder profil Chrome.");
+  }
+  const targetUrl = resolveChromeNativeTargetUrl(device);
+  if (!targetUrl) {
+    throw new Error("Tidak ada URL valid untuk Chrome native.");
+  }
+  stopChromeNativeSession(uid);
+
+  const args = [
+    `--user-data-dir=${profileDir}`,
+    "--no-default-browser-check",
+    "--no-first-run",
+    "--disable-background-networking",
+    "--disable-default-apps",
+    "--disable-component-update",
+    "--disable-sync",
+    targetUrl,
+  ];
+
+  const child = spawn(chromePath, args, {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+  chromeSessions[uid] = child;
+
+  const cleanup = () =>
+    cleanupChromeNativeSession(uid, { updateStatus: true });
+  child.once("exit", cleanup);
+  child.once("error", (err) => {
+    console.error(
+      `⚠️ Chrome native (${uid}) mengalami error:`,
+      err?.message || err
+    );
+    cleanup();
+  });
+
+  return child;
+}
 
 function calculateMonitorPositionFromParent(parentBounds, width, height) {
   if (!parentBounds) return { x: undefined, y: undefined };
@@ -3511,8 +3689,16 @@ function sendAndroidProgress(sender, channel, uid, payload = {}) {
 
 // IPC Handlers
 ipcMain.handle("add-device", (event, payload = {}) => {
-  const { name, service, autoRun, mode, autoSender, pendingUrl, customUrl } =
-    payload;
+  const {
+    name,
+    service,
+    autoRun,
+    mode,
+    autoSender,
+    pendingUrl,
+    customUrl,
+    useChromeNative,
+  } = payload;
 
   const dbDir = path.dirname(DB_PATH);
   if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
@@ -3607,6 +3793,8 @@ ipcMain.handle("add-device", (event, payload = {}) => {
     serviceKey === "android"
       ? normalizeAndroidSpecInput(payload.androidSpec)
       : null;
+  const normalizedUseChromeNative =
+    serviceKey !== "android" && !!useChromeNative;
 
   const newDevice = {
     uid: uuidv4(),
@@ -3620,6 +3808,7 @@ ipcMain.handle("add-device", (event, payload = {}) => {
     autoSender: enableAutoSender,
     pendingUrl: normalizedPendingUrl,
     customUrl: normalizedCustomUrl,
+    useChromeNative: normalizedUseChromeNative,
     callbackUrl: enableAutoSender
       ? sanitizePendingUrl(payload.callbackUrl || "")
       : "",
@@ -3706,6 +3895,8 @@ ipcMain.handle("edit-device", (event, payload = {}) => {
       } else if (device.customUrl) {
         device.customUrl = "";
       }
+      device.useChromeNative =
+        serviceKey !== "android" && !!payload.useChromeNative;
 
       fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
       sendSystemInfoReport({
@@ -3736,6 +3927,16 @@ ipcMain.on("run-device", async (event, uid, service) => {
 
 function stopDevice(uid) {
   return new Promise((resolve) => {
+    const chromeSession = chromeSessions[uid];
+    if (chromeSession) {
+      console.log(`🛑 Menutup Chrome native untuk device ${uid}`);
+      stopChromeNativeSession(uid);
+      updateDeviceStatus(uid, "stopped");
+      delete deviceWindows[uid];
+      resolve();
+      return;
+    }
+
     const win = deviceWindows[uid];
 
     if (!win || win.isDestroyed()) {
@@ -3775,6 +3976,24 @@ function startDevice(uid, service) {
     console.log(`⌛ App belum siap. Menunggu untuk menjalankan device ${uid}.`);
     app.whenReady().then(() => startDevice(uid, service));
     return;
+  }
+
+  const deviceConfig = getDeviceConfig(uid) || {};
+  const serviceKey = (deviceConfig.service || service || "").toLowerCase();
+  const useChromeNative =
+    !!deviceConfig.useChromeNative && serviceKey !== "android";
+  if (useChromeNative) {
+    console.log(`🚀 Menjalankan device ${uid} menggunakan Chrome native.`);
+    try {
+      launchChromeNativeSession(uid, { ...deviceConfig, service: serviceKey });
+      updateDeviceStatus(uid, "active");
+      delete deviceWindows[uid];
+      return;
+    } catch (err) {
+      console.error(`❌ Gagal membuka Chrome native untuk ${uid}:`, err);
+      updateDeviceStatus(uid, "stopped");
+      throw err;
+    }
   }
 
   const existingWindow = deviceWindows[uid];
@@ -4038,6 +4257,10 @@ ipcMain.handle("load-devices", () => {
     }
     if (!("callbackUrl" in device)) {
       device.callbackUrl = "";
+      modifiedAny = true;
+    }
+    if (!("useChromeNative" in device)) {
+      device.useChromeNative = false;
       modifiedAny = true;
     }
     if ((device.service || "").toLowerCase() === "android" && !device.avdName) {
@@ -4881,7 +5104,7 @@ ipcMain.handle("auto-install-deps", async (event) => {
     if (!fs.existsSync(path.join(appPath, "package.json"))) {
       throw new Error(
         `package.json tidak ditemukan di ${appPath}. ` +
-        `Silakan gunakan opsi manual install.`
+          `Silakan gunakan opsi manual install.`
       );
     }
 
@@ -4903,9 +5126,10 @@ ipcMain.handle("auto-install-deps", async (event) => {
 
     // Run npm install using exec (more reliable on Windows)
     return new Promise((resolve, reject) => {
-      const command = process.platform === "win32"
-        ? `cd /d "${appPath}" && npm install`
-        : `cd "${appPath}" && npm install`;
+      const command =
+        process.platform === "win32"
+          ? `cd /d "${appPath}" && npm install`
+          : `cd "${appPath}" && npm install`;
 
       console.log("🔧 Running command:", command);
 
@@ -4935,7 +5159,9 @@ ipcMain.handle("auto-install-deps", async (event) => {
         } else {
           console.error("❌ npm install failed with code:", code);
           reject(
-            new Error(`npm install gagal (exit code ${code}). Output: ${output}`)
+            new Error(
+              `npm install gagal (exit code ${code}). Output: ${output}`
+            )
           );
         }
       });
@@ -5307,6 +5533,10 @@ app.on("will-quit", () => {
     clearInterval(waScheduleInterval);
     waScheduleInterval = null;
   }
+
+  Object.keys(chromeSessions).forEach((uid) => {
+    stopChromeNativeSession(uid);
+  });
 });
 
 args.forEach((arg) => {

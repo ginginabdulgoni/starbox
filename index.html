@@ -902,6 +902,21 @@
           </p>
 
           <div
+            id="deviceChromeNativeSection"
+            class="chrome-native-section"
+            style="display: none; margin-top: 0.75rem"
+          >
+            <label class="auto-sender-toggle">
+              <input type="checkbox" id="deviceUseChromeNative" />
+              <span>Gunakan Chrome asli (profil terpisah)</span>
+            </label>
+            <p class="small-text" style="margin: 4px 0 0">
+              Setiap device membuka Chrome dengan user data dir unik agar login Google
+              tetap aman.
+            </p>
+          </div>
+
+          <div
             id="deviceAutoSenderSection"
             class="auto-sender-section"
             style="display: none"
@@ -1408,6 +1423,20 @@
               <option value="landscape">🖼️ Landscape (900x600)</option>
             </optgroup>
           </select>
+
+          <div
+            id="editChromeNativeSection"
+            class="chrome-native-section"
+            style="display: none; margin-top: 0.75rem"
+          >
+            <label class="auto-sender-toggle">
+              <input type="checkbox" id="editUseChromeNative" />
+              <span>Gunakan Chrome asli (profil terpisah)</span>
+            </label>
+            <p class="small-text" style="margin: 4px 0 0">
+              Tab akan dibuka di Chrome asli dengan user data dir per device.
+            </p>
+          </div>
 
           <div
             id="editCustomServiceSection"
@@ -2245,6 +2274,8 @@
               if (autoRunEl) autoRunEl.checked = false;
               if (autoSenderEl) autoSenderEl.checked = false;
               if (pendingEl) pendingEl.value = "";
+              const chromeNativeEl = document.getElementById("deviceUseChromeNative");
+              if (chromeNativeEl) chromeNativeEl.checked = false;
               window.refreshAddAutoSenderUI();
             }
           };
@@ -2306,6 +2337,8 @@
             serviceSelect.value = "wa";
             serviceSelect.dispatchEvent(new Event("change", { bubbles: true }));
           }
+          const chromeNativeEl = document.getElementById("deviceUseChromeNative");
+          if (chromeNativeEl) chromeNativeEl.checked = false;
         }
 
         function openAbout() {
@@ -3040,7 +3073,18 @@
           const callbackInput = document.getElementById("deviceCallbackUrl");
           const doc = document.getElementById("autoSenderDoc");
           const allowed = window.canUseAutoSender(service);
+          const chromeNativeEnabled = document.getElementById(
+            "deviceUseChromeNative"
+          )?.checked;
           if (!section) return;
+          if (chromeNativeEnabled) {
+            section.style.display = "none";
+            if (checkbox) checkbox.checked = false;
+            if (options) options.style.display = "none";
+            if (callbackInput) callbackInput.value = "";
+            if (doc) doc.style.display = "none";
+            return;
+          }
           section.style.display = allowed ? "block" : "none";
           if (!allowed) {
             if (checkbox) checkbox.checked = false;
@@ -3062,6 +3106,17 @@
           const callbackInput = document.getElementById("editCallbackUrl");
           const doc = document.getElementById("editAutoSenderDoc");
           const allowed = window.canUseAutoSender(window.currentEditService);
+          const chromeNativeEnabled = document.getElementById(
+            "editUseChromeNative"
+          )?.checked;
+          if (chromeNativeEnabled) {
+            section.style.display = "none";
+            if (checkbox) checkbox.checked = false;
+            if (options) options.style.display = "none";
+            if (callbackInput) callbackInput.value = "";
+            if (doc) doc.style.display = "none";
+            return;
+          }
           section.style.display = allowed ? "block" : "none";
           if (!allowed) {
             if (checkbox) checkbox.checked = false;
@@ -3100,6 +3155,71 @@
           section.style.display = show ? "block" : "none";
         };
 
+        window.refreshAddChromeNativeUI = function () {
+          const section = document.getElementById("deviceChromeNativeSection");
+          if (!section) return;
+          const service = (
+            document.getElementById("deviceService")?.value || ""
+          ).toLowerCase();
+          const allowed = service && service !== "android";
+          section.style.display = allowed ? "block" : "none";
+          if (!allowed) {
+            const checkbox = document.getElementById("deviceUseChromeNative");
+            if (checkbox) checkbox.checked = false;
+          }
+        };
+
+        window.refreshEditChromeNativeUI = function () {
+          const section = document.getElementById("editChromeNativeSection");
+          if (!section) return;
+          const allowed =
+            (window.currentEditService || "").toLowerCase() !== "android";
+          section.style.display = allowed ? "block" : "none";
+          if (!allowed) {
+            const checkbox = document.getElementById("editUseChromeNative");
+            if (checkbox) checkbox.checked = false;
+          }
+        };
+
+        window.setEditChromeNativeState = function (enabled) {
+          const checkbox = document.getElementById("editUseChromeNative");
+          if (checkbox) checkbox.checked = !!enabled;
+          window.refreshEditChromeNativeUI();
+        };
+
+        (function () {
+          const addCheckbox = document.getElementById("deviceUseChromeNative");
+          if (addCheckbox) {
+            addCheckbox.addEventListener("change", () => {
+              if (addCheckbox.checked) {
+                const autoSender = document.getElementById("deviceAutoSender");
+                if (autoSender) autoSender.checked = false;
+              }
+              if (typeof refreshAddAutoSenderUI === "function") {
+                refreshAddAutoSenderUI();
+              }
+              if (typeof refreshAddChromeNativeUI === "function") {
+                refreshAddChromeNativeUI();
+              }
+            });
+          }
+          const editCheckbox = document.getElementById("editUseChromeNative");
+          if (editCheckbox) {
+            editCheckbox.addEventListener("change", () => {
+              if (editCheckbox.checked) {
+                const autoSender = document.getElementById("editAutoSender");
+                if (autoSender) autoSender.checked = false;
+              }
+              if (typeof refreshEditAutoSenderUI === "function") {
+                refreshEditAutoSenderUI();
+              }
+              if (typeof refreshEditChromeNativeUI === "function") {
+                refreshEditChromeNativeUI();
+              }
+            });
+          }
+        })();
+
         // Auto-set mode ke desktop saat WhatsApp dicentang
         window.refreshAddModeForWhatsApp = function () {
           const service = document.getElementById("deviceService")?.value || "";
@@ -3134,6 +3254,10 @@
         addServiceEl?.addEventListener(
           "change",
           window.refreshAddModeForWhatsApp
+        );
+        addServiceEl?.addEventListener(
+          "change",
+          window.refreshAddChromeNativeUI
         );
         addAutoSenderEl?.addEventListener(
           "change",
@@ -3179,6 +3303,12 @@
         window.refreshEditAutoSenderUI();
         window.refreshEditCustomServiceUI();
         window.refreshEditAndroidSpecUI();
+        if (typeof window.refreshAddChromeNativeUI === "function") {
+          window.refreshAddChromeNativeUI();
+        }
+        if (typeof window.refreshEditChromeNativeUI === "function") {
+          window.refreshEditChromeNativeUI();
+        }
 
         function openEditModal() {
           const modal = document.getElementById("editModal");
@@ -3194,6 +3324,9 @@
           }
           if (typeof window.refreshEditModeForWhatsApp === "function") {
             window.refreshEditModeForWhatsApp();
+          }
+          if (typeof window.refreshEditChromeNativeUI === "function") {
+            window.refreshEditChromeNativeUI();
           }
           setTimeout(() => {
             const nameInput = document.getElementById("editDeviceName");
@@ -3224,11 +3357,16 @@
               );
             }
           }
+          const chromeNativeEditEl = document.getElementById("editUseChromeNative");
+          if (chromeNativeEditEl) chromeNativeEditEl.checked = false;
           window.refreshEditAutoSenderUI();
           if (customEl) customEl.value = "";
           window.refreshEditCustomServiceUI();
           if (typeof window.refreshEditAndroidSpecUI === "function") {
             window.refreshEditAndroidSpecUI();
+          }
+          if (typeof window.refreshEditChromeNativeUI === "function") {
+            window.refreshEditChromeNativeUI();
           }
         }
 
@@ -3257,6 +3395,8 @@
           const autoSenderEl = document.getElementById("editAutoSender");
           const pendingEl = document.getElementById("editPendingUrl");
           const customEl = document.getElementById("editCustomServiceUrl");
+          const chromeNativeEl = document.getElementById("editUseChromeNative");
+
 
           if (!name || !window.currentEditUID) return;
 
@@ -3280,6 +3420,11 @@
           const allowAuto = window.canUseAutoSender(window.currentEditService);
           const autoSenderEnabled =
             allowAuto && !!(autoSenderEl && autoSenderEl.checked);
+          const useChromeNative = !!(
+            chromeNativeEl &&
+            chromeNativeEl.checked &&
+            (window.currentEditService || "").toLowerCase() !== "android"
+          );
           const pendingUrl = autoSenderEnabled
             ? (pendingEl?.value || "").trim()
             : "";
@@ -3326,6 +3471,7 @@
           if (autoSenderEnabled) {
             updatedDevice.callbackUrl = callbackUrl;
           }
+          updatedDevice.useChromeNative = useChromeNative;
 
           window.electronAPI.editDevice(updatedDevice).then((res) => {
             if (res.success) {
