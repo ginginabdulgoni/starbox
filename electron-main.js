@@ -1946,6 +1946,213 @@ const MONITOR_DIMENSIONS = Object.freeze({
   screenGap: 16,
 });
 
+const CHROME_DEBUG_PORT_BASE = 15000;
+const CHROME_DEBUG_PORT_RANGE = 1000;
+
+function computeStringHash(value = "") {
+  let hash = 0;
+  const str = String(value || "");
+  for (let i = 0; i < str.length; i += 1) {
+    hash = (hash * 31 + str.charCodeAt(i)) & 0xffffffff;
+  }
+  return Math.abs(hash);
+}
+
+function getChromeDebugPort(uid) {
+  const hash = computeStringHash(uid || "default");
+  return CHROME_DEBUG_PORT_BASE + (hash % CHROME_DEBUG_PORT_RANGE);
+}
+
+function resolveWindowMetrics(mode = "desktop") {
+  const normalizedMode = (mode || "desktop").toLowerCase();
+  const metrics = {
+    width: 1000,
+    height: 700,
+  };
+  switch (normalizedMode) {
+    case "tablet-ipad":
+      metrics.width = 768;
+      metrics.height = 1024;
+      break;
+    case "tablet-ipad-pro":
+      metrics.width = 834;
+      metrics.height = 1194;
+      break;
+    case "tablet-ipad-pro-13":
+      metrics.width = 1024;
+      metrics.height = 1366;
+      break;
+    case "tablet-android":
+      metrics.width = 800;
+      metrics.height = 1280;
+      break;
+    case "tablet-samsung":
+      metrics.width = 1600;
+      metrics.height = 2560;
+      break;
+    case "desktop":
+      metrics.width = 1000;
+      metrics.height = 700;
+      break;
+    case "desktop-mini":
+      metrics.width = 800;
+      metrics.height = 600;
+      break;
+    case "desktop-hd":
+      metrics.width = 1366;
+      metrics.height = 768;
+      break;
+    case "desktop-full-hd":
+      metrics.width = 1920;
+      metrics.height = 1080;
+      break;
+    case "desktop-2k":
+      metrics.width = 2560;
+      metrics.height = 1440;
+      break;
+    case "desktop-wide":
+      metrics.width = 1280;
+      metrics.height = 800;
+      break;
+    case "desktop-ultrawide":
+      metrics.width = 2560;
+      metrics.height = 1080;
+      break;
+    case "desktop-4k":
+      metrics.width = 3840;
+      metrics.height = 2160;
+      break;
+    case "mobile-browser-desktop":
+    case "compact":
+    case "square":
+    case "portrait":
+    case "landscape":
+      if (normalizedMode === "compact") {
+        metrics.width = 600;
+        metrics.height = 400;
+      } else if (normalizedMode === "square") {
+        metrics.width = 700;
+        metrics.height = 700;
+      } else if (normalizedMode === "portrait") {
+        metrics.width = 600;
+        metrics.height = 900;
+      } else if (normalizedMode === "landscape") {
+        metrics.width = 900;
+        metrics.height = 600;
+      } else if (normalizedMode === "mobile-browser-desktop") {
+        metrics.width = 480;
+        metrics.height = 700;
+      }
+      break;
+    case "mobile-iphone":
+      metrics.width = 390;
+      metrics.height = 844;
+      break;
+    case "mobile-iphone-pro":
+      metrics.width = 430;
+      metrics.height = 932;
+      break;
+    case "mobile-iphone-se":
+      metrics.width = 375;
+      metrics.height = 667;
+      break;
+    case "mobile-android":
+      metrics.width = 393;
+      metrics.height = 851;
+      break;
+    case "mobile-galaxy-s8":
+      metrics.width = 360;
+      metrics.height = 740;
+      break;
+    case "mobile-galaxy-s23":
+      metrics.width = 384;
+      metrics.height = 854;
+      break;
+    case "mobile-pixel-5":
+      metrics.width = 393;
+      metrics.height = 851;
+      break;
+    case "mobile-pixel-7":
+      metrics.width = 412;
+      metrics.height = 915;
+      break;
+    case "mobile-oneplus":
+      metrics.width = 412;
+      metrics.height = 869;
+      break;
+    default:
+      break;
+  }
+  return metrics;
+}
+
+function stopChromeTargetMonitor(uid) {
+  const session = chromeSessions[uid];
+  if (!session) return;
+  if (session.targetMonitor) {
+    clearInterval(session.targetMonitor);
+    delete session.targetMonitor;
+  }
+}
+
+function startChromeTargetMonitor(uid, debugPort) {
+  stopChromeTargetMonitor(uid);
+  if (!debugPort) return;
+  const monitor = setInterval(async () => {
+    const session = chromeSessions[uid];
+    if (!session || session.debugPort !== debugPort) {
+      stopChromeTargetMonitor(uid);
+      return;
+    }
+    try {
+      const response = await fetch(`http://127.0.0.1:${debugPort}/json/list`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(1500),
+      });
+      if (!response.ok) {
+        return;
+      }
+      const targets = await response.json();
+      if (!Array.isArray(targets)) {
+        return;
+      }
+      const hasVisiblePage = targets.some((target) => {
+        if (
+          target.type !== "page" &&
+          target.type !== "app" &&
+          target.type !== "tab"
+        ) {
+          return false;
+        }
+        if (!target.url) {
+          return false;
+        }
+        if (target.url.startsWith("devtools://")) {
+          return false;
+        }
+        return true;
+      });
+      if (!hasVisiblePage) {
+        stopChromeNativeSession(uid);
+      }
+    } catch (err) {
+      if (
+        err?.name === "AbortError" ||
+        err?.code === "ECONNREFUSED" ||
+        err?.code === "ECONNRESET"
+      ) {
+        stopChromeNativeSession(uid);
+      }
+    }
+  }, 2000);
+  const session = chromeSessions[uid];
+  if (session) {
+    session.targetMonitor = monitor;
+  } else {
+    clearInterval(monitor);
+  }
+}
+
 const chromeSessions = {};
 const CHROME_PROFILE_DIR_NAME = "chrome-profiles";
 const CHROME_EXECUTABLE_CANDIDATES = {
@@ -2043,16 +2250,36 @@ function cleanupChromeNativeSession(uid, options = {}) {
   }
 }
 
+function killProcessTree(pid) {
+  if (!pid || typeof pid !== "number") return;
+  try {
+    if (process.platform === "win32") {
+      const killer = spawn("taskkill", ["/PID", `${pid}`, "/T", "/F"]);
+      killer.once("error", (err) => {
+        if (err) {
+          console.warn(
+            `⚠️ taskkill gagal untuk PID ${pid}:`,
+            err?.message || err
+          );
+        }
+      });
+    } else {
+      process.kill(-pid, "SIGKILL");
+    }
+  } catch (err) {
+    console.warn(`⚠️ Gagal kill process tree ${pid}:`, err?.message || err);
+  }
+}
+
 function stopChromeNativeSession(uid) {
   const session = chromeSessions[uid];
   if (!session) return false;
+  stopChromeTargetMonitor(uid);
+  killProcessTree(session.pid);
   try {
-    session.kill();
+    session.process.kill();
   } catch (err) {
-    console.warn(
-      `⚠️ Gagal menghentikan sesi Chrome native (${uid}):`,
-      err?.message || err
-    );
+    // ignore, already attempted via group kill
   }
   cleanupChromeNativeSession(uid);
   return true;
@@ -2075,15 +2302,22 @@ function launchChromeNativeSession(uid, device = {}) {
   }
   stopChromeNativeSession(uid);
 
+  const metrics = resolveWindowMetrics(device.mode);
+  const debugPort = getChromeDebugPort(uid);
   const args = [
     `--user-data-dir=${profileDir}`,
     "--no-default-browser-check",
     "--no-first-run",
     "--disable-background-networking",
-    "--disable-default-apps",
-    "--disable-component-update",
     "--disable-sync",
-    targetUrl,
+    "--disable-infobars",
+    "--disable-session-crashed-bubble",
+    "--ash-hide-titlebar",
+    "--silent-launch",
+    `--remote-debugging-port=${debugPort}`,
+    `--window-size=${metrics.width},${metrics.height}`,
+    "--window-position=150,120",
+    `--app=${targetUrl}`,
   ];
 
   const child = spawn(chromePath, args, {
@@ -2091,7 +2325,8 @@ function launchChromeNativeSession(uid, device = {}) {
     stdio: "ignore",
   });
   child.unref();
-  chromeSessions[uid] = child;
+  chromeSessions[uid] = { process: child, pid: child.pid, debugPort };
+  startChromeTargetMonitor(uid, debugPort);
 
   const cleanup = () =>
     cleanupChromeNativeSession(uid, { updateStatus: true });
@@ -3940,9 +4175,16 @@ function stopDevice(uid) {
     const win = deviceWindows[uid];
 
     if (!win || win.isDestroyed()) {
-      console.warn(
-        `⚠️ Attempted to stop device ${uid} but no active window was found.`
-      );
+      const deviceConfig = getDeviceConfig(uid);
+      if (deviceConfig?.useChromeNative) {
+        console.log(
+          `ℹ️ Tidak ditemukan sesi Chrome native untuk UID ${uid} (sudah berhenti).`
+        );
+      } else {
+        console.warn(
+          `⚠️ Attempted to stop device ${uid} but no active window was found.`
+        );
+      }
       updateDeviceStatus(uid, "stopped");
       delete deviceWindows[uid];
       resolve();
