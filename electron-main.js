@@ -1,5 +1,9 @@
 // electron-main.js
 const electron = require("electron");
+console.log("✅ Electron loaded:", !!electron);
+console.log("✅ Electron.app:", !!electron.app);
+console.log("✅ Electron.ipcMain:", !!electron.ipcMain);
+
 const app = electron.app;
 const BrowserWindow = electron.BrowserWindow;
 const ipcMain = electron.ipcMain;
@@ -6117,6 +6121,9 @@ ipcMain.handle("android-remote-update", (_event, uid, updates) => {
   }
 });
 
+// NOTE: sendSingleWhatsappMessage already defined at line 3483
+// Using the existing proven implementation
+
 ipcMain.handle(
   "android-remote-send-whatsapp-message",
   async (_event, uid, payload = {}) => {
@@ -6136,13 +6143,14 @@ ipcMain.handle(
         throw new Error("Pesan tidak boleh kosong.");
       }
       await sendSingleWhatsappMessage(record.adbId, phone, message, {
-        typingSpeed: options.typingSpeed || "instant",
+        typingSpeed: "instant",
       });
       return {
         success: true,
         message: `Pesan terkirim ke ${phone}.`,
       };
     } catch (err) {
+      console.error("❌ Failed to send WhatsApp message:", err);
       return {
         success: false,
         message: err?.message || "Gagal mengirim pesan WhatsApp.",
