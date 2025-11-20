@@ -3424,6 +3424,98 @@ function addAndroidRemoteDeviceRecord(payload = {}) {
   return record;
 }
 
+/**
+ * Helper: Deteksi apakah pesan mengandung emoji atau karakter non-ASCII kompleks
+ * Comprehensive coverage: standard emoji, ZWJ sequences, skin tones, flags, keycaps, Unicode 15.0
+ */
+function hasEmojiOrComplexChars(text) {
+  // Comprehensive emoji regex covering ALL Unicode emoji types:
+  // - Standard emoji ranges (faces, objects, nature, etc.)
+  // - ZWJ sequences (👨‍👩‍👧‍👦, 🤦‍♂️, 👨‍💻)
+  // - Skin tone modifiers (👍🏻, 👍🏿)
+  // - Regional indicators for flags (🇮🇩, 🇺🇸, 🏳️‍🌈)
+  // - Variation selectors (emoji presentation)
+  // - Keycap sequences (#️⃣, *️⃣, 0️⃣-9️⃣)
+  // - Tag sequences for subdivision flags
+  // - Unicode 15.0 additions
+  const emojiRegex = /[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F000}-\u{1F6FF}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FAFF}]|[\u{1F680}-\u{1F6FF}]|[\u{2300}-\u{23FF}]|[\u{2B50}]|[\u{2B55}]|[\u{231A}-\u{231B}]|[\u{23E9}-\u{23EC}]|[\u{23F0}]|[\u{23F3}]|[\u{25FD}-\u{25FE}]|[\u{2614}-\u{2615}]|[\u{2648}-\u{2653}]|[\u{267F}]|[\u{2693}]|[\u{26A1}]|[\u{26AA}-\u{26AB}]|[\u{26BD}-\u{26BE}]|[\u{26C4}-\u{26C5}]|[\u{26CE}]|[\u{26D4}]|[\u{26EA}]|[\u{26F2}-\u{26F3}]|[\u{26F5}]|[\u{26FA}]|[\u{26FD}]|[\u{2705}]|[\u{270A}-\u{270B}]|[\u{2728}]|[\u{274C}]|[\u{274E}]|[\u{2753}-\u{2755}]|[\u{2757}]|[\u{2795}-\u{2797}]|[\u{27B0}]|[\u{27BF}]|[\u{2B1B}-\u{2B1C}]|[\u{1F004}]|[\u{1F0CF}]|[\u{1F18E}]|[\u{1F191}-\u{1F19A}]|[\u{1F201}]|[\u{1F21A}]|[\u{1F22F}]|[\u{1F232}-\u{1F236}]|[\u{1F238}-\u{1F23A}]|[\u{1F250}-\u{1F251}]|[\u{1F3FB}-\u{1F3FF}]|[\u{1F1E6}-\u{1F1FF}]|[\u{00A9}]|[\u{00AE}]|[\u{203C}]|[\u{2049}]|[\u{2122}]|[\u{2139}]|[\u{2194}-\u{2199}]|[\u{21A9}-\u{21AA}]|[\u{2328}]|[\u{23CF}]|[\u{24C2}]|[\u{25AA}-\u{25AB}]|[\u{25B6}]|[\u{25C0}]|[\u{2934}-\u{2935}]|[\u{2B05}-\u{2B07}]|[\u{3030}]|[\u{303D}]|[\u{3297}]|[\u{3299}]|\u200D|\uFE0F|[\u{E0020}-\u{E007F}]/u;
+  return emojiRegex.test(text);
+}
+
+/**
+ * Helper: Hapus semua emoji dari text (fallback untuk edge case emoji tidak terdeteksi)
+ * Digunakan untuk membersihkan pesan sebelum typing manual agar tidak gagal
+ */
+function stripEmoji(text) {
+  if (!text) return '';
+  // Remove ALL emoji using comprehensive regex (with global flag)
+  // Replaces undetected emoji with empty string to ensure typing continues normally
+  return text.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F000}-\u{1F6FF}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FAFF}]|[\u{1F680}-\u{1F6FF}]|[\u{2300}-\u{23FF}]|[\u{2B50}]|[\u{2B55}]|[\u{231A}-\u{231B}]|[\u{23E9}-\u{23EC}]|[\u{23F0}]|[\u{23F3}]|[\u{25FD}-\u{25FE}]|[\u{2614}-\u{2615}]|[\u{2648}-\u{2653}]|[\u{267F}]|[\u{2693}]|[\u{26A1}]|[\u{26AA}-\u{26AB}]|[\u{26BD}-\u{26BE}]|[\u{26C4}-\u{26C5}]|[\u{26CE}]|[\u{26D4}]|[\u{26EA}]|[\u{26F2}-\u{26F3}]|[\u{26F5}]|[\u{26FA}]|[\u{26FD}]|[\u{2705}]|[\u{270A}-\u{270B}]|[\u{2728}]|[\u{274C}]|[\u{274E}]|[\u{2753}-\u{2755}]|[\u{2757}]|[\u{2795}-\u{2797}]|[\u{27B0}]|[\u{27BF}]|[\u{2B1B}-\u{2B1C}]|[\u{1F004}]|[\u{1F0CF}]|[\u{1F18E}]|[\u{1F191}-\u{1F19A}]|[\u{1F201}]|[\u{1F21A}]|[\u{1F22F}]|[\u{1F232}-\u{1F236}]|[\u{1F238}-\u{1F23A}]|[\u{1F250}-\u{1F251}]|[\u{1F3FB}-\u{1F3FF}]|[\u{1F1E6}-\u{1F1FF}]|[\u{00A9}]|[\u{00AE}]|[\u{203C}]|[\u{2049}]|[\u{2122}]|[\u{2139}]|[\u{2194}-\u{2199}]|[\u{21A9}-\u{21AA}]|[\u{2328}]|[\u{23CF}]|[\u{24C2}]|[\u{25AA}-\u{25AB}]|[\u{25B6}]|[\u{25C0}]|[\u{2934}-\u{2935}]|[\u{2B05}-\u{2B07}]|[\u{3030}]|[\u{303D}]|[\u{3297}]|[\u{3299}]|\u200D|\uFE0F|[\u{E0020}-\u{E007F}]/gu, '');
+}
+
+/**
+ * Helper: Smart split message into chunks for emoji preservation
+ * Splits by newline first, then by character limit, max 3 chunks
+ * @param {string} text - Message to split
+ * @param {number} maxChunkChars - Max characters per chunk (default 250 for safe URL encoding)
+ * @param {number} maxChunks - Maximum chunks allowed (default 3)
+ * @returns {string[]} Array of message chunks, or null if would exceed maxChunks
+ */
+function smartSplitMessage(text, maxChunkChars = 250, maxChunks = 3) {
+  if (!text) return [text];
+
+  // First split by newlines (natural breaks)
+  const lines = text.split('\n');
+  const chunks = [];
+  let currentChunk = '';
+
+  for (const line of lines) {
+    // Check if adding this line would exceed chunk limit
+    const testChunk = currentChunk ? `${currentChunk}\n${line}` : line;
+
+    if (testChunk.length <= maxChunkChars) {
+      // Fits in current chunk
+      currentChunk = testChunk;
+    } else {
+      // Doesn't fit
+      if (currentChunk) {
+        chunks.push(currentChunk);
+        currentChunk = '';
+      }
+
+      // Check if single line is too long
+      if (line.length > maxChunkChars) {
+        // Split long line by words
+        const words = line.split(' ');
+        for (const word of words) {
+          const testWord = currentChunk ? `${currentChunk} ${word}` : word;
+          if (testWord.length <= maxChunkChars) {
+            currentChunk = testWord;
+          } else {
+            if (currentChunk) chunks.push(currentChunk);
+            currentChunk = word;
+          }
+        }
+      } else {
+        currentChunk = line;
+      }
+    }
+  }
+
+  // Push remaining chunk
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+
+  // Check if exceeds max chunks limit
+  if (chunks.length > maxChunks) {
+    console.warn(`⚠️ Message would require ${chunks.length} chunks (max: ${maxChunks}), returning null for fallback`);
+    return null; // Signal to use fallback method
+  }
+
+  return chunks.length > 0 ? chunks : [text];
+}
+
 async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
   if (!adbId) throw new Error("ADB ID tidak valid.");
   const manager = ensureAndroidManagerReady();
@@ -3447,36 +3539,158 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
     }
     await ensureDeviceScreenAwake(adbId);
     const message = messages[i];
-    const waUrl = `https://wa.me/${phoneNumber}`;
+    const hasEmoji = hasEmojiOrComplexChars(message);
+
     console.log(
-      `📲 [ADB:${adbId}] Mengirim pesan WhatsApp ${i + 1}/${messages.length}`
+      `📲 [ADB:${adbId}] Mengirim pesan WhatsApp ${i + 1}/${messages.length} (emoji: ${hasEmoji ? 'yes' : 'no'})`
     );
-    await manager.runAdbCommand(
-      [
-        "-s",
-        adbId,
-        "shell",
-        "am",
-        "start",
-        "-a",
-        "android.intent.action.VIEW",
-        "-d",
-        waUrl,
-        "com.whatsapp",
-      ],
-      { timeout: 20000, silent: true }
-    );
-    await sleep(3500);
-    await clearWhatsappInputField(adbId);
-    if (actionToken?.aborted) {
-      throw new Error("Remote action dibatalkan oleh pengguna.");
+
+    if (hasEmoji) {
+      // METODE 1: Dengan emoji - gunakan wa.me dengan text parameter
+      // Try smart split first untuk preserve emoji
+      const messageChunks = smartSplitMessage(message, 250, 3);
+
+      if (messageChunks === null) {
+        // Smart split failed (would require >3 chunks), fallback ke typing tanpa emoji
+        console.warn(
+          `⚠️ [ADB:${adbId}] Pesan terlalu panjang untuk split (>3 chunks), fallback ke typing tanpa emoji`
+        );
+
+        const cleanMessage = stripEmoji(message);
+        const waUrlSimple = `https://wa.me/${phoneNumber}`;
+
+        await manager.runAdbCommand(
+          [
+            "-s",
+            adbId,
+            "shell",
+            "am",
+            "start",
+            "-a",
+            "android.intent.action.VIEW",
+            "-d",
+            waUrlSimple,
+            "com.whatsapp",
+          ],
+          { timeout: 20000, silent: true }
+        );
+
+        await sleep(3500);
+        await clearWhatsappInputField(adbId);
+
+        if (actionToken?.aborted) {
+          throw new Error("Remote action dibatalkan oleh pengguna.");
+        }
+
+        await typeTextWithSpeed(adbId, cleanMessage, options.typingSpeed);
+
+        if (actionToken?.aborted) {
+          throw new Error("Remote action dibatalkan oleh pengguna.");
+        }
+
+        await tapWhatsappSendButton(adbId);
+        await sleep(1200);
+      } else {
+        // Smart split succeeded, send each chunk dengan emoji preserved
+        console.log(
+          `📨 [ADB:${adbId}] Mengirim pesan dalam ${messageChunks.length} chunk(s) dengan emoji preserved`
+        );
+
+        // Pause auto-refresh interval during chunk sending
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) {
+            win.webContents.send("android-whatsapp-pause-auto-refresh");
+          }
+        });
+
+        try {
+          for (let chunkIdx = 0; chunkIdx < messageChunks.length; chunkIdx++) {
+            const chunk = messageChunks[chunkIdx];
+            const encodedChunk = encodeURIComponent(chunk);
+            const waUrl = `https://wa.me/${phoneNumber}?text=${encodedChunk}`;
+
+            console.log(
+              `  📤 Chunk ${chunkIdx + 1}/${messageChunks.length} (${chunk.length} chars, URL: ${waUrl.length} chars)`
+            );
+
+            await manager.runAdbCommand(
+              [
+                "-s",
+                adbId,
+                "shell",
+                "am",
+                "start",
+                "-a",
+                "android.intent.action.VIEW",
+                "-d",
+                waUrl,
+                "com.whatsapp",
+              ],
+              { timeout: 20000, silent: true }
+            );
+
+            await sleep(2500);
+
+            if (actionToken?.aborted) {
+              throw new Error("Remote action dibatalkan oleh pengguna.");
+            }
+
+            await tapWhatsappSendButton(adbId);
+            await sleep(1200);
+
+            // Delay antar chunk (kecuali chunk terakhir)
+            if (chunkIdx < messageChunks.length - 1) {
+              console.log(`  ⏳ Delay 2 detik sebelum chunk berikutnya...`);
+              await sleep(2000);
+            }
+          }
+        } finally {
+          // Resume auto-refresh interval after all chunks sent (success or failure)
+          BrowserWindow.getAllWindows().forEach((win) => {
+            if (!win.isDestroyed()) {
+              win.webContents.send("android-whatsapp-resume-auto-refresh");
+            }
+          });
+        }
+      }
+    } else {
+      // METODE 2: Tanpa emoji - gunakan typing manual (lebih cepat)
+      // Strip any edge case emoji that might not be detected to ensure typing works normally
+      const cleanMessage = stripEmoji(message);
+      const waUrl = `https://wa.me/${phoneNumber}`;
+
+      await manager.runAdbCommand(
+        [
+          "-s",
+          adbId,
+          "shell",
+          "am",
+          "start",
+          "-a",
+          "android.intent.action.VIEW",
+          "-d",
+          waUrl,
+          "com.whatsapp",
+        ],
+        { timeout: 20000, silent: true }
+      );
+
+      await sleep(3500);
+      await clearWhatsappInputField(adbId);
+
+      if (actionToken?.aborted) {
+        throw new Error("Remote action dibatalkan oleh pengguna.");
+      }
+
+      await typeTextWithSpeed(adbId, cleanMessage, options.typingSpeed);
+
+      if (actionToken?.aborted) {
+        throw new Error("Remote action dibatalkan oleh pengguna.");
+      }
+
+      await tapWhatsappSendButton(adbId);
+      await sleep(1200);
     }
-    await typeTextWithSpeed(adbId, message, options.typingSpeed);
-    if (actionToken?.aborted) {
-      throw new Error("Remote action dibatalkan oleh pengguna.");
-    }
-    await tapWhatsappSendButton(adbId);
-    await sleep(1200);
   }
 }
 

@@ -320,6 +320,61 @@
         white-space: pre-wrap;
       }
 
+      .rate-limit-control {
+        margin-top: 8px;
+        padding: 8px;
+        background: rgba(15, 23, 42, 0.75);
+        border: 1px solid rgba(123, 150, 225, 0.25);
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .rate-limit-label {
+        font-size: 10px;
+        color: #cbd5f5;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+      }
+
+      .rate-limit-input-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .rate-limit-input {
+        flex: 1;
+        background: rgba(30, 41, 59, 0.8);
+        border: 1px solid rgba(123, 150, 225, 0.3);
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 12px;
+        color: #e2e8f0;
+        text-align: center;
+      }
+
+      .rate-limit-input:focus {
+        outline: none;
+        border-color: rgba(59, 130, 246, 0.6);
+      }
+
+      .rate-limit-unit {
+        font-size: 11px;
+        color: #94a3b8;
+      }
+
+      .countdown-display {
+        font-size: 11px;
+        color: #fbbf24;
+        text-align: center;
+        padding: 4px 8px;
+        background: rgba(251, 191, 36, 0.15);
+        border-radius: 6px;
+        font-family: 'Courier New', monospace;
+      }
+
       /* Scrollbar styling */
       #sidebar::-webkit-scrollbar {
         width: 6px;
@@ -354,72 +409,80 @@
 
       <div id="remoteControlsContainer">
         <div class="recording-indicator" id="recordingIndicator">
-        <div class="recording-dot"></div>
-        <span class="recording-text">Recording...</span>
-      </div>
+          <div class="recording-dot"></div>
+          <span class="recording-text">Recording...</span>
+        </div>
 
-      <div class="section-label">Power</div>
-      <button class="control-btn" id="btnWake" title="Wake screen">
-        <span class="btn-icon">☀️</span>
-        <span>Wake</span>
-      </button>
-      <button class="control-btn" id="btnUnlock" title="Unlock device">
-        <span class="btn-icon">🔓</span>
-        <span>Unlock</span>
-      </button>
+        <div class="section-label">Power</div>
+        <button class="control-btn" id="btnWake" title="Wake screen">
+          <span class="btn-icon">☀️</span>
+          <span>Wake</span>
+        </button>
+        <button class="control-btn" id="btnUnlock" title="Unlock device">
+          <span class="btn-icon">🔓</span>
+          <span>Unlock</span>
+        </button>
 
-      <div class="section-label">Navigation</div>
-      <button class="control-btn secondary" id="btnBack" title="Back button">
-        <span class="btn-icon">◀</span>
-        <span>Back</span>
-      </button>
-      <button class="control-btn secondary" id="btnHome" title="Home button">
-        <span class="btn-icon">🏠</span>
-        <span>Home</span>
-      </button>
-      <button class="control-btn secondary" id="btnRecent" title="Recent apps">
-        <span class="btn-icon">📱</span>
-        <span>Recent</span>
-      </button>
+        <div class="section-label">Navigation</div>
+        <button class="control-btn secondary" id="btnBack" title="Back button">
+          <span class="btn-icon">◀</span>
+          <span>Back</span>
+        </button>
+        <button class="control-btn secondary" id="btnHome" title="Home button">
+          <span class="btn-icon">🏠</span>
+          <span>Home</span>
+        </button>
+        <button
+          class="control-btn secondary"
+          id="btnRecent"
+          title="Recent apps"
+        >
+          <span class="btn-icon">📱</span>
+          <span>Recent</span>
+        </button>
 
-      <div class="section-label">Screen</div>
-      <button class="control-btn" id="btnRotate" title="Rotate screen">
-        <span class="btn-icon">🔄</span>
-        <span>Rotate</span>
-      </button>
-      <button class="control-btn" id="btnScreenshot" title="Take screenshot">
-        <span class="btn-icon">📸</span>
-        <span>Screenshot</span>
-      </button>
+        <div class="section-label">Screen</div>
+        <button class="control-btn" id="btnRotate" title="Rotate screen">
+          <span class="btn-icon">🔄</span>
+          <span>Rotate</span>
+        </button>
+        <button class="control-btn" id="btnScreenshot" title="Take screenshot">
+          <span class="btn-icon">📸</span>
+          <span>Screenshot</span>
+        </button>
 
-      <div class="section-label">Recording</div>
-      <button class="control-btn" id="btnRecord" title="Start recording">
-        <span class="btn-icon">⏺</span>
-        <span>Record</span>
-      </button>
-      <button
-        class="control-btn danger"
-        id="btnStopRecord"
-        style="display: none"
-        title="Stop recording"
-      >
-        <span class="btn-icon">⏹</span>
-        <span>Stop Rec</span>
-      </button>
+        <div class="section-label">Recording</div>
+        <button class="control-btn" id="btnRecord" title="Start recording">
+          <span class="btn-icon">⏺</span>
+          <span>Record</span>
+        </button>
+        <button
+          class="control-btn danger"
+          id="btnStopRecord"
+          style="display: none"
+          title="Stop recording"
+        >
+          <span class="btn-icon">⏹</span>
+          <span>Stop Rec</span>
+        </button>
 
-      <div class="section-label">Volume</div>
-      <button class="control-btn secondary" id="btnVolumeUp" title="Volume up">
-        <span class="btn-icon">🔊</span>
-        <span>Vol +</span>
-      </button>
-      <button
-        class="control-btn secondary"
-        id="btnVolumeDown"
-        title="Volume down"
-      >
-        <span class="btn-icon">🔉</span>
-        <span>Vol -</span>
-      </button>
+        <div class="section-label">Volume</div>
+        <button
+          class="control-btn secondary"
+          id="btnVolumeUp"
+          title="Volume up"
+        >
+          <span class="btn-icon">🔊</span>
+          <span>Vol +</span>
+        </button>
+        <button
+          class="control-btn secondary"
+          id="btnVolumeDown"
+          title="Volume down"
+        >
+          <span class="btn-icon">🔉</span>
+          <span>Vol -</span>
+        </button>
       </div>
 
       <div id="whatsappPendingSection" style="display: none">
@@ -432,6 +495,29 @@
           <span class="btn-icon">🔄</span>
           <span>Refresh Pending</span>
         </button>
+
+        <div class="rate-limit-control">
+          <div class="rate-limit-label">Rate Limiting</div>
+          <div class="rate-limit-input-row">
+            <input
+              type="number"
+              id="rateLimitInput"
+              class="rate-limit-input"
+              min="1"
+              max="60"
+              value="2"
+              title="Jumlah pesan per menit"
+            />
+            <span class="rate-limit-unit">pesan/menit</span>
+          </div>
+          <div class="countdown-display" id="nextRefreshCountdown" style="display: none;">
+            Refresh berikutnya: <span id="refreshTimer">60</span>s
+          </div>
+          <div class="countdown-display" id="nextMessageCountdown" style="display: none;">
+            Pesan berikutnya: <span id="messageTimer">0</span>s
+          </div>
+        </div>
+
         <div class="pending-info">
           <span class="pending-loading" id="pendingLoading">Memuat...</span>
           <span class="pending-status" id="pendingStatusText"></span>
@@ -454,8 +540,7 @@
         const serviceKey = (params.get("service") || "").toLowerCase();
         const isWhatsAppRemote = serviceKey === "android-whatsapp";
         const whatsappBaseUrl = params.get("whatsappBaseUrl") || "";
-        const whatsappCallbackUrl =
-          params.get("whatsappCallbackUrl") || "";
+        const whatsappCallbackUrl = params.get("whatsappCallbackUrl") || "";
 
         // Update device name
         document.getElementById("deviceName").textContent = deviceName;
@@ -470,9 +555,7 @@
               window.electronAPI.androidRemote
                 .copyToClipboard(uid)
                 .then(() => showStatus("Token disalin ke clipboard", 2000))
-                .catch(() =>
-                  showStatus("Gagal menyalin token.", 2000)
-                );
+                .catch(() => showStatus("Gagal menyalin token.", 2000));
             }
           });
         }
@@ -486,19 +569,28 @@
           "whatsappPendingSection"
         );
         const pendingList = document.getElementById("pendingMessageList");
-        const pendingEmptyState =
-          document.getElementById("pendingEmptyState");
+        const pendingEmptyState = document.getElementById("pendingEmptyState");
         const pendingLoading = document.getElementById("pendingLoading");
-        const pendingStatusText = document.getElementById(
-          "pendingStatusText"
-        );
-        const pendingRefreshBtn =
-          document.getElementById("btnRefreshPending");
+        const pendingStatusText = document.getElementById("pendingStatusText");
+        const pendingRefreshBtn = document.getElementById("btnRefreshPending");
+        const rateLimitInput = document.getElementById("rateLimitInput");
+        const refreshTimerEl = document.getElementById("refreshTimer");
+        const messageTimerEl = document.getElementById("messageTimer");
+        const nextRefreshCountdown = document.getElementById("nextRefreshCountdown");
+        const nextMessageCountdown = document.getElementById("nextMessageCountdown");
 
         let isRecording = false;
         let pendingMessagesCache = [];
         let autoSendingPending = false;
         const PENDING_LIMIT = 20;
+
+        // Auto-refresh and rate limiting state
+        let autoRefreshInterval = null;
+        let refreshCountdownInterval = null;
+        let messageCountdownInterval = null;
+        let refreshSecondsLeft = 60;
+        let messageSecondsLeft = 0;
+        const AUTO_REFRESH_INTERVAL = 60000; // 60 seconds
 
         function showStatus(message, duration = 2000) {
           statusMessage.textContent = message;
@@ -506,6 +598,50 @@
           setTimeout(() => {
             statusMessage.classList.remove("show");
           }, duration);
+        }
+
+        function startRefreshCountdown() {
+          refreshSecondsLeft = 60;
+          if (nextRefreshCountdown) nextRefreshCountdown.style.display = 'block';
+
+          if (refreshCountdownInterval) clearInterval(refreshCountdownInterval);
+          refreshCountdownInterval = setInterval(() => {
+            refreshSecondsLeft--;
+            if (refreshTimerEl) refreshTimerEl.textContent = refreshSecondsLeft;
+            if (refreshSecondsLeft <= 0) {
+              refreshSecondsLeft = 60;
+            }
+          }, 1000);
+        }
+
+        function startMessageCountdown(seconds) {
+          messageSecondsLeft = seconds;
+          if (nextMessageCountdown) nextMessageCountdown.style.display = 'block';
+          if (messageTimerEl) messageTimerEl.textContent = messageSecondsLeft;
+
+          if (messageCountdownInterval) clearInterval(messageCountdownInterval);
+          messageCountdownInterval = setInterval(() => {
+            messageSecondsLeft--;
+            if (messageTimerEl) messageTimerEl.textContent = Math.max(0, messageSecondsLeft);
+            if (messageSecondsLeft <= 0) {
+              if (messageCountdownInterval) clearInterval(messageCountdownInterval);
+              if (nextMessageCountdown) nextMessageCountdown.style.display = 'none';
+            }
+          }, 1000);
+        }
+
+        async function postToCallback(messageId, status) {
+          if (!whatsappCallbackUrl || !messageId) return;
+          try {
+            await fetch(whatsappCallbackUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: messageId, status: status })
+            });
+            console.log(`✅ Callback posted: ${messageId} -> ${status}`);
+          } catch (err) {
+            console.warn('⚠️ Callback post failed:', err);
+          }
         }
 
         async function fetchPendingMessagesViaRenderer() {
@@ -621,9 +757,8 @@
               pendingEmptyState.style.display = "block";
               return;
             }
-            response = await window.electronAPI.androidRemote.fetchWhatsappMessages(
-              uid
-            );
+            response =
+              await window.electronAPI.androidRemote.fetchWhatsappMessages(uid);
           }
 
           try {
@@ -785,7 +920,16 @@
                 2500
               );
               entry.status = "sent";
-              renderPendingMessages(pendingMessagesCache.slice(0, PENDING_LIMIT));
+              renderPendingMessages(
+                pendingMessagesCache.slice(0, PENDING_LIMIT)
+              );
+
+              // POST to callback URL with status "done"
+              if (entry.id) {
+                postToCallback(entry.id, "done");
+              }
+
+              // Legacy: Also post via IPC if available
               if (
                 entry.id &&
                 window.electronAPI?.androidRemote?.postWhatsappStatus
@@ -795,10 +939,7 @@
                   .catch(() => {});
               }
             } else {
-              showStatus(
-                result?.message || "Gagal mengirim pesan.",
-                3000
-              );
+              showStatus(result?.message || "Gagal mengirim pesan.", 3000);
             }
           } catch (err) {
             console.error("❌ Failed to send WhatsApp message:", err);
@@ -812,27 +953,98 @@
             (entry) => (entry.status || "pending").toLowerCase() === "pending"
           );
           if (!pendingItems.length) return;
+
+          // Get rate limit from input (messages per minute)
+          const messagesPerMinute = parseInt(rateLimitInput?.value || "2", 10);
+          const delayBetweenMessages = Math.floor(60000 / Math.max(1, messagesPerMinute)); // ms
+
           autoSendingPending = true;
           try {
-            for (const entry of pendingItems) {
+            for (let i = 0; i < pendingItems.length; i++) {
+              const entry = pendingItems[i];
               await sendPendingWhatsappMessage(entry);
-              await new Promise((resolve) => setTimeout(resolve, 800));
+
+              // Show countdown for next message (if not last message)
+              if (i < pendingItems.length - 1) {
+                const delaySeconds = Math.floor(delayBetweenMessages / 1000);
+                startMessageCountdown(delaySeconds);
+                await new Promise((resolve) => setTimeout(resolve, delayBetweenMessages));
+              }
             }
           } finally {
             autoSendingPending = false;
+            if (nextMessageCountdown) nextMessageCountdown.style.display = 'none';
           }
         }
 
         if (pendingSection) {
           if (isWhatsAppRemote) {
             pendingSection.style.display = "block";
-            pendingRefreshBtn?.addEventListener("click", () =>
-              refreshPendingMessages(true)
-            );
+
+            // Manual refresh button
+            pendingRefreshBtn?.addEventListener("click", () => {
+              refreshPendingMessages(true);
+              // Restart countdown after manual refresh
+              startRefreshCountdown();
+            });
+
+            // Initial fetch
             refreshPendingMessages(false);
+
+            // Start countdown
+            startRefreshCountdown();
+
+            // Auto-refresh every 60 seconds
+            if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+            autoRefreshInterval = setInterval(() => {
+              console.log('🔄 Auto-refreshing pending messages...');
+              refreshPendingMessages(false);
+              startRefreshCountdown();
+            }, AUTO_REFRESH_INTERVAL);
           } else {
             pendingSection.style.display = "none";
           }
+        }
+
+        // Cleanup intervals on window unload
+        window.addEventListener('beforeunload', () => {
+          if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+          if (refreshCountdownInterval) clearInterval(refreshCountdownInterval);
+          if (messageCountdownInterval) clearInterval(messageCountdownInterval);
+        });
+
+        // Listen for pause/resume auto-refresh events during chunk sending
+        if (window.electronAPI?.androidRemote?.onPauseAutoRefresh) {
+          window.electronAPI.androidRemote.onPauseAutoRefresh(() => {
+            console.log('⏸️ Pausing auto-refresh during chunk sending...');
+            if (autoRefreshInterval) {
+              clearInterval(autoRefreshInterval);
+              autoRefreshInterval = null;
+            }
+            if (refreshCountdownInterval) {
+              clearInterval(refreshCountdownInterval);
+              refreshCountdownInterval = null;
+            }
+            if (nextRefreshCountdown) {
+              nextRefreshCountdown.style.display = 'none';
+            }
+          });
+        }
+
+        if (window.electronAPI?.androidRemote?.onResumeAutoRefresh) {
+          window.electronAPI.androidRemote.onResumeAutoRefresh(() => {
+            console.log('▶️ Resuming auto-refresh after chunk sending complete');
+            // Restart auto-refresh interval
+            if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+            autoRefreshInterval = setInterval(() => {
+              console.log('🔄 Auto-refreshing pending messages...');
+              refreshPendingMessages(false);
+              startRefreshCountdown();
+            }, AUTO_REFRESH_INTERVAL);
+
+            // Restart countdown
+            startRefreshCountdown();
+          });
         }
 
         // Log initialization
@@ -841,6 +1053,8 @@
           deviceName,
           adbId,
           service: serviceKey,
+          rateLimit: rateLimitInput?.value || "2",
+          autoRefresh: AUTO_REFRESH_INTERVAL / 1000 + "s"
         });
       })();
     </script>

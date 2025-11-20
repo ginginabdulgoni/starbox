@@ -38,5 +38,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onStatusUpdate: (callback) => {
       ipcRenderer.on("android-remote-status", (_event, data) => callback(data));
     },
+    onPauseAutoRefresh: (callback) => {
+      ipcRenderer.on("android-whatsapp-pause-auto-refresh", (_event) => callback());
+    },
+    onResumeAutoRefresh: (callback) => {
+      ipcRenderer.on("android-whatsapp-resume-auto-refresh", (_event) => callback());
+    },
   },
 });
