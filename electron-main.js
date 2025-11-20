@@ -6,8 +6,10 @@ const ipcMain = electron.ipcMain;
 const screen = electron.screen;
 const clipboard = electron.clipboard;
 const net = electron.net;
+const dialog = electron.dialog;
+const nodeNet = require("net");
 const https = require("https");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 
 const Store = require("electron-store");
 const { v4: uuidv4 } = require("uuid");
@@ -1947,6 +1949,493 @@ const MONITOR_DIMENSIONS = Object.freeze({
   headerHeight: 80,
   screenGap: 16,
 });
+const scrcpySessions = new Map();
+const ANDROID_REMOTE_SHORTCUTS = Object.freeze({
+  "wake-screen": { label: "Bangunkan layar", type: "wake" },
+  "select-all": { label: "Select All (Ctrl + A)", type: "selectAll" },
+  copy: { label: "Copy (Ctrl + C)", type: "keyevent", code: 278 },
+  paste: { label: "Paste (Ctrl + V)", type: "keyevent", code: 279 },
+  cut: { label: "Cut (Ctrl + X)", type: "keyevent", code: 277 },
+  enter: { label: "Enter", type: "keyevent", code: 66 },
+  backspace: { label: "Backspace", type: "keyevent", code: 67 },
+  tab: { label: "Tab", type: "keyevent", code: 61 },
+  sleep: { label: "Sleep", type: "keyevent", code: 223 },
+  "volume-up": { label: "Volume Up", type: "keyevent", code: 24 },
+  "volume-down": { label: "Volume Down", type: "keyevent", code: 25 },
+});
+
+function isCommandAvailable(command = "") {
+  if (!command) return false;
+  const binary = process.platform === "win32" ? "where" : "which";
+  try {
+    const result = spawnSync(binary, [command], {
+      stdio: "ignore",
+    });
+    return result.status === 0;
+  } catch (err) {
+    return false;
+  }
+}
+
+function isScrcpyInstalled() {
+  try {
+    const result = spawnSync("scrcpy", ["--version"], {
+      stdio: "ignore",
+    });
+    return result.status === 0;
+  } catch (err) {
+    return false;
+  }
+}
+
+function detectScrcpyInstaller() {
+  const platform = process.platform;
+  if (platform === "darwin") {
+    if (isCommandAvailable("brew")) {
+      return {
+        supported: true,
+        command: "brew",
+        args: ["install", "scrcpy"],
+        label: "Homebrew",
+      };
+    }
+    return {
+      supported: false,
+      reason:
+        "Homebrew tidak ditemukan. Install Homebrew (https://brew.sh) lalu jalankan 'brew install scrcpy'.",
+    };
+  }
+  if (platform === "win32") {
+    if (isCommandAvailable("choco")) {
+      return {
+        supported: true,
+        command: "choco",
+        args: ["install", "scrcpy", "-y"],
+        label: "Chocolatey",
+      };
+    }
+    if (isCommandAvailable("winget")) {
+      return {
+        supported: true,
+        command: "winget",
+        args: [
+          "install",
+          "--id",
+          "Genymobile.scrcpy",
+          "-e",
+          "--accept-source-agreements",
+          "--accept-package-agreements",
+        ],
+        label: "winget",
+      };
+    }
+    return {
+      supported: false,
+      reason:
+        "Chocolatey atau winget tidak ditemukan. Install salah satunya atau pasang scrcpy manual dari https://github.com/Genymobile/scrcpy.",
+    };
+  }
+  if (platform === "linux") {
+    return {
+      supported: false,
+      reason:
+        "Instalasi otomatis scrcpy belum tersedia di Linux. Gunakan manajer paket distro Anda (apt, snap, pacman, dll).",
+    };
+  }
+  return {
+    supported: false,
+    reason: "Platform ini belum mendukung instalasi otomatis scrcpy.",
+  };
+}
+
+function runScrcpyInstallerCommand(installer) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(installer.command, installer.args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: process.env,
+    });
+    let stdout = "";
+    let stderr = "";
+    if (proc.stdout) {
+      proc.stdout.on("data", (data) => {
+        stdout += data.toString();
+      });
+    }
+    if (proc.stderr) {
+      proc.stderr.on("data", (data) => {
+        stderr += data.toString();
+      });
+    }
+    proc.once("error", (err) => reject(err));
+    proc.once("close", (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        const message =
+          stderr.trim() ||
+          stdout.trim() ||
+          `Perintah ${installer.command} keluar dengan kode ${code}.`;
+        reject(new Error(message));
+      }
+    });
+  });
+}
+
+async function installScrcpyAutomatically() {
+  const installer = detectScrcpyInstaller();
+  if (!installer || installer.supported === false) {
+    const error = new Error(
+      installer?.reason ||
+        "Installer otomatis scrcpy tidak tersedia di platform ini."
+    );
+    error.code = "SCRCPY_INSTALLER_UNAVAILABLE";
+    throw error;
+  }
+  await runScrcpyInstallerCommand(installer);
+}
+
+async function sendAndroidKeyevent(adbId, keyCode, options = {}) {
+  if (!adbId || keyCode === undefined || keyCode === null) return;
+  const manager = ensureAndroidManagerReady();
+  const args = ["-s", adbId, "shell", "input", "keyevent"];
+  if (options.longPress) {
+    args.push("--longpress");
+  }
+  const value =
+    typeof keyCode === "number"
+      ? String(keyCode)
+      : String(keyCode || "").toUpperCase();
+  args.push(value);
+  await manager.runAdbCommand(args, {
+    timeout: options.timeout || 6000,
+    silent: true,
+  });
+  if (options.delayAfter) {
+    await sleep(options.delayAfter);
+  }
+}
+
+async function sendAndroidSwipe(adbId, from = {}, to = {}, duration = 250) {
+  if (!adbId) return;
+  const manager = ensureAndroidManagerReady();
+  const startX = from.x ?? Math.round((to.x ?? 540));
+  const startY = from.y ?? Math.round((to.y ?? 1600));
+  const endX = to.x ?? startX;
+  const endY = to.y ?? Math.round(startY / 2);
+  await manager.runAdbCommand(
+    [
+      "-s",
+      adbId,
+      "shell",
+      "input",
+      "swipe",
+      String(startX),
+      String(startY),
+      String(endX),
+      String(endY),
+      String(Math.max(duration, 80)),
+    ],
+    { timeout: 8000, silent: true }
+  );
+}
+
+async function ensureDeviceScreenAwake(adbId) {
+  if (!adbId) return;
+  try {
+    await sendAndroidKeyevent(adbId, 224, { delayAfter: 180 }); // KEYCODE_WAKEUP
+  } catch (err) {
+    console.warn(
+      `⚠️ Tidak bisa mengirim WAKEUP ke ${adbId}:`,
+      err?.message || err
+    );
+  }
+  try {
+    await sendAndroidKeyevent(adbId, 82, { delayAfter: 160 }); // KEYCODE_MENU
+  } catch (err) {
+    console.warn(
+      `⚠️ Tidak bisa mengirim MENU ke ${adbId}:`,
+      err?.message || err
+    );
+  }
+  try {
+    const { width, height } = await getDeviceDisplayMetrics(adbId);
+    const x = Math.round(width / 2);
+    const startY = Math.round(height * 0.78);
+    const endY = Math.round(height * 0.22);
+    await sendAndroidSwipe(
+      adbId,
+      { x, y: startY },
+      { x, y: endY },
+      320
+    );
+  } catch (err) {
+    console.warn(
+      `⚠️ Swipe unlock gagal untuk ${adbId}:`,
+      err?.message || err
+    );
+  }
+}
+
+async function triggerAndroidSelectAll(adbId) {
+  if (!adbId) return;
+  const manager = ensureAndroidManagerReady();
+  try {
+    const { width, height } = await getDeviceDisplayMetrics(adbId);
+    const x = Math.max(Math.round(width / 2), 200);
+    const y = Math.max(Math.round(height * 0.45), 200);
+    await manager.runAdbCommand(
+      [
+        "-s",
+        adbId,
+        "shell",
+        "input",
+        "swipe",
+        String(x),
+        String(y),
+        String(x),
+        String(y),
+        "550",
+      ],
+      { timeout: 8000, silent: true }
+    );
+    await sleep(380);
+    await sendAndroidKeyevent(adbId, 19, { delayAfter: 120 }).catch(() => {}); // DPAD_UP
+    await sendAndroidKeyevent(adbId, 66, { delayAfter: 80 }).catch(() => {}); // ENTER
+  } catch (err) {
+    console.warn(`⚠️ Select-all fallback gagal (${adbId}):`, err?.message || err);
+    throw new Error(
+      "Tidak bisa menjalankan Select All otomatis. Coba pilih teks secara manual."
+    );
+  }
+}
+
+async function runAndroidShortcutCommand(uid, shortcutId) {
+  const shortcut = ANDROID_REMOTE_SHORTCUTS[shortcutId];
+  if (!shortcut) {
+    throw new Error("Shortcut tidak dikenal.");
+  }
+  const record = findAndroidRemoteDevice(uid);
+  if (!record) {
+    throw new Error("Device Android tidak ditemukan.");
+  }
+  const adbId = record.adbId;
+  if (!adbId) {
+    throw new Error("Device tidak memiliki ADB ID.");
+  }
+  switch (shortcut.type) {
+    case "wake":
+      await ensureDeviceScreenAwake(adbId);
+      return `${shortcut.label} berhasil dijalankan.`;
+    case "selectAll":
+      await triggerAndroidSelectAll(adbId);
+      return "Perintah Select All dikirim.";
+    case "keyevent":
+      await sendAndroidKeyevent(adbId, shortcut.code);
+      return `${shortcut.label} dijalankan.`;
+    default:
+      throw new Error("Shortcut ini belum didukung.");
+  }
+}
+
+async function captureAndroidScreenshot(uid, destinationPath = null) {
+  const record = findAndroidRemoteDevice(uid);
+  if (!record) {
+    throw new Error("Device Android tidak ditemukan.");
+  }
+  const adbId = record.adbId;
+  if (!adbId) {
+    throw new Error("Device tidak memiliki ADB ID.");
+  }
+  const manager = ensureAndroidManagerReady();
+  const timestamp = Date.now();
+  const remotePath = `/sdcard/Download/starbox_screenshot_${timestamp}.png`;
+  await manager.runAdbCommand(
+    ["-s", adbId, "shell", "screencap", "-p", remotePath],
+    { timeout: 20000, silent: true }
+  );
+  const safeAdbId = String(adbId || uid)
+    .replace(/[^a-z0-9_-]+/gi, "-")
+    .toLowerCase();
+  const tempDir = path.join(os.tmpdir(), "starbox-screenshots");
+  fs.mkdirSync(tempDir, { recursive: true });
+  const tempPath = path.join(tempDir, `${safeAdbId}-${timestamp}.png`);
+  await manager.runAdbCommand(
+    ["-s", adbId, "pull", remotePath, tempPath],
+    { timeout: 20000, silent: true }
+  );
+  await manager
+    .runAdbCommand(["-s", adbId, "shell", "rm", remotePath], {
+      timeout: 8000,
+      silent: true,
+    })
+    .catch(() => {});
+  if (destinationPath) {
+    fs.copyFileSync(tempPath, destinationPath);
+    return { path: destinationPath };
+  }
+  return { path: tempPath };
+}
+
+const MAX_WIFI_SCAN_TARGETS = 256;
+
+function isPrivateIPv4Address(ip = "") {
+  if (typeof ip !== "string") return false;
+  if (/^10\./.test(ip)) return true;
+  if (/^192\.168\./.test(ip)) return true;
+  const match = ip.match(/^172\.(\d+)\./);
+  if (match) {
+    const second = Number(match[1]);
+    return second >= 16 && second <= 31;
+  }
+  return false;
+}
+
+function parseArpTableOutput(output = "") {
+  const candidates = new Set();
+  if (!output) return candidates;
+  const matches = output.match(/(\d{1,3}(?:\.\d{1,3}){3})/g) || [];
+  matches.forEach((ip) => {
+    if (isPrivateIPv4Address(ip)) {
+      candidates.add(ip);
+    }
+  });
+  return candidates;
+}
+
+function collectArpCandidates() {
+  const entries = new Set();
+  const commands = [
+    { cmd: "arp", args: ["-a"] },
+    { cmd: "arp", args: ["-an"] },
+  ];
+  if (process.platform === "linux") {
+    commands.push({ cmd: "ip", args: ["neighbor"] });
+  }
+  commands.forEach(({ cmd, args }) => {
+    try {
+      const result = spawnSync(cmd, args, {
+        encoding: "utf8",
+        windowsHide: true,
+      });
+      if (result.stdout) {
+        parseArpTableOutput(result.stdout).forEach((ip) => entries.add(ip));
+      }
+    } catch (err) {
+      console.warn(`⚠️ Gagal menjalankan ${cmd}:`, err?.message || err);
+    }
+  });
+  return entries;
+}
+
+function collectInterfaceNeighborCandidates() {
+  const neighbors = new Set();
+  const interfaces = os.networkInterfaces() || {};
+  Object.values(interfaces).forEach((infos = []) => {
+    infos.forEach((info = {}) => {
+      if (info.family !== "IPv4" || info.internal) return;
+      const address = info.address;
+      if (!isPrivateIPv4Address(address)) return;
+      const parts = address.split(".");
+      if (parts.length !== 4) return;
+      const base = parts.slice(0, 3).join(".");
+      const last = Number(parts[3]);
+      const hostRange = [];
+      for (let host = 2; host <= 254; host += 1) {
+        const candidate = `${base}.${host}`;
+        if (candidate === address) continue;
+        hostRange.push(candidate);
+      }
+      hostRange.forEach((ip) => neighbors.add(ip));
+    });
+  });
+  return neighbors;
+}
+
+function ipToSortableNumber(ip = "") {
+  return ip
+    .split(".")
+    .map((part) => Number(part) || 0)
+    .reduce((acc, part) => (acc << 8) + part, 0);
+}
+
+function getWifiScanCandidates() {
+  const combined = new Set();
+  collectArpCandidates().forEach((ip) => combined.add(ip));
+  collectInterfaceNeighborCandidates().forEach((ip) => combined.add(ip));
+  combined.delete("127.0.0.1");
+  const ordered = Array.from(combined)
+    .filter(isPrivateIPv4Address)
+    .sort((a, b) => ipToSortableNumber(a) - ipToSortableNumber(b));
+  return ordered.slice(0, MAX_WIFI_SCAN_TARGETS);
+}
+
+function probeAdbPort(ip, port = 5555, timeout = 1200) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const socket = nodeNet.createConnection({
+      host: ip,
+      port,
+      timeout,
+    });
+    const finalize = (result) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(result);
+    };
+    socket.setTimeout(timeout);
+    socket.once("connect", () => finalize(true));
+    socket.once("timeout", () => finalize(false));
+    socket.once("error", () => finalize(false));
+    socket.unref();
+  });
+}
+
+async function scanLocalWifiForAdbDevices() {
+  const manager = ensureAndroidManagerReady();
+  const candidates = getWifiScanCandidates();
+  const connected = [];
+  let index = 0;
+  const concurrency = Math.min(12, Math.max(2, candidates.length));
+  const worker = async () => {
+    while (index < candidates.length) {
+      const currentIndex = index;
+      index += 1;
+      const ip = candidates[currentIndex];
+      if (!ip) break;
+      let reachable = false;
+      try {
+        reachable = await probeAdbPort(ip, 5555, 1200);
+      } catch (err) {
+        reachable = false;
+      }
+      if (!reachable) continue;
+      try {
+        const output = await manager.runAdbCommand(
+          ["connect", `${ip}:5555`],
+          { timeout: 8000, silent: true }
+        );
+        if (
+          /connected to/i.test(output) ||
+          /already connected/i.test(output)
+        ) {
+          connected.push(ip);
+        }
+      } catch (err) {
+        console.warn(
+          `⚠️ adb connect ke ${ip}:5555 gagal:`,
+          err?.message || err
+        );
+      }
+    }
+  };
+  const tasks = Array.from({ length: concurrency }, () => worker());
+  await Promise.all(tasks);
+  return {
+    scanned: candidates.length,
+    connected,
+  };
+}
 
 const CHROME_DEBUG_PORT_BASE = 15000;
 const CHROME_DEBUG_PORT_RANGE = 1000;
@@ -2782,11 +3271,13 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
   if (!phoneNumber) {
     throw new Error("Nomor tujuan WhatsApp tidak valid.");
   }
+  await ensureDeviceScreenAwake(adbId);
 
   for (let i = 0; i < messages.length; i += 1) {
     if (actionToken?.aborted) {
       throw new Error("Remote action dibatalkan oleh pengguna.");
     }
+    await ensureDeviceScreenAwake(adbId);
     const message = messages[i];
     const waUrl = `https://wa.me/${phoneNumber}`;
     console.log(
@@ -3042,6 +3533,54 @@ async function estimateWhatsappSendButton(adbId) {
   const x = Math.max(Math.floor(width * 0.92), width - 120);
   const y = Math.max(Math.floor(height * 0.78), height - 260);
   return { x, y };
+}
+
+function openAndroidDeviceDisplay(uid) {
+  if (!uid) {
+    throw new Error("UID tidak valid.");
+  }
+  const record = findAndroidRemoteDevice(uid);
+  if (!record) {
+    throw new Error("Device Android tidak ditemukan.");
+  }
+  const adbId = record.adbId;
+  if (!adbId) {
+    throw new Error("Device tidak memiliki ADB ID.");
+  }
+  const existing = scrcpySessions.get(adbId);
+  if (existing && !existing.killed) {
+    return { message: "Tampilan perangkat sudah berjalan." };
+  }
+  return launchScrcpyForDevice(adbId);
+}
+
+function launchScrcpyForDevice(adbId) {
+  try {
+    const proc = spawn("scrcpy", ["-s", adbId], {
+      stdio: "ignore",
+      env: process.env,
+    });
+    scrcpySessions.set(adbId, proc);
+    const cleanup = () => {
+      if (scrcpySessions.get(adbId) === proc) {
+        scrcpySessions.delete(adbId);
+      }
+    };
+    proc.once("exit", cleanup);
+    proc.once("error", (err) => {
+      cleanup();
+      console.warn(
+        `⚠️ scrcpy gagal untuk ${adbId}:`,
+        err?.message || err
+      );
+    });
+    return { message: "Membuka tampilan perangkat..." };
+  } catch (err) {
+    console.warn(`⚠️ Tidak bisa menjalankan scrcpy:`, err?.message || err);
+    throw new Error(
+      "scrcpy tidak ditemukan atau gagal dijalankan. Pastikan scrcpy terinstal di komputer ini."
+    );
+  }
 }
 
 async function performAndroidRemoteAction(
@@ -5145,6 +5684,72 @@ ipcMain.handle("android-list-physical-devices", async () => {
   }
 });
 
+ipcMain.handle("android-scan-local-wifi", async () => {
+  try {
+    const result = await scanLocalWifiForAdbDevices();
+    return { success: true, ...result };
+  } catch (err) {
+    return {
+      success: false,
+      message: err?.message || "Gagal memindai jaringan lokal.",
+    };
+  }
+});
+
+let adbStatusInterval = null;
+async function startAdbStatusMonitor() {
+  if (adbStatusInterval) return;
+  let manager = null;
+  try {
+    manager = ensureAndroidManagerReady();
+  } catch (err) {
+    console.warn(
+      "⚠️ ADB manager belum siap, status monitor tidak bisa berjalan:",
+      err?.message || err
+    );
+    return;
+  }
+  const checkStatus = async () => {
+    try {
+      const result = await manager.listConnectedDevices();
+      const devices = Array.isArray(result)
+        ? result
+        : Array.isArray(result?.devices)
+        ? result.devices
+        : [];
+      const entries = readAndroidRemoteDevices();
+      const updates = [];
+      entries.forEach((entry) => {
+        const adb = devices.find(
+          (dev) => dev.adbId && dev.adbId === entry.adbId
+        );
+        const nextStatus = adb
+          ? adb.status === "device"
+            ? "connected"
+            : "disconnected"
+          : "disconnected";
+        if (entry.status !== nextStatus) {
+          entry.status = nextStatus;
+          entry.updated_at = new Date().toISOString();
+          updates.push(entry);
+        }
+      });
+      if (updates.length) {
+        writeAndroidRemoteDevices(entries);
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) {
+            win.webContents.send("android-remote-status-updated", updates);
+          }
+        });
+      }
+    } catch (err) {
+      console.warn("⚠️ Gagal memeriksa status ADB:", err?.message || err);
+    }
+  };
+  setTimeout(checkStatus, 5000);
+  adbStatusInterval = setInterval(checkStatus, 10000);
+}
+
 ipcMain.handle(
   "android-remote-run-action",
   async (_event, uid, action = "default", payload = {}) => {
@@ -5166,6 +5771,53 @@ ipcMain.handle("android-remote-cancel-action", (_event, uid) => {
     return { success: true, message: "Remote action dihentikan." };
   }
   return { success: false, message: "Tidak ada aksi remote yang berjalan." };
+});
+
+ipcMain.handle(
+  "android-remote-send-shortcut",
+  async (_event, uid, shortcutId) => {
+    try {
+      const message = await runAndroidShortcutCommand(uid, shortcutId);
+      return { success: true, message };
+    } catch (err) {
+      return {
+        success: false,
+        message: err?.message || "Gagal menjalankan shortcut.",
+      };
+    }
+  }
+);
+
+ipcMain.handle("android-remote-screenshot", async (event, uid) => {
+  try {
+    const browserWindow = BrowserWindow.fromWebContents(event.sender);
+    const defaultName = `android-screenshot-${new Date()
+      .toISOString()
+      .replace(/[:.]/g, "-")}.png`;
+    const dialogOpts = {
+      title: "Simpan Screenshot Android",
+      defaultPath: path.join(app.getPath("pictures") || app.getPath("home"), defaultName),
+      filters: [{ name: "PNG Image", extensions: ["png"] }],
+    };
+    const { canceled, filePath } = await dialog.showSaveDialog(
+      browserWindow,
+      dialogOpts
+    );
+    if (canceled || !filePath) {
+      return { success: false, cancelled: true, message: "Penyimpanan screenshot dibatalkan." };
+    }
+    const result = await captureAndroidScreenshot(uid, filePath);
+    return {
+      success: true,
+      path: result.path,
+      message: "Screenshot berhasil disimpan.",
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: err?.message || "Gagal mengambil screenshot.",
+    };
+  }
 });
 
 ipcMain.handle("delete-device", (event, uid) => {
@@ -5276,6 +5928,70 @@ ipcMain.handle("get-system-info", () => {
       username: "unknown",
       hostname: os.hostname(),
       platform: os.platform(),
+    };
+  }
+});
+
+ipcMain.handle("android-remote-open-display", async (_event, uid) => {
+  try {
+    const result = openAndroidDeviceDisplay(uid);
+    return { success: true, ...result };
+  } catch (err) {
+    return {
+      success: false,
+      message: err?.message || "Gagal membuka tampilan perangkat.",
+    };
+  }
+});
+
+ipcMain.handle("scrcpy-check", () => {
+  try {
+    return {
+      success: true,
+      installed: isScrcpyInstalled(),
+      platform: process.platform,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      installed: false,
+      message: err?.message || "Gagal memeriksa ketersediaan scrcpy.",
+    };
+  }
+});
+
+ipcMain.handle("scrcpy-install", async () => {
+  try {
+    if (isScrcpyInstalled()) {
+      return {
+        success: true,
+        installed: true,
+        alreadyInstalled: true,
+        message: "scrcpy sudah terpasang.",
+      };
+    }
+    await installScrcpyAutomatically();
+    const installed = isScrcpyInstalled();
+    if (installed) {
+      return {
+        success: true,
+        installed: true,
+        message: "scrcpy berhasil dipasang.",
+      };
+    }
+    return {
+      success: false,
+      installed: false,
+      message:
+        "Instalasi selesai, tetapi scrcpy belum terdeteksi. Silakan cek log terminal.",
+    };
+  } catch (err) {
+    return {
+      success: false,
+      installed: false,
+      message:
+        err?.message ||
+        "Gagal menjalankan instalasi otomatis scrcpy. Coba pasang manual.",
     };
   }
 });
@@ -6478,6 +7194,12 @@ app.whenReady().then(async () => {
 
   // ✅ Buat window utama
   createMainWindow();
+  startAdbStatusMonitor().catch((err) => {
+    console.warn(
+      "⚠️ Gagal memulai pemantauan status ADB:",
+      err?.message || err
+    );
+  });
 
   // Pastikan DB file ada
   if (!fs.existsSync(DB_PATH)) {

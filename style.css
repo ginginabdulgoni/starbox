@@ -741,6 +741,77 @@ footer a {
     display: none;
   }
 
+  .device-limit-info.scrcpy-notice {
+    background: rgba(59, 130, 246, 0.12);
+    border-color: rgba(59, 130, 246, 0.35);
+    color: #bfdbfe;
+    display: none;
+    gap: 14px;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .scrcpy-notice-text {
+    flex: 1;
+    min-width: 220px;
+  }
+
+  .scrcpy-notice-text p {
+    margin: 4px 0 0;
+    color: rgba(191, 219, 254, 0.9);
+    font-size: 0.87rem;
+  }
+
+  #installScrcpyButton {
+    border: none;
+    background: rgba(37, 99, 235, 0.95);
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  #installScrcpyButton:disabled {
+    opacity: 0.6;
+    cursor: progress;
+  }
+
+  .monitor-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .monitor-mini-actions {
+    display: flex;
+    gap: 4px;
+    flex-wrap: nowrap;
+  }
+
+  .monitor-mini-actions .mini-action {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: rgba(148, 163, 184, 0.12);
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #e2e8f0;
+  }
+
+  .monitor-mini-actions .mini-action:hover {
+    background: rgba(148, 163, 184, 0.25);
+  }
+
+  .monitor-mini-actions .mini-action i {
+    font-size: 0.95rem;
+    pointer-events: none;
+  }
+
   .auth-actions {
     display: flex;
     gap: 10px;

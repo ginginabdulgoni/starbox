@@ -401,6 +401,22 @@
             role="status"
             aria-live="polite"
           ></div>
+          <div
+            id="scrcpyStatusNotice"
+            class="device-limit-info scrcpy-notice"
+            style="display: none"
+          >
+            <div class="scrcpy-notice-text">
+              <strong>Tampilan layar HP membutuhkan scrcpy.</strong>
+              <p id="scrcpyStatusText">
+                scrcpy belum terdeteksi. Klik tombol di samping untuk menginstal
+                otomatis melalui Homebrew/Chocolatey.
+              </p>
+            </div>
+            <button id="installScrcpyButton" type="button">
+              Install scrcpy otomatis
+            </button>
+          </div>
 
           <div id="device-list-android" class="device-list android-remote-list">
             Loading...

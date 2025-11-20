@@ -90,8 +90,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listAdbDevices: () => ipcRenderer.invoke('android-list-physical-devices'),
     runAction: (uid, action, payload) =>
       ipcRenderer.invoke('android-remote-run-action', uid, action, payload),
+    openDisplay: (uid) => ipcRenderer.invoke('android-remote-open-display', uid),
+    checkScrcpy: () => ipcRenderer.invoke('scrcpy-check'),
+    installScrcpy: () => ipcRenderer.invoke('scrcpy-install'),
+    sendShortcut: (uid, shortcutId) =>
+      ipcRenderer.invoke('android-remote-send-shortcut', uid, shortcutId),
+    captureScreenshot: (uid) =>
+      ipcRenderer.invoke('android-remote-screenshot', uid),
+    scanLocalWifi: () => ipcRenderer.invoke('android-scan-local-wifi'),
     cancelAction: (uid) =>
       ipcRenderer.invoke('android-remote-cancel-action', uid),
+    onStatusUpdated: (callback) => {
+      if (typeof callback !== 'function') return;
+      const listener = (_event, updates) => callback(updates);
+      ipcRenderer.on('android-remote-status-updated', listener);
+      return () =>
+        ipcRenderer.removeListener('android-remote-status-updated', listener);
+    },
   },
 
   // iOS Simulator APIs

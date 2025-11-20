@@ -729,6 +729,11 @@ const assetPendingRequests = new Map();
 const assetElementRegistry = new Map();
 let cachedAndroidRemoteDevices = [];
 let cachedAdbDevices = [];
+const scrcpyStatusState = {
+  installed: false,
+  checking: false,
+  installing: false,
+};
 
 function buildServiceConfig(list = []) {
   return list.reduce(
@@ -1881,6 +1886,43 @@ function formatAndroidRemoteStatus(status) {
 
 let isLoadingAdbDevices = false;
 
+async function maybeScanLocalWifiForAdb(showToastMessage = false) {
+  const api = window.electronAPI?.androidRemote;
+  if (!api?.scanLocalWifi) return null;
+  try {
+    const result = await api.scanLocalWifi();
+    if (showToastMessage) {
+      if (result?.success) {
+        const newCount = Array.isArray(result.connected)
+          ? result.connected.length
+          : 0;
+        if (newCount > 0) {
+          showToast(
+            `Scan Wi-Fi menemukan ${newCount} device siap ADB.`,
+            3200,
+            "success"
+          );
+        } else if (result.scanned) {
+          showToast("Scan Wi-Fi selesai, tidak ada device baru.", 2800, "info");
+        }
+      } else {
+        showToast(
+          result?.message || "Scan Wi-Fi gagal dijalankan.",
+          3200,
+          "error"
+        );
+      }
+    }
+    return result;
+  } catch (err) {
+    console.warn("⚠️ Scan Wi-Fi ADB gagal:", err);
+    if (showToastMessage) {
+      showToast(err?.message || "Scan Wi-Fi gagal.", 3200, "error");
+    }
+    return null;
+  }
+}
+
 async function refreshAdbDeviceOptionsInternal(
   selectId = "androidAdbDeviceSelect",
   { showToastMessage = false } = {}
@@ -1896,6 +1938,7 @@ async function refreshAdbDeviceOptionsInternal(
   select.innerHTML = "";
   select.appendChild(placeholder);
   try {
+    await maybeScanLocalWifiForAdb(showToastMessage);
     const response =
       (await window.electronAPI.androidRemote.listAdbDevices()) || {};
     const list = Array.isArray(response.devices) ? response.devices : [];
@@ -4692,6 +4735,29 @@ function renderDevicesAndroid(devices = []) {
             <i class="bi bi-magic"></i>
             <span>Remote</span>
           </button>
+          <div class="monitor-group">
+            <button class="monitor">
+              <i class="bi bi-display"></i>
+              <span>Monitor</span>
+            </button>
+            <div class="monitor-mini-actions">
+              <button class="mini-action" data-action="wake" title="Bangunkan / buka kunci">
+                <i class="bi bi-power"></i>
+              </button>
+              <button class="mini-action" data-action="sleep" title="Tidurkan layar">
+                <i class="bi bi-moon"></i>
+              </button>
+              <button class="mini-action" data-action="volume-up" title="Volume up">
+                <i class="bi bi-volume-up"></i>
+              </button>
+              <button class="mini-action" data-action="volume-down" title="Volume down">
+                <i class="bi bi-volume-down"></i>
+              </button>
+              <button class="mini-action" data-action="screenshot" title="Screenshot">
+                <i class="bi bi-camera"></i>
+              </button>
+            </div>
+          </div>
           <button class="stop">
             <i class="bi bi-stop-circle"></i>
             <span>Stop</span>
@@ -4705,11 +4771,16 @@ function renderDevicesAndroid(devices = []) {
     `;
 
     const remoteButton = deviceCard.querySelector(".remote");
+    const monitorButton = deviceCard.querySelector(".monitor");
     const stopButton = deviceCard.querySelector(".stop");
     const deleteButton = deviceCard.querySelector(".delete");
     remoteButton?.addEventListener("click", (evt) => {
       evt.stopPropagation();
       remoteAndroidDevice(device);
+    });
+    monitorButton?.addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      openAndroidRemoteDisplay(device.uid);
     });
     stopButton?.addEventListener("click", (evt) => {
       evt.stopPropagation();
@@ -4719,6 +4790,15 @@ function renderDevicesAndroid(devices = []) {
       evt.stopPropagation();
       deleteAndroidRemoteDevice(device.uid);
     });
+    deviceCard
+      .querySelectorAll(".monitor-mini-actions .mini-action")
+      .forEach((button) => {
+        button.addEventListener("click", (evt) => {
+          evt.stopPropagation();
+          const action = button.dataset.action;
+          handleAndroidMiniAction(device, action);
+        });
+      });
 
     fragment.appendChild(deviceCard);
   });
@@ -4824,6 +4904,281 @@ function deleteAndroidRemoteDevice(uid) {
   });
 }
 
+function openAndroidRemoteDisplay(uid, options = {}) {
+  if (!uid) return Promise.resolve(false);
+  const { silent = false, silentSuccess = false } = options;
+  const api = window.electronAPI?.androidRemote;
+  if (!api || typeof api.openDisplay !== "function") {
+    if (!silent) {
+      showToast(
+        "Fitur tampilan perangkat belum tersedia di versi ini.",
+        3500,
+        "warning"
+      );
+    }
+    return Promise.resolve(false);
+  }
+  return api
+    .openDisplay(uid)
+    .then((response = {}) => {
+      if (response.success) {
+        if (!silentSuccess) {
+          showToast(
+            response.message || "Membuka tampilan perangkat...",
+            2500,
+            "success"
+          );
+        }
+        wakeAndroidDeviceSilently(uid);
+        return true;
+      }
+      if (!silent) {
+        showToast(
+          response.message || "Gagal membuka tampilan perangkat.",
+          3500,
+          "error"
+        );
+      }
+      return false;
+    })
+    .catch((err) => {
+      console.error("⚠️ Tidak bisa membuka tampilan perangkat:", err);
+      if (!silent) {
+        showToast(
+          err?.message || "Gagal membuka tampilan perangkat.",
+          3500,
+          "error"
+        );
+      }
+      return false;
+    });
+}
+
+function wakeAndroidDeviceSilently(uid) {
+  const api = window.electronAPI?.androidRemote;
+  if (!api?.sendShortcut) return;
+  api
+    .sendShortcut(uid, "wake-screen")
+    .catch((err) =>
+      console.warn("⚠️ Gagal membangunkan device otomatis:", err)
+    );
+}
+
+function sendAndroidShortcutWithFeedback(uid, shortcutId, successMsg) {
+  const api = window.electronAPI?.androidRemote;
+  if (!api?.sendShortcut) {
+    showToast("Fitur shortcut tidak tersedia.", 3000, "warning");
+    return Promise.resolve(false);
+  }
+  showToast("Mengirim perintah ke device...", 1800, "info");
+  return api
+    .sendShortcut(uid, shortcutId)
+    .then((response = {}) => {
+      if (response.success) {
+        showToast(
+          successMsg || response.message || "Perintah berhasil dikirim.",
+          2500,
+          "success"
+        );
+        return true;
+      }
+      showToast(
+        response.message || "Perintah gagal dijalankan.",
+        3000,
+        "error"
+      );
+      return false;
+    })
+    .catch((err) => {
+      console.error("⚠️ Shortcut gagal:", err);
+      showToast(err?.message || "Perintah gagal dijalankan.", 3200, "error");
+      return false;
+    });
+}
+
+function captureAndroidDeviceScreenshot(device) {
+  if (!device || !device.uid) return;
+  const api = window.electronAPI?.androidRemote;
+  if (!api?.captureScreenshot) {
+    showToast("Fitur screenshot belum tersedia.", 3200, "warning");
+    return;
+  }
+  showToast("Mengambil screenshot...", 2000, "info");
+  api
+    .captureScreenshot(device.uid)
+    .then((response = {}) => {
+      if (response.cancelled) {
+        showToast("Penyimpanan screenshot dibatalkan.", 2600, "info");
+        return;
+      }
+      if (response.success && response.path) {
+        showToast(
+          response.message || `Screenshot disimpan di ${response.path}`,
+          4200,
+          "success"
+        );
+        return;
+      }
+      showToast(
+        response.message || "Gagal mengambil screenshot.",
+        3200,
+        "error"
+      );
+    })
+    .catch((err) => {
+      console.error("⚠️ Screenshot gagal:", err);
+      showToast(err?.message || "Gagal mengambil screenshot.", 3200, "error");
+    });
+}
+
+function handleAndroidMiniAction(device, action) {
+  if (!device || !device.uid) return;
+  switch (action) {
+    case "wake":
+      sendAndroidShortcutWithFeedback(
+        device.uid,
+        "wake-screen",
+        "Layar dibangunkan."
+      );
+      break;
+    case "sleep":
+      sendAndroidShortcutWithFeedback(
+        device.uid,
+        "sleep",
+        "Perangkat masuk mode sleep."
+      );
+      break;
+    case "volume-up":
+      sendAndroidShortcutWithFeedback(
+        device.uid,
+        "volume-up",
+        "Volume up dikirim."
+      );
+      break;
+    case "volume-down":
+      sendAndroidShortcutWithFeedback(
+        device.uid,
+        "volume-down",
+        "Volume down dikirim."
+      );
+      break;
+    case "screenshot":
+      captureAndroidDeviceScreenshot(device);
+      break;
+    default:
+      console.warn("Tidak ada aksi untuk shortcut:", action);
+  }
+}
+
+function updateScrcpyNoticeUI(customMessage = "") {
+  const notice = document.getElementById("scrcpyStatusNotice");
+  const textEl = document.getElementById("scrcpyStatusText");
+  const button = document.getElementById("installScrcpyButton");
+  if (!notice || !textEl || !button) return;
+  if (scrcpyStatusState.installed) {
+    notice.style.display = "none";
+    return;
+  }
+  notice.style.display = "flex";
+  if (customMessage) {
+    textEl.textContent = customMessage;
+  } else if (scrcpyStatusState.checking) {
+    textEl.textContent = "Sedang memeriksa instalasi scrcpy...";
+  } else {
+    textEl.textContent =
+      "scrcpy belum terpasang. Dibutuhkan untuk menampilkan layar HP secara langsung.";
+  }
+  button.disabled = scrcpyStatusState.installing || scrcpyStatusState.checking;
+  button.textContent = scrcpyStatusState.installing
+    ? "Menginstal..."
+    : "Install scrcpy otomatis";
+}
+
+async function refreshScrcpyStatusIndicator() {
+  const notice = document.getElementById("scrcpyStatusNotice");
+  if (!notice) return;
+  const api = window.electronAPI?.androidRemote;
+  if (!api?.checkScrcpy) {
+    notice.style.display = "none";
+    scrcpyStatusState.installed = true;
+    return;
+  }
+  scrcpyStatusState.checking = true;
+  updateScrcpyNoticeUI();
+  let customMessage = "";
+  try {
+    const result = await api.checkScrcpy();
+    if (result?.success === false && result?.message) {
+      scrcpyStatusState.installed = false;
+      customMessage = result.message;
+    } else {
+      scrcpyStatusState.installed = !!result?.installed;
+    }
+  } catch (err) {
+    console.warn("⚠️ Tidak bisa mengecek scrcpy:", err);
+    scrcpyStatusState.installed = false;
+    customMessage =
+      "Tidak bisa mengecek scrcpy. Coba jalankan aplikasi sebagai admin.";
+  } finally {
+    scrcpyStatusState.checking = false;
+    updateScrcpyNoticeUI(customMessage);
+  }
+}
+
+function requestScrcpyInstallation() {
+  const api = window.electronAPI?.androidRemote;
+  if (!api?.installScrcpy) {
+    showToast(
+      "Fitur instalasi otomatis tidak tersedia di versi ini.",
+      3500,
+      "warning"
+    );
+    return;
+  }
+  if (scrcpyStatusState.installing) return;
+  scrcpyStatusState.installing = true;
+  updateScrcpyNoticeUI();
+  showToast("Menjalankan instalasi scrcpy...", 3500, "info");
+  api
+    .installScrcpy()
+    .then((response = {}) => {
+      if (response.success) {
+        showToast(
+          response.message || "scrcpy berhasil dipasang.",
+          3500,
+          "success"
+        );
+      } else {
+        showToast(
+          response.message ||
+            "Instalasi otomatis scrcpy gagal. Coba pasang manual.",
+          4000,
+          "error"
+        );
+      }
+    })
+    .catch((err) => {
+      console.error("⚠️ Instalasi scrcpy gagal:", err);
+      showToast(
+        err?.message || "Instalasi otomatis scrcpy gagal.",
+        4000,
+        "error"
+      );
+    })
+    .finally(() => {
+      scrcpyStatusState.installing = false;
+      refreshScrcpyStatusIndicator();
+    });
+}
+
+function setupScrcpyHelperCard() {
+  const installBtn = document.getElementById("installScrcpyButton");
+  if (installBtn) {
+    installBtn.addEventListener("click", () => requestScrcpyInstallation());
+  }
+  refreshScrcpyStatusIndicator();
+}
+
 function remoteAndroidDevice(device) {
   if (!device || !device.uid) return;
   const serviceKey = (device.service || "").toLowerCase();
@@ -4853,6 +5208,7 @@ function remoteAndroidDevice(device) {
     }).then((result) => {
       if (!result.isConfirmed) return;
       const typingSpeed = result.value || "instant";
+      openAndroidRemoteDisplay(device.uid, { silentSuccess: true });
       runAndroidRemoteAction(device.uid, "whatsapp-send-sample", {
         typingSpeed,
       });
@@ -5182,6 +5538,24 @@ window.addEventListener("DOMContentLoaded", () => {
   );
   populateAndroidRemoteServiceSelect("androidRemoteServiceSelect");
   refreshAdbDeviceOptionsInternal("androidAdbDeviceSelect");
+  setupScrcpyHelperCard();
+  if (window.electronAPI?.androidRemote?.onStatusUpdated) {
+    window.electronAPI.androidRemote.onStatusUpdated((updates = []) => {
+      if (!Array.isArray(updates) || !updates.length) return;
+      let changed = false;
+      cachedAndroidRemoteDevices = cachedAndroidRemoteDevices.map((device) => {
+        const next = updates.find((entry) => entry.uid === device.uid);
+        if (next && next.status !== device.status) {
+          changed = true;
+          return { ...device, status: next.status };
+        }
+        return device;
+      });
+      if (changed) {
+        renderDevicesAndroid(cachedAndroidRemoteDevices);
+      }
+    });
+  }
   renderServiceBrowserGrid();
   refreshServiceLibraryFromServer()
     .then((updated) => {
