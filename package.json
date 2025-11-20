@@ -183,6 +183,7 @@
     "electron-store": "^8.1.0",
     "extract-zip": "^2.0.1",
     "node-machine-id": "^1.1.12",
+    "node-window-manager": "^2.2.4",
     "pino": "8.19.0",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",

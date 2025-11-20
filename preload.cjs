@@ -97,7 +97,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('android-remote-send-shortcut', uid, shortcutId),
     captureScreenshot: (uid) =>
       ipcRenderer.invoke('android-remote-screenshot', uid),
-    scanLocalWifi: () => ipcRenderer.invoke('android-scan-local-wifi'),
+    scanLocalWifi: (options) => ipcRenderer.invoke('android-scan-local-wifi', options),
     cancelAction: (uid) =>
       ipcRenderer.invoke('android-remote-cancel-action', uid),
     onStatusUpdated: (callback) => {
@@ -106,6 +106,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('android-remote-status-updated', listener);
       return () =>
         ipcRenderer.removeListener('android-remote-status-updated', listener);
+    },
+    onWifiScanProgress: (callback) => {
+      if (typeof callback !== 'function') return;
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on('adb-wifi-scan-progress', listener);
+      return () =>
+        ipcRenderer.removeListener('adb-wifi-scan-progress', listener);
     },
   },
 

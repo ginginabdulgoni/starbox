@@ -1886,11 +1886,11 @@ function formatAndroidRemoteStatus(status) {
 
 let isLoadingAdbDevices = false;
 
-async function maybeScanLocalWifiForAdb(showToastMessage = false) {
+async function maybeScanLocalWifiForAdb(showToastMessage = false, scanMode = 'quick') {
   const api = window.electronAPI?.androidRemote;
   if (!api?.scanLocalWifi) return null;
   try {
-    const result = await api.scanLocalWifi();
+    const result = await api.scanLocalWifi({ scanMode });
     if (showToastMessage) {
       if (result?.success) {
         const newCount = Array.isArray(result.connected)
@@ -1923,6 +1923,34 @@ async function maybeScanLocalWifiForAdb(showToastMessage = false) {
   }
 }
 
+// Progress bar helpers
+function showAdbScanProgress() {
+  const progressEl = document.getElementById("adbScanProgress");
+  const btnRefresh = document.getElementById("btnRefreshAdb");
+  if (progressEl) progressEl.style.display = "block";
+  if (btnRefresh) btnRefresh.disabled = true;
+}
+
+function hideAdbScanProgress() {
+  const progressEl = document.getElementById("adbScanProgress");
+  const btnRefresh = document.getElementById("btnRefreshAdb");
+  if (progressEl) progressEl.style.display = "none";
+  if (btnRefresh) btnRefresh.disabled = false;
+}
+
+function updateAdbScanProgress(percent, status) {
+  const progressBar = document.getElementById("adbScanProgressBar");
+  const percentEl = document.getElementById("adbScanPercent");
+  const statusEl = document.getElementById("adbScanStatus");
+
+  if (progressBar) progressBar.style.width = `${percent}%`;
+  if (percentEl) percentEl.textContent = `${Math.round(percent)}%`;
+  if (statusEl) statusEl.textContent = status;
+}
+
+let wifiScanProgressListener = null;
+let foundDevicesDuringLiveScan = new Set();
+
 async function refreshAdbDeviceOptionsInternal(
   selectId = "androidAdbDeviceSelect",
   { showToastMessage = false } = {}
@@ -1930,6 +1958,8 @@ async function refreshAdbDeviceOptionsInternal(
   const select = document.getElementById(selectId);
   if (!select || isLoadingAdbDevices) return;
   isLoadingAdbDevices = true;
+  foundDevicesDuringLiveScan.clear();
+
   const placeholder = document.createElement("option");
   placeholder.value = "";
   placeholder.textContent = "Memuat perangkat ADB...";
@@ -1937,13 +1967,117 @@ async function refreshAdbDeviceOptionsInternal(
   placeholder.selected = true;
   select.innerHTML = "";
   select.appendChild(placeholder);
+
+  // Show progress bar
+  showAdbScanProgress();
+
+  // Setup real-time WiFi scan progress listener
+  if (window.electronAPI?.androidRemote?.onWifiScanProgress) {
+    // Remove old listener if exists
+    if (wifiScanProgressListener) {
+      wifiScanProgressListener();
+    }
+
+    wifiScanProgressListener = window.electronAPI.androidRemote.onWifiScanProgress((data) => {
+      const { progress, foundDevices, newDevice, completed } = data;
+
+      // Update progress bar
+      if (progress !== undefined) {
+        const status = completed
+          ? "Selesai!"
+          : `Scanning WiFi (${Math.round(progress)}%)...`;
+        updateAdbScanProgress(Math.max(20, Math.min(90, progress * 0.7 + 20)), status);
+      }
+
+      // Add newly found device to dropdown immediately
+      if (newDevice && !foundDevicesDuringLiveScan.has(newDevice)) {
+        foundDevicesDuringLiveScan.add(newDevice);
+
+        // Remove placeholder if this is the first device
+        if (select.options.length === 1 && select.options[0].disabled) {
+          select.innerHTML = "";
+          const newPlaceholder = document.createElement("option");
+          newPlaceholder.value = "";
+          newPlaceholder.textContent = "Pilih perangkat ADB...";
+          newPlaceholder.disabled = true;
+          newPlaceholder.selected = true;
+          select.appendChild(newPlaceholder);
+        }
+
+        // Add the new device option
+        const option = document.createElement("option");
+        option.value = newDevice;
+        option.textContent = `📱 ${newDevice} (WiFi)`;
+        select.appendChild(option);
+
+        console.log(`✅ Real-time: Added ${newDevice} to dropdown`);
+      }
+    });
+  }
+
   try {
-    await maybeScanLocalWifiForAdb(showToastMessage);
+    // Get scan options from checkboxes
+    const scanUsb = document.getElementById('adbScanUsb');
+    const scanWifiQuick = document.getElementById('adbScanWifiQuick');
+    const scanWifiDeep = document.getElementById('adbScanWifiDeep');
+
+    const shouldScanUsb = scanUsb && scanUsb.checked;
+    const shouldScanWifi = (scanWifiQuick && scanWifiQuick.checked) || (scanWifiDeep && scanWifiDeep.checked);
+    const scanMode = (scanWifiDeep && scanWifiDeep.checked) ? 'deep' : 'quick';
+
+    // Validate: at least one option must be selected
+    if (!shouldScanUsb && !shouldScanWifi) {
+      showToast('Pilih minimal 1 mode scan (USB atau WiFi)', 3000, 'error');
+      return;
+    }
+
+    let progress = 10;
+
+    // Step 1: USB scan (instant if enabled)
+    if (shouldScanUsb) {
+      updateAdbScanProgress(progress, "Memeriksa perangkat USB...");
+      progress += 10;
+      // USB devices are automatically detected by adb devices command
+      // No explicit scan needed, just a small delay for UX
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+
+    // Step 2: WiFi scan (if enabled)
+    if (shouldScanWifi) {
+      const scanModeLabel = scanMode === 'deep'
+        ? 'Deep Scan (30000-49999)'
+        : 'Quick Scan (port umum)';
+      updateAdbScanProgress(progress, `${scanModeLabel}: Scanning WiFi...`);
+      await maybeScanLocalWifiForAdb(showToastMessage, scanMode);
+      progress = 90;
+    }
+
+    updateAdbScanProgress(progress, "Mengambil daftar perangkat...");
+
     const response =
       (await window.electronAPI.androidRemote.listAdbDevices()) || {};
     const list = Array.isArray(response.devices) ? response.devices : [];
     cachedAdbDevices = list;
-    applyAdbDevicesToSelect(select, list);
+
+    updateAdbScanProgress(100, "Selesai!");
+
+    // Only update dropdown if no devices were found during live scan
+    if (foundDevicesDuringLiveScan.size === 0) {
+      applyAdbDevicesToSelect(select, list);
+    } else {
+      // Merge with any USB devices that weren't in the WiFi scan
+      const wifiDeviceIds = Array.from(foundDevicesDuringLiveScan);
+      const usbDevices = list.filter(d => !wifiDeviceIds.includes(d.id));
+
+      // Add USB devices if any
+      usbDevices.forEach(device => {
+        const option = document.createElement("option");
+        option.value = device.id;
+        option.textContent = `📱 ${device.name || device.id}`;
+        select.appendChild(option);
+      });
+    }
+
     if (showToastMessage) {
       if (response.success) {
         showToast(
@@ -1957,13 +2091,22 @@ async function refreshAdbDeviceOptionsInternal(
     }
   } catch (err) {
     console.error("⚠️ Gagal memuat perangkat ADB:", err);
-    select.innerHTML =
-      '<option value="">Tidak dapat memuat perangkat ADB</option>';
+    if (foundDevicesDuringLiveScan.size === 0) {
+      select.innerHTML =
+        '<option value="">Tidak dapat memuat perangkat ADB</option>';
+    }
     if (showToastMessage) {
       showToast("Tidak dapat membaca daftar ADB.", 3500, "error");
     }
   } finally {
     isLoadingAdbDevices = false;
+    // Cleanup listener
+    if (wifiScanProgressListener) {
+      wifiScanProgressListener();
+      wifiScanProgressListener = null;
+    }
+    // Hide progress bar after delay
+    setTimeout(hideAdbScanProgress, 500);
   }
 }
 
@@ -4735,68 +4878,73 @@ function renderDevicesAndroid(devices = []) {
             <i class="bi bi-magic"></i>
             <span>Remote</span>
           </button>
-          <div class="monitor-group">
-            <button class="monitor">
-              <i class="bi bi-display"></i>
-              <span>Monitor</span>
-            </button>
-            <div class="monitor-mini-actions">
-              <button class="mini-action" data-action="wake" title="Bangunkan / buka kunci">
-                <i class="bi bi-power"></i>
-              </button>
-              <button class="mini-action" data-action="sleep" title="Tidurkan layar">
-                <i class="bi bi-moon"></i>
-              </button>
-              <button class="mini-action" data-action="volume-up" title="Volume up">
-                <i class="bi bi-volume-up"></i>
-              </button>
-              <button class="mini-action" data-action="volume-down" title="Volume down">
-                <i class="bi bi-volume-down"></i>
-              </button>
-              <button class="mini-action" data-action="screenshot" title="Screenshot">
-                <i class="bi bi-camera"></i>
-              </button>
-            </div>
-          </div>
-          <button class="stop">
-            <i class="bi bi-stop-circle"></i>
-            <span>Stop</span>
+          <button class="monitor">
+            <i class="bi bi-display"></i>
+            <span>Monitor</span>
           </button>
           <button class="delete">
             <i class="bi bi-trash-fill"></i>
             <span>Hapus</span>
           </button>
+          <div class="device-dropdown">
+            <button class="dropdown-action" data-action="wake">
+              <i class="bi bi-power"></i> Wake
+            </button>
+            <button class="dropdown-action" data-action="sleep">
+              <i class="bi bi-moon"></i> Sleep
+            </button>
+            <button class="dropdown-action" data-action="volume-up">
+              <i class="bi bi-volume-up"></i> Vol +
+            </button>
+            <button class="dropdown-action" data-action="volume-down">
+              <i class="bi bi-volume-down"></i> Vol -
+            </button>
+            <button class="dropdown-action" data-action="screenshot">
+              <i class="bi bi-camera"></i> Screenshot
+            </button>
+          </div>
         </div>
       </div>
     `;
 
     const remoteButton = deviceCard.querySelector(".remote");
     const monitorButton = deviceCard.querySelector(".monitor");
-    const stopButton = deviceCard.querySelector(".stop");
     const deleteButton = deviceCard.querySelector(".delete");
+
     remoteButton?.addEventListener("click", (evt) => {
       evt.stopPropagation();
       remoteAndroidDevice(device);
     });
+
     monitorButton?.addEventListener("click", (evt) => {
       evt.stopPropagation();
       openAndroidRemoteDisplay(device.uid);
     });
-    stopButton?.addEventListener("click", (evt) => {
-      evt.stopPropagation();
-      stopAndroidRemoteAction(device);
-    });
+
     deleteButton?.addEventListener("click", (evt) => {
       evt.stopPropagation();
       deleteAndroidRemoteDevice(device.uid);
     });
-    deviceCard
-      .querySelectorAll(".monitor-mini-actions .mini-action")
+    const dropdownButton = deviceCard.querySelector(".device-more");
+    const dropdown = deviceCard.querySelector(".device-dropdown");
+    dropdownButton?.addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      const alreadyOpen = dropdown?.classList.contains("show");
+      document
+        .querySelectorAll(".device-dropdown.show")
+        .forEach((el) => el.classList.remove("show"));
+      if (!alreadyOpen && dropdown) {
+        dropdown.classList.add("show");
+      }
+    });
+    dropdown
+      ?.querySelectorAll(".dropdown-action")
       .forEach((button) => {
         button.addEventListener("click", (evt) => {
           evt.stopPropagation();
           const action = button.dataset.action;
           handleAndroidMiniAction(device, action);
+          dropdown.classList.remove("show");
         });
       });
 
@@ -5696,6 +5844,11 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 });
+document.addEventListener("click", () => {
+  document
+    .querySelectorAll(".device-dropdown.show")
+    .forEach((el) => el.classList.remove("show"));
+});
 
 window.triggerVersionCheck =
   window.triggerVersionCheck ||
@@ -5894,9 +6047,21 @@ window.openModalAndroid = async function () {
   if (nameInput) nameInput.value = "";
 
   populateAndroidRemoteServiceSelect("androidRemoteServiceSelect");
-  await refreshAdbDeviceOptionsInternal("androidAdbDeviceSelect");
+
+  // Initialize select with placeholder (no auto-scan)
+  const adbSelect = document.getElementById("androidAdbDeviceSelect");
+  if (adbSelect) {
+    adbSelect.innerHTML = '<option value="" disabled selected>Klik tombol refresh untuk memuat perangkat ADB</option>';
+  }
 
   modal.style.display = "flex";
+  setTimeout(() => {
+    refreshAdbDeviceOptionsInternal("androidAdbDeviceSelect", {
+      showToastMessage: false,
+    }).catch((err) =>
+      console.warn("⚠️ Gagal auto refresh ADB devices:", err)
+    );
+  }, 150);
 };
 
 window.closeModalAndroid = function () {
