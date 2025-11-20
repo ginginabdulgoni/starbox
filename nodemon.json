@@ -1,0 +1,13 @@
+{
+    "watch": [
+        "src",
+        "electron-main.js"
+    ],
+    "ext": "js,json,html",
+    "ignore": [
+        "node_modules",
+        "database",
+        "dist"
+    ],
+    "exec": "NODE_ENV=development electron ."
+}

@@ -745,12 +745,12 @@ async function sendSystemInfoReport(context = {}) {
 
   try {
     const payload = buildSystemInfoPayload(context);
-    logDev(
-      "🧾 Payload info sistem Starbox (akan dikirim):",
-      JSON.stringify(payload, null, 2)
-    );
-    logDev(`📦 Total device terdeteksi: ${payload.devices.total || 0}`);
-    logConsoleOnly("🎯 Endpoint laporan user-agent:", USER_AGENT_REPORT_URL);
+    // logConsoleOnly(
+    //   "🧾 Payload info sistem Starbox (akan dikirim):",
+    //   JSON.stringify(payload, null, 2)
+    // );
+    // logConsoleOnly(`📦 Total device terdeteksi: ${payload.devices.total || 0}`);
+    // logConsoleOnly("🎯 Endpoint laporan user-agent:", USER_AGENT_REPORT_URL);
     await requestJson({
       url: USER_AGENT_REPORT_URL,
       method: "POST",
@@ -761,7 +761,7 @@ async function sendSystemInfoReport(context = {}) {
       body: payload,
     });
 
-    logConsoleOnly("📡 Info sistem dikirim ke endpoint Starbox.");
+    // logConsoleOnly("📡 Info sistem dikirim ke endpoint Starbox.");
   } catch (err) {
     console.error(
       "❌ Gagal mengirim info sistem:",
@@ -2392,7 +2392,10 @@ function probeAdbPort(ip, port = 5555, timeout = 1200) {
   });
 }
 
-async function scanLocalWifiForAdbDevices(emitProgress = true, scanMode = 'quick') {
+async function scanLocalWifiForAdbDevices(
+  emitProgress = true,
+  scanMode = "quick"
+) {
   const manager = ensureAndroidManagerReady();
   const candidates = getWifiScanCandidates();
   const connected = [];
@@ -2403,7 +2406,7 @@ async function scanLocalWifiForAdbDevices(emitProgress = true, scanMode = 'quick
   // Common ADB wireless ports to check
   let portsToCheck = [];
 
-  if (scanMode === 'deep') {
+  if (scanMode === "deep") {
     // DEEP SCAN: Full range 30000-49999 (step 2 untuk kecepatan)
     logDev(`🔍 [WiFi Scan] Mode: DEEP SCAN (range 30000-49999 step 2)`);
     for (let p = 30000; p <= 49999; p += 2) {
@@ -2423,8 +2426,8 @@ async function scanLocalWifiForAdbDevices(emitProgress = true, scanMode = 'quick
       37229, 37121, 37881, 37777,
 
       // wireless debugging common
-      37000, 37219, 37453, 39129, 39797, 40000, 40311, 40901, 43211, 43381, 45000,
-      46101, 47233, 48651, 49555, 49857,
+      37000, 37219, 37453, 39129, 39797, 40000, 40311, 40901, 43211, 43381,
+      45000, 46101, 47233, 48651, 49555, 49857,
 
       // your device found port
       36535,
@@ -2457,7 +2460,7 @@ async function scanLocalWifiForAdbDevices(emitProgress = true, scanMode = 'quick
   }
 
   // Adjust timeout based on scan mode (shorter for deep scan to speed things up)
-  const portTimeout = scanMode === 'deep' ? 400 : 800;
+  const portTimeout = scanMode === "deep" ? 400 : 800;
 
   const worker = async () => {
     while (index < candidates.length) {
@@ -3303,7 +3306,20 @@ function readAndroidRemoteDevices() {
     if (!raw) return [];
     const data = JSON.parse(raw);
     if (Array.isArray(data?.devices)) {
-      return data.devices;
+      const devices = data.devices.map((device) => {
+        const next = { ...device };
+        if (typeof next.whatsappBaseUrl !== "string") {
+          next.whatsappBaseUrl = "";
+        }
+        if (typeof next.whatsappCallbackUrl !== "string") {
+          next.whatsappCallbackUrl = "";
+        }
+        return next;
+      });
+      // if (IS_DEV_BUILD) {
+      //   logConsoleOnly("📱 [ADB] devices snapshot:", devices);
+      // }
+      return devices;
     }
   } catch (err) {
     console.warn("⚠️ Gagal membaca adb-devices.json:", err?.message || err);
@@ -3394,6 +3410,8 @@ function addAndroidRemoteDeviceRecord(payload = {}) {
     adbName,
     service,
     status: sanitizeRemoteServiceId(payload.status) || "disconnected",
+    whatsappBaseUrl: sanitizePendingUrl(payload.whatsappBaseUrl || ""),
+    whatsappCallbackUrl: sanitizePendingUrl(payload.whatsappCallbackUrl || ""),
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -3456,6 +3474,14 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
     await tapWhatsappSendButton(adbId);
     await sleep(1200);
   }
+}
+
+async function sendSingleWhatsappMessage(adbId, phoneNumber, message = "", options = {}) {
+  await sendWhatsappSampleMessagesThroughAdb(adbId, {
+    messages: [String(message || "")],
+    phoneNumber: phoneNumber,
+    typingSpeed: options.typingSpeed || "instant",
+  });
 }
 
 function encodeCharForAdbInput(char = "") {
@@ -3697,14 +3723,29 @@ function openAndroidDeviceDisplay(uid) {
     return { message: "Tampilan perangkat sudah berjalan." };
   }
   const deviceName = record.name || "Android Device";
-  return launchScrcpyForDevice(adbId, uid, deviceName);
+  const service = record.service || "android-full-remote";
+  return launchScrcpyForDevice(adbId, uid, deviceName, {
+    service: service,
+    whatsappBaseUrl: record.whatsappBaseUrl || "",
+    whatsappCallbackUrl: record.whatsappCallbackUrl || "",
+  });
 }
 
 const scrcpyWindows = new Map();
 const scrcpyRecordings = new Map();
 const scrcpyWindowWatchers = new Map();
 
-function createScrcpyWindow(uid, adbId, deviceName = "Android Device") {
+function createScrcpyWindow(
+  uid,
+  adbId,
+  deviceName = "Android Device",
+  options = {}
+) {
+  const {
+    service = "android-full-remote",
+    whatsappBaseUrl = "",
+    whatsappCallbackUrl = "",
+  } = options || {};
   // Check if window already exists
   const existing = scrcpyWindows.get(adbId);
   if (existing && !existing.isDestroyed()) {
@@ -3713,13 +3754,13 @@ function createScrcpyWindow(uid, adbId, deviceName = "Android Device") {
   }
 
   const win = new BrowserWindow({
-    width: 230,
-    minWidth: 220,
-    maxWidth: 260,
+    width: 260,
+    minWidth: 230,
     height: 860,
     title: `Remote Control - ${deviceName}`,
     autoHideMenuBar: true,
     icon: getAssetPath("starbox.png"),
+    resizable: true,
     show: false,
     useContentSize: false,
     fullscreenable: false,
@@ -3736,7 +3777,14 @@ function createScrcpyWindow(uid, adbId, deviceName = "Android Device") {
     uid: uid,
     adbId: adbId,
     deviceName: deviceName,
+    service,
   });
+  if (whatsappBaseUrl) {
+    queryParams.set("whatsappBaseUrl", whatsappBaseUrl);
+  }
+  if (whatsappCallbackUrl) {
+    queryParams.set("whatsappCallbackUrl", whatsappCallbackUrl);
+  }
 
   win.loadURL(`file://${htmlPath}?${queryParams.toString()}`);
 
@@ -3911,11 +3959,17 @@ async function findAndPositionScrcpyWindow(controlWin, windowTitle, adbId) {
 function launchScrcpyForDevice(
   adbId,
   uid = null,
-  deviceName = "Android Device"
+  deviceName = "Android Device",
+  options = {}
 ) {
+  const meta = {
+    service: options?.service || "android-full-remote",
+    whatsappBaseUrl: options?.whatsappBaseUrl || "",
+    whatsappCallbackUrl: options?.whatsappCallbackUrl || "",
+  };
   try {
     // Create control window first
-    createScrcpyWindow(uid || adbId, adbId, deviceName);
+    createScrcpyWindow(uid || adbId, adbId, deviceName, meta);
 
     // Launch scrcpy process with custom window title and full window controls
     const windowTitle = `${deviceName} (${adbId})`;
@@ -4026,6 +4080,15 @@ function updateAndroidRemoteDeviceRecord(payload = {}) {
   if (typeof payload.status === "string" && payload.status.trim()) {
     next.status = sanitizeRemoteServiceId(payload.status);
   }
+  if (payload.whatsappBaseUrl !== undefined) {
+    next.whatsappBaseUrl = sanitizePendingUrl(payload.whatsappBaseUrl || "");
+  }
+  if (payload.whatsappCallbackUrl !== undefined) {
+    next.whatsappCallbackUrl = sanitizePendingUrl(
+      payload.whatsappCallbackUrl || ""
+    );
+  }
+
   next.updated_at = new Date().toISOString();
   devices[index] = next;
   writeAndroidRemoteDevices(devices);
@@ -6002,7 +6065,8 @@ ipcMain.handle("load-devices", () => {
 });
 
 ipcMain.handle("android-remote-load", () => {
-  return { devices: readAndroidRemoteDevices() };
+  const devices = readAndroidRemoteDevices();
+  return { devices };
 });
 
 ipcMain.handle("android-remote-add", (_event, payload = {}) => {
@@ -6041,6 +6105,164 @@ ipcMain.handle("android-remote-delete", (_event, uid) => {
   }
 });
 
+ipcMain.handle("android-remote-update", (_event, uid, updates) => {
+  try {
+    const record = updateAndroidRemoteDeviceRecord({ uid, ...updates });
+    return { success: true, device: record };
+  } catch (err) {
+    return {
+      success: false,
+      message: err?.message || "Gagal update device Android.",
+    };
+  }
+});
+
+ipcMain.handle(
+  "android-remote-send-whatsapp-message",
+  async (_event, uid, payload = {}) => {
+    try {
+      const record = findAndroidRemoteDevice(uid);
+      if (!record || !record.adbId) {
+        throw new Error("Device tidak ditemukan.");
+      }
+      const phone = String(payload.phone || payload.phoneNumber || "")
+        .replace(/[^\d]/g, "")
+        .trim();
+      const message = String(payload.message || "").trim();
+      if (!phone) {
+        throw new Error("Nomor tujuan tidak valid.");
+      }
+      if (!message) {
+        throw new Error("Pesan tidak boleh kosong.");
+      }
+      await sendSingleWhatsappMessage(record.adbId, phone, message, {
+        typingSpeed: options.typingSpeed || "instant",
+      });
+      return {
+        success: true,
+        message: `Pesan terkirim ke ${phone}.`,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        message: err?.message || "Gagal mengirim pesan WhatsApp.",
+      };
+    }
+  }
+);
+
+// Fetch pending WhatsApp messages from baseUrl
+ipcMain.handle("android-whatsapp-fetch-messages", async (_event, uid) => {
+  try {
+    const device = findAndroidRemoteDevice(uid);
+    if (!device) {
+      return { success: false, message: "Device not found" };
+    }
+
+    if (!device.whatsappBaseUrl) {
+      return { success: false, message: "baseUrl not configured" };
+    }
+
+    const url = new URL(device.whatsappBaseUrl);
+    const postData = JSON.stringify({ uid });
+
+    const response = await new Promise((resolve, reject) => {
+      const options = {
+        hostname: url.hostname,
+        port: url.port || (url.protocol === "https:" ? 443 : 80),
+        path: url.pathname + url.search,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(postData),
+        },
+      };
+
+      const protocol = url.protocol === "https:" ? https : require("http");
+      const req = protocol.request(options, (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch {
+            resolve({ data: [] });
+          }
+        });
+      });
+
+      req.on("error", (err) => reject(err));
+      req.write(postData);
+      req.end();
+    });
+
+    const messages = Array.isArray(response)
+      ? response
+      : Array.isArray(response?.data)
+      ? response.data
+      : [];
+    return { success: true, messages };
+  } catch (err) {
+    console.error("❌ Failed to fetch WhatsApp messages:", err);
+    return {
+      success: false,
+      message: err?.message || "Failed to fetch messages",
+    };
+  }
+});
+
+// Post message status to callbackUrl
+ipcMain.handle(
+  "android-whatsapp-post-status",
+  async (_event, uid, messageId, status) => {
+    try {
+      const device = findAndroidRemoteDevice(uid);
+      if (!device) {
+        return { success: false, message: "Device not found" };
+      }
+
+      if (!device.whatsappCallbackUrl) {
+        return { success: false, message: "callbackUrl not configured" };
+      }
+
+      const url = new URL(device.whatsappCallbackUrl);
+      const postData = JSON.stringify({ id: messageId, status });
+
+      await new Promise((resolve, reject) => {
+        const options = {
+          hostname: url.hostname,
+          port: url.port || (url.protocol === "https:" ? 443 : 80),
+          path: url.pathname + url.search,
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(postData),
+          },
+        };
+
+        const protocol = url.protocol === "https:" ? https : require("http");
+        const req = protocol.request(options, (res) => {
+          let data = "";
+          res.on("data", (chunk) => (data += chunk));
+          res.on("end", () => resolve(data));
+        });
+
+        req.on("error", (err) => reject(err));
+        req.write(postData);
+        req.end();
+      });
+
+      return { success: true };
+    } catch (err) {
+      console.error("❌ Failed to post status:", err);
+      return {
+        success: false,
+        message: err?.message || "Failed to post status",
+      };
+    }
+  }
+);
+
 ipcMain.handle("android-remote-update-status", (_event, uid, status) => {
   try {
     const record = updateAndroidRemoteDeviceRecord({ uid, status });
@@ -6069,7 +6291,7 @@ ipcMain.handle("android-list-physical-devices", async () => {
 
 ipcMain.handle("android-scan-local-wifi", async (event, options = {}) => {
   try {
-    const scanMode = options.scanMode || 'quick'; // 'quick' or 'deep'
+    const scanMode = options.scanMode || "quick"; // 'quick' or 'deep'
     const result = await scanLocalWifiForAdbDevices(true, scanMode);
     return { success: true, ...result };
   } catch (err) {
@@ -6332,6 +6554,15 @@ ipcMain.handle("android-remote-open-display", async (_event, uid) => {
       success: false,
       message: err?.message || "Gagal membuka tampilan perangkat.",
     };
+  }
+});
+
+ipcMain.handle("copy-to-clipboard", (_event, text = "") => {
+  try {
+    clipboard.writeText(String(text || ""));
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: err?.message || "Gagal menyalin." };
   }
 });
 

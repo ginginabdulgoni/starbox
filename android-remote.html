@@ -14,12 +14,14 @@
       body {
         margin: 0;
         padding: 0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          sans-serif;
         background: #0f3460;
         color: #eee;
         overflow: hidden;
         height: 100vh;
-        width: 220px;
+        min-width: 230px;
+        width: 100%;
       }
 
       #sidebar {
@@ -38,6 +40,54 @@
         padding-bottom: 12px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         margin-bottom: 8px;
+      }
+      .token-row {
+        margin-top: 6px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        font-size: 10px;
+        color: #cbd5f5;
+      }
+
+      .token-label {
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        color: rgba(255, 255, 255, 0.7);
+        font-weight: 600;
+      }
+
+      #deviceToken {
+        font-size: 11px;
+        color: #9adcfb;
+        user-select: all;
+        max-width: 120px;
+        word-break: break-all;
+      }
+
+      #btnCopyToken {
+        background: rgba(59, 130, 246, 0.15);
+        color: #93c5fd;
+        border: 1px solid rgba(59, 130, 246, 0.4);
+        border-radius: 6px;
+        padding: 3px 8px;
+        font-size: 10px;
+        cursor: pointer;
+      }
+
+      #btnCopyToken:hover {
+        background: rgba(59, 130, 246, 0.25);
+      }
+
+      #remoteControlsContainer {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        overflow-y: auto;
+        max-height: 55vh;
+        padding-right: 4px;
       }
 
       .sidebar-header h2 {
@@ -58,9 +108,9 @@
         background: linear-gradient(135deg, #3ddc84 0%, #2ecc71 100%);
         color: #000;
         border: none;
-        padding: 12px 16px;
+        padding: 9px 12px;
         border-radius: 8px;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 600;
         cursor: pointer;
         transition: all 0.2s ease;
@@ -68,7 +118,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 8px;
+        gap: 6px;
       }
 
       .control-btn:hover {
@@ -110,7 +160,7 @@
       }
 
       .btn-icon {
-        font-size: 16px;
+        font-size: 14px;
       }
 
       .section-label {
@@ -147,7 +197,8 @@
       }
 
       @keyframes pulse {
-        0%, 100% {
+        0%,
+        100% {
           opacity: 1;
         }
         50% {
@@ -176,6 +227,99 @@
         display: block;
       }
 
+      .pending-info {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 6px;
+        gap: 6px;
+      }
+
+      .pending-loading {
+        font-size: 11px;
+        color: #3ddc84;
+        display: none;
+      }
+
+      .pending-status {
+        font-size: 11px;
+        color: #f9a8d4;
+        text-align: right;
+        flex: 1;
+      }
+
+      .pending-empty {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.7);
+        padding: 8px;
+        background: rgba(123, 150, 225, 0.12);
+        border-radius: 8px;
+        margin-top: 8px;
+        display: none;
+      }
+
+      .pending-list {
+        margin-top: 8px;
+        max-height: 38vh;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .pending-item {
+        background: rgba(15, 23, 42, 0.75);
+        border: 1px solid rgba(123, 150, 225, 0.25);
+        border-radius: 10px;
+        padding: 8px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .pending-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .pending-phone {
+        font-weight: 600;
+        font-size: 12px;
+        color: #e2e8f0;
+      }
+
+      .pending-status-tag {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        text-transform: capitalize;
+      }
+
+      .pending-pending {
+        background: rgba(250, 204, 21, 0.25);
+        color: #fde68a;
+      }
+
+      .pending-success {
+        background: rgba(52, 211, 153, 0.25);
+        color: #6ee7b7;
+      }
+
+      .pending-failed,
+      .pending-error {
+        background: rgba(248, 113, 113, 0.25);
+        color: #fca5a5;
+      }
+
+      .pending-message {
+        font-size: 12px;
+        line-height: 1.4;
+        color: rgba(226, 232, 240, 0.9);
+        white-space: pre-wrap;
+      }
+
       /* Scrollbar styling */
       #sidebar::-webkit-scrollbar {
         width: 6px;
@@ -197,73 +341,109 @@
     </style>
   </head>
   <body>
-      <div id="sidebar">
-        <div class="sidebar-header">
-          <h2>Remote Control</h2>
-          <div class="device-name" id="deviceName">Android Device</div>
+    <div id="sidebar">
+      <div class="sidebar-header">
+        <h2>Remote Control</h2>
+        <div class="device-name" id="deviceName">Android Device</div>
+        <div class="token-row">
+          <span class="token-label">Token:</span>
+          <span id="deviceToken">-</span>
+          <button id="btnCopyToken">Copy</button>
         </div>
-
-        <div class="recording-indicator" id="recordingIndicator">
-          <div class="recording-dot"></div>
-          <span class="recording-text">Recording...</span>
-        </div>
-
-        <div class="section-label">Power</div>
-        <button class="control-btn" id="btnWake" title="Wake screen">
-          <span class="btn-icon">☀️</span>
-          <span>Wake</span>
-        </button>
-        <button class="control-btn" id="btnUnlock" title="Unlock device">
-          <span class="btn-icon">🔓</span>
-          <span>Unlock</span>
-        </button>
-
-        <div class="section-label">Navigation</div>
-        <button class="control-btn secondary" id="btnBack" title="Back button">
-          <span class="btn-icon">◀</span>
-          <span>Back</span>
-        </button>
-        <button class="control-btn secondary" id="btnHome" title="Home button">
-          <span class="btn-icon">🏠</span>
-          <span>Home</span>
-        </button>
-        <button class="control-btn secondary" id="btnRecent" title="Recent apps">
-          <span class="btn-icon">📱</span>
-          <span>Recent</span>
-        </button>
-
-        <div class="section-label">Screen</div>
-        <button class="control-btn" id="btnRotate" title="Rotate screen">
-          <span class="btn-icon">🔄</span>
-          <span>Rotate</span>
-        </button>
-        <button class="control-btn" id="btnScreenshot" title="Take screenshot">
-          <span class="btn-icon">📸</span>
-          <span>Screenshot</span>
-        </button>
-
-        <div class="section-label">Recording</div>
-        <button class="control-btn" id="btnRecord" title="Start recording">
-          <span class="btn-icon">⏺</span>
-          <span>Record</span>
-        </button>
-        <button class="control-btn danger" id="btnStopRecord" style="display:none;" title="Stop recording">
-          <span class="btn-icon">⏹</span>
-          <span>Stop Rec</span>
-        </button>
-
-        <div class="section-label">Volume</div>
-        <button class="control-btn secondary" id="btnVolumeUp" title="Volume up">
-          <span class="btn-icon">🔊</span>
-          <span>Vol +</span>
-        </button>
-        <button class="control-btn secondary" id="btnVolumeDown" title="Volume down">
-          <span class="btn-icon">🔉</span>
-          <span>Vol -</span>
-        </button>
-
-        <div class="status-message" id="statusMessage"></div>
       </div>
+
+      <div id="remoteControlsContainer">
+        <div class="recording-indicator" id="recordingIndicator">
+        <div class="recording-dot"></div>
+        <span class="recording-text">Recording...</span>
+      </div>
+
+      <div class="section-label">Power</div>
+      <button class="control-btn" id="btnWake" title="Wake screen">
+        <span class="btn-icon">☀️</span>
+        <span>Wake</span>
+      </button>
+      <button class="control-btn" id="btnUnlock" title="Unlock device">
+        <span class="btn-icon">🔓</span>
+        <span>Unlock</span>
+      </button>
+
+      <div class="section-label">Navigation</div>
+      <button class="control-btn secondary" id="btnBack" title="Back button">
+        <span class="btn-icon">◀</span>
+        <span>Back</span>
+      </button>
+      <button class="control-btn secondary" id="btnHome" title="Home button">
+        <span class="btn-icon">🏠</span>
+        <span>Home</span>
+      </button>
+      <button class="control-btn secondary" id="btnRecent" title="Recent apps">
+        <span class="btn-icon">📱</span>
+        <span>Recent</span>
+      </button>
+
+      <div class="section-label">Screen</div>
+      <button class="control-btn" id="btnRotate" title="Rotate screen">
+        <span class="btn-icon">🔄</span>
+        <span>Rotate</span>
+      </button>
+      <button class="control-btn" id="btnScreenshot" title="Take screenshot">
+        <span class="btn-icon">📸</span>
+        <span>Screenshot</span>
+      </button>
+
+      <div class="section-label">Recording</div>
+      <button class="control-btn" id="btnRecord" title="Start recording">
+        <span class="btn-icon">⏺</span>
+        <span>Record</span>
+      </button>
+      <button
+        class="control-btn danger"
+        id="btnStopRecord"
+        style="display: none"
+        title="Stop recording"
+      >
+        <span class="btn-icon">⏹</span>
+        <span>Stop Rec</span>
+      </button>
+
+      <div class="section-label">Volume</div>
+      <button class="control-btn secondary" id="btnVolumeUp" title="Volume up">
+        <span class="btn-icon">🔊</span>
+        <span>Vol +</span>
+      </button>
+      <button
+        class="control-btn secondary"
+        id="btnVolumeDown"
+        title="Volume down"
+      >
+        <span class="btn-icon">🔉</span>
+        <span>Vol -</span>
+      </button>
+      </div>
+
+      <div id="whatsappPendingSection" style="display: none">
+        <div class="section-label">Pending Messages</div>
+        <button
+          class="control-btn secondary"
+          id="btnRefreshPending"
+          title="Refresh pending messages"
+        >
+          <span class="btn-icon">🔄</span>
+          <span>Refresh Pending</span>
+        </button>
+        <div class="pending-info">
+          <span class="pending-loading" id="pendingLoading">Memuat...</span>
+          <span class="pending-status" id="pendingStatusText"></span>
+        </div>
+        <div class="pending-empty" id="pendingEmptyState">
+          Belum ada pesan pending.
+        </div>
+        <div class="pending-list" id="pendingMessageList"></div>
+      </div>
+
+      <div class="status-message" id="statusMessage"></div>
+    </div>
 
     <script>
       (function () {
@@ -271,16 +451,54 @@
         const uid = params.get("uid") || "";
         const deviceName = params.get("deviceName") || "Android Device";
         const adbId = params.get("adbId") || "";
+        const serviceKey = (params.get("service") || "").toLowerCase();
+        const isWhatsAppRemote = serviceKey === "android-whatsapp";
+        const whatsappBaseUrl = params.get("whatsappBaseUrl") || "";
+        const whatsappCallbackUrl =
+          params.get("whatsappCallbackUrl") || "";
 
         // Update device name
         document.getElementById("deviceName").textContent = deviceName;
+        const tokenEl = document.getElementById("deviceToken");
+        if (tokenEl) tokenEl.textContent = uid || "-";
+
+        const copyBtn = document.getElementById("btnCopyToken");
+        if (copyBtn) {
+          copyBtn.addEventListener("click", () => {
+            if (!uid) return;
+            if (window.electronAPI?.androidRemote?.copyToClipboard) {
+              window.electronAPI.androidRemote
+                .copyToClipboard(uid)
+                .then(() => showStatus("Token disalin ke clipboard", 2000))
+                .catch(() =>
+                  showStatus("Gagal menyalin token.", 2000)
+                );
+            }
+          });
+        }
 
         const statusMessage = document.getElementById("statusMessage");
-        const recordingIndicator = document.getElementById("recordingIndicator");
+        const recordingIndicator =
+          document.getElementById("recordingIndicator");
         const btnRecord = document.getElementById("btnRecord");
         const btnStopRecord = document.getElementById("btnStopRecord");
+        const pendingSection = document.getElementById(
+          "whatsappPendingSection"
+        );
+        const pendingList = document.getElementById("pendingMessageList");
+        const pendingEmptyState =
+          document.getElementById("pendingEmptyState");
+        const pendingLoading = document.getElementById("pendingLoading");
+        const pendingStatusText = document.getElementById(
+          "pendingStatusText"
+        );
+        const pendingRefreshBtn =
+          document.getElementById("btnRefreshPending");
 
         let isRecording = false;
+        let pendingMessagesCache = [];
+        let autoSendingPending = false;
+        const PENDING_LIMIT = 20;
 
         function showStatus(message, duration = 2000) {
           statusMessage.textContent = message;
@@ -290,6 +508,166 @@
           }, duration);
         }
 
+        async function fetchPendingMessagesViaRenderer() {
+          if (!whatsappBaseUrl) return null;
+          try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 15000);
+            const response = await fetch(whatsappBaseUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ uid }),
+              signal: controller.signal,
+            });
+            clearTimeout(timeout);
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            const data = await response.json().catch(() => ({}));
+            const messages = Array.isArray(data)
+              ? data
+              : Array.isArray(data?.data)
+              ? data.data
+              : [];
+            return { success: true, messages };
+          } catch (err) {
+            console.warn("⚠️ Renderer fetch pending failed:", err);
+            return {
+              success: false,
+              allowFallback: true,
+              message: err?.message || "Renderer fetch failed",
+            };
+          }
+        }
+
+        function renderPendingMessages(messages = []) {
+          if (!pendingList) return;
+          pendingList.innerHTML = "";
+          if (!messages.length) {
+            pendingEmptyState.style.display = "block";
+            return;
+          }
+          const fragment = document.createDocumentFragment();
+          messages.forEach((message) => {
+            const phone = message?.phone || message?.uid || "-";
+            const body = message?.message || "";
+            const status = (message?.status || "pending").toLowerCase();
+            const item = document.createElement("div");
+            item.className = "pending-item";
+
+            const meta = document.createElement("div");
+            meta.className = "pending-meta";
+            const phoneEl = document.createElement("span");
+            phoneEl.className = "pending-phone";
+            phoneEl.textContent = phone;
+            const statusEl = document.createElement("span");
+            statusEl.className = `pending-status-tag pending-${status}`;
+            statusEl.textContent = status;
+            meta.appendChild(phoneEl);
+            meta.appendChild(statusEl);
+
+            const messageEl = document.createElement("div");
+            messageEl.className = "pending-message";
+            messageEl.textContent = body;
+            const actions = document.createElement("div");
+            actions.className = "pending-actions";
+            const sendBtn = document.createElement("button");
+            sendBtn.className = "pending-send-btn";
+            sendBtn.textContent = "Kirim";
+            sendBtn.addEventListener("click", () =>
+              sendPendingWhatsappMessage(message)
+            );
+            actions.appendChild(sendBtn);
+
+            item.appendChild(meta);
+            item.appendChild(messageEl);
+            item.appendChild(actions);
+            fragment.appendChild(item);
+          });
+          pendingList.appendChild(fragment);
+        }
+
+        async function refreshPendingMessages(showToast = false) {
+          if (!pendingSection) return;
+          const canUseIpcFetch =
+            !!window.electronAPI?.androidRemote?.fetchWhatsappMessages;
+          pendingLoading.style.display = "inline-flex";
+          pendingStatusText.textContent = "";
+          pendingEmptyState.style.display = "none";
+          pendingList.innerHTML = "";
+
+          let response = null;
+
+          if (whatsappBaseUrl) {
+            const rendererResult = await fetchPendingMessagesViaRenderer();
+            if (rendererResult && rendererResult.success) {
+              response = rendererResult;
+            } else if (
+              rendererResult &&
+              !rendererResult.allowFallback &&
+              !rendererResult.success
+            ) {
+              response = rendererResult;
+            }
+          }
+
+          if (!response) {
+            if (!uid || !canUseIpcFetch) {
+              pendingStatusText.textContent =
+                "API fetch pending tidak tersedia di versi ini.";
+              pendingLoading.style.display = "none";
+              pendingEmptyState.style.display = "block";
+              return;
+            }
+            response = await window.electronAPI.androidRemote.fetchWhatsappMessages(
+              uid
+            );
+          }
+
+          try {
+            if (!response?.success) {
+              pendingStatusText.textContent =
+                response?.message || "Gagal memuat pending messages.";
+              pendingEmptyState.style.display = "block";
+              return;
+            }
+            const messages = Array.isArray(response.messages)
+              ? response.messages
+              : Array.isArray(response.data)
+              ? response.data
+              : [];
+            pendingMessagesCache = messages;
+            if (!messages.length) {
+              pendingEmptyState.style.display = "block";
+              pendingEmptyState.textContent = "Belum ada pesan pending.";
+              if (showToast) {
+                showStatus("Tidak ada pesan pending.", 2000);
+              }
+              return;
+            }
+            const limited = messages.slice(0, PENDING_LIMIT);
+            renderPendingMessages(limited);
+            autoSendPendingMessages(limited);
+            if (showToast) {
+              showStatus(
+                `Memuat ${Math.min(messages.length, PENDING_LIMIT)} dari ${
+                  messages.length
+                } pesan pending.`,
+                2500
+              );
+            }
+          } catch (err) {
+            console.error("⚠️ Gagal memuat pending messages:", err);
+            pendingStatusText.textContent =
+              err?.message || "Gagal memuat pending messages.";
+            pendingEmptyState.style.display = "block";
+          } finally {
+            pendingLoading.style.display = "none";
+          }
+        }
+
         async function executeCommand(command, params = {}) {
           if (!window.electronAPI || !window.electronAPI.androidRemote) {
             showStatus("Error: API not available");
@@ -297,7 +675,10 @@
           }
 
           try {
-            const result = await window.electronAPI.androidRemote[command](uid, params);
+            const result = await window.electronAPI.androidRemote[command](
+              uid,
+              params
+            );
             if (result && result.message) {
               showStatus(result.message);
             }
@@ -335,12 +716,14 @@
           executeCommand("rotate");
         });
 
-        document.getElementById("btnScreenshot").addEventListener("click", async () => {
-          const result = await executeCommand("screenshot");
-          if (result && result.path) {
-            showStatus(`Screenshot saved: ${result.path}`, 3000);
-          }
-        });
+        document
+          .getElementById("btnScreenshot")
+          .addEventListener("click", async () => {
+            const result = await executeCommand("screenshot");
+            if (result && result.path) {
+              showStatus(`Screenshot saved: ${result.path}`, 3000);
+            }
+          });
 
         // Recording controls
         document.getElementById("btnRecord").addEventListener("click", () => {
@@ -351,31 +734,114 @@
           executeCommand("startRecording");
         });
 
-        document.getElementById("btnStopRecord").addEventListener("click", async () => {
-          isRecording = false;
-          btnRecord.style.display = "flex";
-          btnStopRecord.style.display = "none";
-          recordingIndicator.classList.remove("active");
-          const result = await executeCommand("stopRecording");
-          if (result && result.path) {
-            const msg = result.manualSave
-              ? `Recording saved: ${result.path}`
-              : `Recording kept at ${result.path}`;
-            showStatus(msg, 3000);
-          }
-        });
+        document
+          .getElementById("btnStopRecord")
+          .addEventListener("click", async () => {
+            isRecording = false;
+            btnRecord.style.display = "flex";
+            btnStopRecord.style.display = "none";
+            recordingIndicator.classList.remove("active");
+            const result = await executeCommand("stopRecording");
+            if (result && result.path) {
+              const msg = result.manualSave
+                ? `Recording saved: ${result.path}`
+                : `Recording kept at ${result.path}`;
+              showStatus(msg, 3000);
+            }
+          });
 
         // Volume controls
         document.getElementById("btnVolumeUp").addEventListener("click", () => {
           executeCommand("volumeUp");
         });
 
-        document.getElementById("btnVolumeDown").addEventListener("click", () => {
-          executeCommand("volumeDown");
-        });
+        document
+          .getElementById("btnVolumeDown")
+          .addEventListener("click", () => {
+            executeCommand("volumeDown");
+          });
+
+        async function sendPendingWhatsappMessage(entry) {
+          if (!entry || !entry.phone || !entry.message) {
+            showStatus("Data pesan tidak lengkap.", 2500);
+            return;
+          }
+          if (!window.electronAPI?.androidRemote?.sendWhatsappMessage) {
+            showStatus("Fitur kirim pesan belum tersedia.", 2500);
+            return;
+          }
+
+          showStatus(`Mengirim ke ${entry.phone}...`, 2000);
+          try {
+            const result =
+              await window.electronAPI.androidRemote.sendWhatsappMessage(uid, {
+                phone: entry.phone,
+                message: entry.message,
+                id: entry.id,
+              });
+            if (result?.success) {
+              showStatus(
+                result.message || `Pesan dikirim ke ${entry.phone}.`,
+                2500
+              );
+              entry.status = "sent";
+              renderPendingMessages(pendingMessagesCache.slice(0, PENDING_LIMIT));
+              if (
+                entry.id &&
+                window.electronAPI?.androidRemote?.postWhatsappStatus
+              ) {
+                window.electronAPI.androidRemote
+                  .postWhatsappStatus(uid, entry.id, "sent")
+                  .catch(() => {});
+              }
+            } else {
+              showStatus(
+                result?.message || "Gagal mengirim pesan.",
+                3000
+              );
+            }
+          } catch (err) {
+            console.error("❌ Failed to send WhatsApp message:", err);
+            showStatus(err?.message || "Gagal mengirim pesan.", 3200);
+          }
+        }
+
+        async function autoSendPendingMessages(list = []) {
+          if (!isWhatsAppRemote || !list.length || autoSendingPending) return;
+          const pendingItems = list.filter(
+            (entry) => (entry.status || "pending").toLowerCase() === "pending"
+          );
+          if (!pendingItems.length) return;
+          autoSendingPending = true;
+          try {
+            for (const entry of pendingItems) {
+              await sendPendingWhatsappMessage(entry);
+              await new Promise((resolve) => setTimeout(resolve, 800));
+            }
+          } finally {
+            autoSendingPending = false;
+          }
+        }
+
+        if (pendingSection) {
+          if (isWhatsAppRemote) {
+            pendingSection.style.display = "block";
+            pendingRefreshBtn?.addEventListener("click", () =>
+              refreshPendingMessages(true)
+            );
+            refreshPendingMessages(false);
+          } else {
+            pendingSection.style.display = "none";
+          }
+        }
 
         // Log initialization
-        console.log("Android Remote Control initialized", { uid, deviceName, adbId });
+        console.log("Android Remote Control initialized", {
+          uid,
+          deviceName,
+          adbId,
+          service: serviceKey,
+        });
       })();
     </script>
   </body>

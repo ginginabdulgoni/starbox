@@ -84,6 +84,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getDevices: () => ipcRenderer.invoke('android-remote-load'),
     addDevice: (payload) => ipcRenderer.invoke('android-remote-add', payload),
     editDevice: (payload) => ipcRenderer.invoke('android-remote-edit', payload),
+    updateDevice: (uid, updates) => ipcRenderer.invoke('android-remote-update', uid, updates),
     deleteDevice: (uid) => ipcRenderer.invoke('android-remote-delete', uid),
     updateStatus: (uid, status) =>
       ipcRenderer.invoke('android-remote-update-status', uid, status),

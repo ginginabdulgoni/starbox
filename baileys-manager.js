@@ -674,10 +674,10 @@ async function startDevice(
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       const [firstMessage] = messages;
       if (firstMessage) {
-        console.log(
-          `📥 messages.upsert (${type}) from ${firstMessage.key?.remoteJid || "unknown"}:`,
-          JSON.stringify(firstMessage, null, 2)
-        );
+        // console.log(
+        //   `📥 messages.upsert (${type}) from ${firstMessage.key?.remoteJid || "unknown"}:`,
+        //   JSON.stringify(firstMessage, null, 2)
+        // );
       }
       if (type !== "notify") return;
 
@@ -931,10 +931,7 @@ async function handleAutoReply(deviceId, sock, from, messageText) {
       continue;
     }
 
-    if (
-      !from?.endsWith("@s.whatsapp.net") &&
-      !from?.endsWith("@g.us")
-    ) {
+    if (!from?.endsWith("@s.whatsapp.net") && !from?.endsWith("@g.us")) {
       console.log(
         `⚠️ Skip auto-reply for ${from} because it is not a personal/group JID`
       );
