@@ -208,6 +208,51 @@ class AndroidManager {
     });
   }
 
+  async listConnectedDevices() {
+    try {
+      const output = await this.runAdbCommand(['devices', '-l'], {
+        timeout: 15000,
+        silent: true,
+      });
+      const lines = output.split(/\r?\n/);
+      const devices = [];
+      lines.forEach((raw) => {
+        const line = raw.trim();
+        if (
+          !line ||
+          line.toLowerCase().includes('list of devices attached') ||
+          line.startsWith('* daemon')
+        ) {
+          return;
+        }
+        const parts = line.split(/\s+/).filter(Boolean);
+        if (parts.length < 2) return;
+        const adbId = parts.shift();
+        const status = parts.shift();
+        const meta = {};
+        parts.forEach((token) => {
+          const [key, value] = token.split(':');
+          if (key && value) {
+            meta[key.toLowerCase()] = value;
+          }
+        });
+        devices.push({
+          adbId,
+          status,
+          model: meta.model || null,
+          product: meta.product || null,
+          device: meta.device || null,
+          transportId: meta.transport_id || null,
+          description: meta.model || meta.device || adbId,
+        });
+      });
+      return devices;
+    } catch (err) {
+      console.warn('⚠️ Gagal mendapatkan daftar perangkat ADB:', err.message);
+      return [];
+    }
+  }
+
   /**
    * Kill ADB server to fix "device offline" or "busy" errors
    */

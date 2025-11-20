@@ -80,6 +80,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  androidRemote: {
+    getDevices: () => ipcRenderer.invoke('android-remote-load'),
+    addDevice: (payload) => ipcRenderer.invoke('android-remote-add', payload),
+    editDevice: (payload) => ipcRenderer.invoke('android-remote-edit', payload),
+    deleteDevice: (uid) => ipcRenderer.invoke('android-remote-delete', uid),
+    updateStatus: (uid, status) =>
+      ipcRenderer.invoke('android-remote-update-status', uid, status),
+    listAdbDevices: () => ipcRenderer.invoke('android-list-physical-devices'),
+    runAction: (uid, action, payload) =>
+      ipcRenderer.invoke('android-remote-run-action', uid, action, payload),
+    cancelAction: (uid) =>
+      ipcRenderer.invoke('android-remote-cancel-action', uid),
+  },
+
   // iOS Simulator APIs
   ios: {
     checkAvailability: () => ipcRenderer.invoke('ios-check-availability'),

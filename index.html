@@ -402,7 +402,9 @@
             aria-live="polite"
           ></div>
 
-          <div id="device-list-android">Loading...</div>
+          <div id="device-list-android" class="device-list android-remote-list">
+            Loading...
+          </div>
         </main>
       </div>
       <!-- End Page: Android / iOS -->
@@ -1654,27 +1656,44 @@
 
       <!-- Modal: Add Android Device -->
       <div id="addModalAndroid" class="modal">
-        <div class="modal-content" style="max-width: 500px">
+        <div class="modal-content" style="max-width: 520px">
           <span class="close" onclick="closeModalAndroid()">&times;</span>
-          <h3><i class="bi bi-phone"></i> Tambah Android Emulator</h3>
+          <h3><i class="bi bi-phone"></i> Tambah Android (ADB Remote)</h3>
 
           <label for="deviceNameAndroid">Nama Device</label>
           <input
             type="text"
             id="deviceNameAndroid"
-            placeholder="Misal: Android Gaming, Android Testing"
+            placeholder="Misal: Samsung WA 1"
           />
 
-          <label for="androidSpecPresetAdd">Spesifikasi Emulator</label>
-          <select id="androidSpecPresetAdd">
-            <!-- Will be populated by renderer.js -->
-          </select>
-          <p id="androidSpecDescriptionAdd" class="android-spec-note"></p>
+          <label for="androidAdbDeviceSelect" style="margin-top: 12px"
+            >Pilih Perangkat ADB</label
+          >
+          <div class="adb-select-row">
+            <select id="androidAdbDeviceSelect"></select>
+            <button
+              type="button"
+              class="ghost"
+              onclick="refreshAdbDeviceOptions('androidAdbDeviceSelect')"
+              title="Refresh daftar ADB"
+            >
+              <i class="bi bi-arrow-repeat"></i>
+            </button>
+          </div>
+          <p class="small-text" style="margin-top: 4px">
+            Pastikan HP sudah terhubung melalui USB atau jaringan dan terdeteksi
+            oleh perintah <code>adb devices</code>.
+          </p>
 
-          <label style="margin-top: 10px">
-            <input type="checkbox" id="deviceAutoRunAndroid" />
-            Auto Run saat aplikasi dibuka
-          </label>
+          <label for="androidRemoteServiceSelect" style="margin-top: 12px"
+            >Jenis Layanan</label
+          >
+          <select id="androidRemoteServiceSelect"></select>
+          <p class="small-text" style="margin-top: 4px">
+            Tentukan layanan utama yang akan dijalankan di perangkat fisik
+            (WhatsApp, TikTok, YouTube, dll).
+          </p>
 
           <div
             class="modal-buttons"

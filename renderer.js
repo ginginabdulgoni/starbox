@@ -643,6 +643,61 @@ const DEFAULT_SERVICE_LIBRARY = [
     keywords: ["android", "emulator"],
   },
   {
+    id: "android-whatsapp",
+    label: "Android • WhatsApp",
+    color: "#25D366",
+    url: null,
+    category: "Android Remote",
+    description: "Kontrol WhatsApp di perangkat Android fisik via ADB.",
+    keywords: ["android", "whatsapp", "remote"],
+  },
+  {
+    id: "android-tiktok",
+    label: "Android • TikTok",
+    color: "#010101",
+    url: null,
+    category: "Android Remote",
+    description: "Remote aplikasi TikTok langsung di HP nyata.",
+    keywords: ["android", "tiktok"],
+  },
+  {
+    id: "android-youtube",
+    label: "Android • YouTube",
+    color: "#ff0000",
+    url: null,
+    category: "Android Remote",
+    description: "Kendalikan YouTube Android untuk live/monitor.",
+    keywords: ["android", "youtube", "remote"],
+  },
+  {
+    id: "android-instagram",
+    label: "Android • Instagram",
+    color: "#f77737",
+    url: null,
+    category: "Android Remote",
+    description: "Remote Instagram Marketing & DM di device fisik.",
+    keywords: ["android", "instagram", "remote"],
+  },
+  {
+    id: "android-browser",
+    label: "Android • Browser",
+    color: "#3b82f6",
+    url: null,
+    category: "Android Remote",
+    description: "Remote browser Android umum (Chrome, Firefox).",
+    keywords: ["android", "browser", "remote"],
+  },
+  {
+    id: "android-full-remote",
+    label: "Android • Full Remote",
+    color: "#c084fc",
+    url: null,
+    category: "Android Remote",
+    description:
+      "Mode kontrol penuh via ADB/scrcpy untuk aplikasi bebas sesuai kebutuhan.",
+    keywords: ["android", "full", "remote"],
+  },
+  {
     id: "other",
     label: "Website Kustom",
     color: "#f97316",
@@ -658,12 +713,22 @@ const DEFAULT_SERVICE_LIBRARY = [
 let SERVICE_LIBRARY = DEFAULT_SERVICE_LIBRARY.map(cloneServiceEntry);
 let serviceConfig = {};
 const SERVICE_LIBRARY_MAP = new Map();
+const ANDROID_REMOTE_SERVICE_IDS = [
+  "android-whatsapp",
+  "android-tiktok",
+  "android-youtube",
+  "android-instagram",
+  "android-browser",
+  "android-full-remote",
+];
 
 rebuildServiceLookups();
 
 const assetUrlCache = new Map();
 const assetPendingRequests = new Map();
 const assetElementRegistry = new Map();
+let cachedAndroidRemoteDevices = [];
+let cachedAdbDevices = [];
 
 function buildServiceConfig(list = []) {
   return list.reduce(
@@ -1775,6 +1840,132 @@ function updateCachedDevices(list = [], type = "web") {
 function getServiceLabel(service) {
   const key = (service || "").toLowerCase();
   return serviceConfig[key]?.label || service || "Layanan";
+}
+
+function getAndroidRemoteServiceMeta(serviceId) {
+  const key = sanitizeServiceId(serviceId);
+  const meta =
+    SERVICE_LIBRARY_MAP.get(key) ||
+    serviceConfig[key] ||
+    serviceConfig.default;
+  return {
+    id: key,
+    label: meta?.label || serviceId || "Android Remote",
+    color: meta?.color || "#6b7280",
+    description: meta?.description || "",
+  };
+}
+
+function getAndroidRemoteServiceOptions() {
+  return ANDROID_REMOTE_SERVICE_IDS.map((id) =>
+    getAndroidRemoteServiceMeta(id)
+  );
+}
+
+function formatAndroidRemoteStatus(status) {
+  const normalized = (status || "").toLowerCase();
+  if (normalized === "connected" || normalized === "active") {
+    return { label: "Connected", className: "status-chip connected" };
+  }
+  if (normalized === "running") {
+    return { label: "Running", className: "status-chip connected" };
+  }
+  if (normalized === "error") {
+    return { label: "Error", className: "status-chip error" };
+  }
+  if (normalized === "disconnected" || normalized === "stopped") {
+    return { label: "Disconnected", className: "status-chip disconnected" };
+  }
+  return { label: status || "Unknown", className: "status-chip" };
+}
+
+let isLoadingAdbDevices = false;
+
+async function refreshAdbDeviceOptionsInternal(
+  selectId = "androidAdbDeviceSelect",
+  { showToastMessage = false } = {}
+) {
+  const select = document.getElementById(selectId);
+  if (!select || isLoadingAdbDevices) return;
+  isLoadingAdbDevices = true;
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Memuat perangkat ADB...";
+  placeholder.disabled = true;
+  placeholder.selected = true;
+  select.innerHTML = "";
+  select.appendChild(placeholder);
+  try {
+    const response =
+      (await window.electronAPI.androidRemote.listAdbDevices()) || {};
+    const list = Array.isArray(response.devices) ? response.devices : [];
+    cachedAdbDevices = list;
+    applyAdbDevicesToSelect(select, list);
+    if (showToastMessage) {
+      if (response.success) {
+        showToast(
+          `Perangkat ADB terdeteksi: ${list.length}.`,
+          2500,
+          "success"
+        );
+      } else {
+        showToast(response.message || "Gagal memuat perangkat ADB.", 3500, "error");
+      }
+    }
+  } catch (err) {
+    console.error("⚠️ Gagal memuat perangkat ADB:", err);
+    select.innerHTML =
+      '<option value="">Tidak dapat memuat perangkat ADB</option>';
+    if (showToastMessage) {
+      showToast("Tidak dapat membaca daftar ADB.", 3500, "error");
+    }
+  } finally {
+    isLoadingAdbDevices = false;
+  }
+}
+
+function applyAdbDevicesToSelect(select, devices = []) {
+  select.innerHTML = "";
+  if (!devices.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Tidak ada device ADB terdeteksi";
+    option.disabled = true;
+    option.selected = true;
+    select.appendChild(option);
+    return;
+  }
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Pilih perangkat ADB...";
+  placeholder.disabled = true;
+  placeholder.selected = true;
+  select.appendChild(placeholder);
+
+  devices.forEach((device) => {
+    const option = document.createElement("option");
+    option.value = device.adbId;
+    const parts = [
+      device.description || device.model,
+      `(${device.adbId})`,
+      device.status === "device" ? "online" : device.status,
+    ].filter(Boolean);
+    option.textContent = parts.join(" ");
+    select.appendChild(option);
+  });
+}
+
+function populateAndroidRemoteServiceSelect(selectId) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  select.innerHTML = "";
+  const options = getAndroidRemoteServiceOptions();
+  options.forEach((service) => {
+    const option = document.createElement("option");
+    option.value = service.id;
+    option.textContent = service.label;
+    select.appendChild(option);
+  });
 }
 
 function countDevicesByService(service) {
@@ -3961,15 +4152,6 @@ async function renderDevices(devices) {
 
     deleteButton.addEventListener("click", () => deleteDevice(device.uid));
     editButton.addEventListener("click", () => {
-      // Check if Android device - use separate modal
-      if ((device.service || "").toLowerCase() === "android") {
-        if (typeof window.openEditAndroidModal === "function") {
-          window.openEditAndroidModal(device.uid);
-        }
-        return;
-      }
-
-      // For web services, use original modal
       window.currentEditUID = device.uid;
       window.currentEditService = device.service || "";
       document.getElementById("editDeviceName").value =
@@ -4461,105 +4643,58 @@ async function loadAllDevicesWeb() {
 }
 
 // Render Android devices (MUST BE DEFINED BEFORE loadAllDevicesAndroid)
-function renderDevicesAndroid(devices) {
-  console.log(
-    "🤖 renderDevicesAndroid called with",
-    devices?.length || 0,
-    "devices"
-  );
+function renderDevicesAndroid(devices = []) {
   const container = document.getElementById("device-list-android");
   if (!container) {
     console.error("⚠️ Container #device-list-android not found!");
     return;
   }
-
-  console.log("  📦 Clearing Android container");
+  cachedAndroidRemoteDevices = Array.isArray(devices) ? devices : [];
   container.innerHTML = "";
 
-  // Filter to only show Android devices
-  const androidDevices = (devices || []).filter(
-    (d) => (d.service || "").toLowerCase() === "android"
-  );
-
-  if (androidDevices.length === 0) {
-    console.log("  📭 No Android devices, showing empty state");
+  if (!cachedAndroidRemoteDevices.length) {
     container.innerHTML =
-      '<div style="padding: 2rem; text-align: center; color: #6b7280;">Belum ada device Android. Klik "Tambah Device" untuk mulai.</div>';
+      '<div style="padding: 2rem; text-align: center; color: #6b7280;">Belum ada device Android fisik. Sambungkan HP via USB/Wi-Fi lalu klik "Tambah Device".</div>';
     return;
   }
 
-  console.log("  🎨 Rendering", androidDevices.length, "Android devices");
-
   const fragment = document.createDocumentFragment();
 
-  for (const device of androidDevices) {
-    const serviceKey = (device?.service || "").toLowerCase();
-    const config = serviceConfig[serviceKey] || serviceConfig.default;
-    const serviceMeta = SERVICE_LIBRARY_MAP.get(serviceKey);
-    const serviceLabel = config.label || device.service || "Android Emulator";
-    const baseUrl = config.url || serviceMeta?.url || "";
-    const initialStatus = (device.status || "stopped").toLowerCase();
-    const isActive =
-      initialStatus === "active" ||
-      initialStatus === "running" ||
-      initialStatus === "starting";
-    const initialLabel = isActive
-      ? (initialStatus || "active").toUpperCase()
-      : "START";
-
+  cachedAndroidRemoteDevices.forEach((device) => {
+    const serviceMeta = getAndroidRemoteServiceMeta(device.service);
+    const statusMeta = formatAndroidRemoteStatus(device.status);
     const deviceCard = document.createElement("div");
-    deviceCard.className = "device";
+    deviceCard.className = "device android-remote-card";
     deviceCard.dataset.uid = device.uid;
     deviceCard.dataset.service = device.service || "";
-    deviceCard.dataset.status = initialStatus;
-    deviceCard.dataset.autoSender = "false";
-    deviceCard.dataset.pendingUrl = "";
-    deviceCard.dataset.callbackUrl = "";
-    deviceCard.dataset.deviceName = device.name || "";
-    deviceCard.style.setProperty("--device-accent", config.color || "#6b7280");
-
-    const runLabel = isActive ? "Restart" : "Jalankan";
-    const runIcon = isActive ? "bi-arrow-clockwise" : "bi-play-fill";
+    deviceCard.dataset.status = device.status || "disconnected";
+    deviceCard.style.setProperty("--device-accent", serviceMeta.color);
 
     deviceCard.innerHTML = `
-      <div class="device-service-icon" title="Layanan: ${serviceLabel}">
-        <img alt="Ikon ${serviceLabel}">
-      </div>
-
       <div class="device-header">
         <div class="device-meta">
-          <h3>${device.name}</h3>
-          <span class="device-service-name">${serviceLabel}</span>
+          <h3>${device.name || serviceMeta.label}</h3>
+          <span class="device-service-name">${serviceMeta.label}</span>
         </div>
+        <span class="${statusMeta.className}">${statusMeta.label}</span>
       </div>
-
-      <div class="device-body">
-        <button class="status-indicator ${
-          isActive ? "running" : "stopped"
-        }" data-uid="${device.uid}" title="${
-      isActive
-        ? "Klik untuk menampilkan jendela"
-        : "Klik untuk menjalankan device"
-    }">
-          ${initialLabel}
-        </button>
-        <button class="inline-stop ${
-          isActive ? "" : "is-hidden"
-        }" title="Stop ${device.name}">
-          <i class="bi bi-stop-circle"></i>
-          <span>Stop</span>
-        </button>
+      <div class="device-body android-remote-body">
+        <p><strong>ADB ID:</strong> ${device.adbId || "-"}</p>
+        ${
+          device.adbName
+            ? `<p><strong>Alias:</strong> ${device.adbName}</p>`
+            : ""
+        }
       </div>
-
       <div class="device-footer">
         <div class="device-actions">
-          <button class="run">
-            <i class="bi ${runIcon}"></i>
-            <span>${runLabel}</span>
+          <button class="remote">
+            <i class="bi bi-magic"></i>
+            <span>Remote</span>
           </button>
-          <button class="edit" data-uid="${device.uid}">
-            <i class="bi bi-pencil-square"></i>
-            <span>Edit</span>
+          <button class="stop">
+            <i class="bi bi-stop-circle"></i>
+            <span>Stop</span>
           </button>
           <button class="delete">
             <i class="bi bi-trash-fill"></i>
@@ -4569,99 +4704,33 @@ function renderDevicesAndroid(devices) {
       </div>
     `;
 
-    const iconElement = deviceCard.querySelector(".device-service-icon img");
-    if (serviceMeta) {
-      const iconSource = getServiceIconSource(serviceMeta);
-      if (iconSource.type === "asset") {
-        applyAssetToImage(iconElement, iconSource.name);
-      } else {
-        iconElement.src = iconSource.value;
-        attachServiceIconFallback(iconElement);
-      }
-    } else if (baseUrl) {
-      iconElement.src = `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(
-        baseUrl
-      )}`;
-      attachServiceIconFallback(iconElement);
-    } else {
-      applyAssetToImage(iconElement);
-    }
-
-    const statusButton = deviceCard.querySelector(".status-indicator");
-    const inlineStop = deviceCard.querySelector(".inline-stop");
-    const runButton = deviceCard.querySelector(".run");
+    const remoteButton = deviceCard.querySelector(".remote");
+    const stopButton = deviceCard.querySelector(".stop");
     const deleteButton = deviceCard.querySelector(".delete");
-    const editButton = deviceCard.querySelector(".edit");
-
-    statusButton?.addEventListener("click", () => {
-      const currentStatus = (deviceCard.dataset.status || "").toLowerCase();
-      if (currentStatus === "active" || currentStatus === "running") {
-        if (window.electronAPI?.focusDevice) {
-          window.electronAPI.focusDevice(device.uid);
-        }
-      } else {
-        runDevice(device.uid, device.service);
-      }
+    remoteButton?.addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      remoteAndroidDevice(device);
     });
-
-    runButton.addEventListener("click", async () => {
-      const originalHTML = runButton.innerHTML;
-      runButton.innerHTML = `<i class="bi bi-arrow-repeat"></i> <span>Proses...</span>`;
-      runButton.disabled = true;
-
-      try {
-        await runDevice(device.uid, device.service);
-        device.status = "active";
-
-        setTimeout(() => {
-          runButton.innerHTML = originalHTML;
-          runButton.disabled = false;
-        }, 2000);
-      } catch (err) {
-        console.error("Error running device:", err);
-        runButton.innerHTML = originalHTML;
-        runButton.disabled = false;
-      }
+    stopButton?.addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      stopAndroidRemoteAction(device);
     });
-
-    if (inlineStop) {
-      inlineStop.addEventListener("click", async (evt) => {
-        evt.stopPropagation();
-        if (inlineStop.disabled) return;
-        try {
-          inlineStop.disabled = true;
-          window.electronAPI.stopDevice(device.uid);
-          setDeviceState(device.uid, "stopped");
-          device.status = "stopped";
-        } catch (err) {
-          console.error("Error stopping device:", err);
-          inlineStop.disabled = false;
-        }
-      });
-    }
-
-    deleteButton.addEventListener("click", () => deleteDevice(device.uid));
-    editButton.addEventListener("click", () => {
-      // Android device always uses Android modal
-      if (typeof window.openEditAndroidModal === "function") {
-        window.openEditAndroidModal(device.uid);
-      }
+    deleteButton?.addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      deleteAndroidRemoteDevice(device.uid);
     });
 
     fragment.appendChild(deviceCard);
-  }
+  });
 
   container.appendChild(fragment);
 }
 
 async function loadAllDevicesAndroid() {
   try {
-    const data = await window.electronAPI.loadDevices("android");
-    const devices = data.devices || [];
-    console.log("📦 Android devices:", devices);
+    const result = await window.electronAPI.androidRemote.getDevices();
+    const devices = result?.devices || [];
     renderDevicesAndroid(devices);
-    updateCachedDevices(devices, "android");
-    devices.forEach((device) => setDeviceState(device.uid, device.status));
   } catch (err) {
     console.error("⚠️ Gagal memuat Android devices:", err);
   }
@@ -4669,16 +4738,7 @@ async function loadAllDevicesAndroid() {
 
 async function loadAllDevices() {
   try {
-    // Detect which page is active and load from correct DB
-    const currentPage = document.querySelector(".page-content.active")?.id;
-
-    if (currentPage === "page-android-ios") {
-      // Load Android devices only
-      await loadAllDevicesAndroid();
-    } else {
-      // Default to Web devices (page-web-emulator or others)
-      await loadAllDevicesWeb();
-    }
+    await Promise.all([loadAllDevicesWeb(), loadAllDevicesAndroid()]);
   } catch (err) {
     console.error("⚠️ Gagal memuat daftar device:", err);
   }
@@ -4732,6 +4792,129 @@ function deleteDevice(uid) {
         });
     }
   });
+}
+
+function deleteAndroidRemoteDevice(uid) {
+  if (!uid) return;
+  Swal.fire({
+    title: "Hapus Device Android?",
+    text: "Perangkat fisik ini akan dilepas dari StarBox.",
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonColor: "#ef4444",
+    cancelButtonColor: "#6b7280",
+    confirmButtonText: "Ya, hapus",
+    cancelButtonText: "Batal",
+  }).then((result) => {
+    if (!result.isConfirmed) return;
+    window.electronAPI.androidRemote
+      .deleteDevice(uid)
+      .then((response) => {
+        if (response.success) {
+          showToast("Device Android berhasil dihapus.", 3000, "success");
+          loadAllDevicesAndroid();
+        } else {
+          showToast(response.message || "Gagal menghapus device.", 3500, "error");
+        }
+      })
+      .catch((err) => {
+        console.error("⚠️ Gagal menghapus device Android:", err);
+        showToast(err?.message || "Gagal menghapus device.", 3500, "error");
+      });
+  });
+}
+
+function remoteAndroidDevice(device) {
+  if (!device || !device.uid) return;
+  const serviceKey = (device.service || "").toLowerCase();
+
+  if (serviceKey === "android-whatsapp") {
+    Swal.fire({
+      title: "Remote WhatsApp",
+      html:
+        "StarBox akan mengirim 10 pesan sample ke <strong>6282337481227</strong>.<br>Pilih kecepatan pengetikan:",
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: "Mulai Remote",
+      cancelButtonText: "Batal",
+      input: "select",
+      inputOptions: {
+        instant: "Super Cepat",
+        robot: "Stabil (seragam, tanpa variasi)",
+        fasthuman: "Cepat Natural (seperti manusia mahir)",
+        human: "Natural (lebih lambat)",
+        slowhuman: "Pelan Natural (seperti orang biasa)",
+        realistic: "Sangat Natural (ada jeda & variasi real)",
+        paste: "Tempel Instan (clipboard)",
+        hybrid: "Hybrid (paste lalu edit sedikit)",
+        stealth: "Stealth Mode (anti terdeteksi, variasi halus)",
+      },
+      inputValue: "instant",
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      const typingSpeed = result.value || "instant";
+      runAndroidRemoteAction(device.uid, "whatsapp-send-sample", {
+        typingSpeed,
+      });
+    });
+    return;
+  }
+
+  Swal.fire(
+    "Belum tersedia",
+    "Remote otomatis untuk layanan ini belum didukung. Gunakan kontrol manual via ADB/scrcpy.",
+    "info"
+  );
+}
+
+function runAndroidRemoteAction(uid, action, payload = {}) {
+  showToast("Menjalankan remote action...", 2000, "info");
+  window.electronAPI.androidRemote
+    .runAction(uid, action, payload)
+    .then((response) => {
+      if (response.success) {
+        showToast(
+          response.message || "Remote action selesai.",
+          3000,
+          "success"
+        );
+      } else {
+        showToast(
+          response.message || "Remote action gagal.",
+          3500,
+          "error"
+        );
+      }
+    })
+    .catch((err) => {
+      console.error("⚠️ Remote action error:", err);
+      showToast(err?.message || "Remote action gagal.", 3500, "error");
+    });
+}
+
+function stopAndroidRemoteAction(device) {
+  if (!device || !device.uid) return;
+  window.electronAPI.androidRemote
+    .cancelAction(device.uid)
+    .then((response) => {
+      if (response.success) {
+        showToast(
+          response.message || "Aksi remote dihentikan.",
+          2500,
+          "success"
+        );
+      } else {
+        showToast(
+          response.message || "Tidak ada aksi remote aktif.",
+          2500,
+          "info"
+        );
+      }
+    })
+    .catch((err) => {
+      console.error("⚠️ Gagal menghentikan remote:", err);
+      showToast(err?.message || "Gagal menghentikan remote.", 3000, "error");
+    });
 }
 
 function filterServicesByPage(pageName) {
@@ -4997,6 +5180,8 @@ window.addEventListener("DOMContentLoaded", () => {
     "editAndroidSpecPreset",
     "editAndroidSpecDescription"
   );
+  populateAndroidRemoteServiceSelect("androidRemoteServiceSelect");
+  refreshAdbDeviceOptionsInternal("androidAdbDeviceSelect");
   renderServiceBrowserGrid();
   refreshServiceLibraryFromServer()
     .then((updated) => {
@@ -5327,56 +5512,61 @@ window.changeLayout = function (layout) {
 // ========================================
 
 // Modal functions for Android
-window.openModalAndroid = function () {
+window.openModalAndroid = async function () {
   const modal = document.getElementById("addModalAndroid");
   if (!modal) return;
 
-  // Reset form
-  document.getElementById("deviceNameAndroid").value = "";
-  document.getElementById("deviceAutoRunAndroid").checked = false;
+  const nameInput = document.getElementById("deviceNameAndroid");
+  if (nameInput) nameInput.value = "";
 
-  // Populate Android spec presets
-  populateAndroidSpecPreset(
-    "androidSpecPresetAdd",
-    "androidSpecDescriptionAdd"
-  );
+  populateAndroidRemoteServiceSelect("androidRemoteServiceSelect");
+  await refreshAdbDeviceOptionsInternal("androidAdbDeviceSelect");
 
   modal.style.display = "flex";
 };
 
 window.closeModalAndroid = function () {
   const modal = document.getElementById("addModalAndroid");
-  if (modal) modal.style.display = "none";
+  if (!modal) return;
+  modal.style.display = "none";
+  const adbSelect = document.getElementById("androidAdbDeviceSelect");
+  if (adbSelect) adbSelect.selectedIndex = 0;
+  const serviceSelect = document.getElementById("androidRemoteServiceSelect");
+  if (serviceSelect) serviceSelect.selectedIndex = 0;
+  const nameInput = document.getElementById("deviceNameAndroid");
+  if (nameInput) nameInput.value = "";
 };
 
 window.submitAndroidDevice = async function () {
   const name = document.getElementById("deviceNameAndroid").value.trim();
-  const autoRun = document.getElementById("deviceAutoRunAndroid").checked;
-  const androidSpecSelect = document.getElementById("androidSpecPresetAdd");
-  const selectedAndroidSpecId =
-    androidSpecSelect?.value || DEFAULT_ANDROID_SPEC_ID;
-  const androidSpec = getAndroidSpecPayload(selectedAndroidSpecId);
+  const adbSelect = document.getElementById("androidAdbDeviceSelect");
+  const serviceSelect = document.getElementById("androidRemoteServiceSelect");
+
+  const adbId = adbSelect?.value || "";
+  const service = serviceSelect?.value || "android-whatsapp";
 
   if (!name) {
     showToast("Nama device wajib diisi.", 3000, "warning");
     return;
   }
+  if (!adbId) {
+    showToast("Pilih perangkat ADB terlebih dahulu.", 3000, "warning");
+    return;
+  }
+
+  const selectedAdb = cachedAdbDevices.find((item) => item.adbId === adbId);
 
   try {
-    const result = await window.electronAPI.addDevice({
+    const result = await window.electronAPI.androidRemote.addDevice({
       name,
-      service: "android",
-      autoRun,
-      mode: "desktop",
-      autoSender: false,
-      pendingUrl: "",
-      callbackUrl: "",
-      customUrl: "",
-      androidSpec,
+      adbId,
+      adbName: selectedAdb?.description || "",
+      service,
+      status: selectedAdb?.status === "device" ? "connected" : "disconnected",
     });
 
     if (result.success) {
-      showToast("✅ Android device berhasil ditambahkan!", 3000, "success");
+      showToast("✅ Device Android berhasil ditambahkan!", 3000, "success");
       closeModalAndroid();
       await loadAllDevicesAndroid();
     } else {
@@ -5388,86 +5578,23 @@ window.submitAndroidDevice = async function () {
   }
 };
 
+window.refreshAdbDeviceOptions = function (selectId = "androidAdbDeviceSelect") {
+  refreshAdbDeviceOptionsInternal(selectId, { showToastMessage: true });
+};
+
 // Edit Android device functions
 let editingAndroidDeviceUid = null;
 
-window.openEditAndroidModal = function (uid) {
-  const devices = getCachedDevices();
-  const device = devices.find((d) => d.uid === uid);
-  if (!device) return;
-
-  editingAndroidDeviceUid = uid;
-
-  document.getElementById("editDeviceNameAndroid").value = device.name || "";
-  document.getElementById("editAutoRunAndroid").checked = !!device.autoRun;
-
-  // Populate Android spec presets
-  populateAndroidSpecPreset(
-    "editAndroidSpecPresetAndroid",
-    "editAndroidSpecDescriptionAndroid"
+window.openEditAndroidModal = function () {
+  Swal.fire(
+    "Informasi",
+    "Pengelolaan device Android fisik dilakukan lewat daftar ADB baru. Silakan hapus & tambahkan ulang jika ingin mengubah pengaturan.",
+    "info"
   );
-
-  // Set current spec
-  const currentSpecId = device.androidSpec?.id || DEFAULT_ANDROID_SPEC_ID;
-  const editSpecSelect = document.getElementById(
-    "editAndroidSpecPresetAndroid"
-  );
-  if (editSpecSelect) {
-    editSpecSelect.value = currentSpecId;
-  }
-
-  const modal = document.getElementById("editModalAndroid");
-  if (modal) modal.style.display = "flex";
 };
 
-window.closeEditModalAndroid = function () {
-  const modal = document.getElementById("editModalAndroid");
-  if (modal) modal.style.display = "none";
-  editingAndroidDeviceUid = null;
-};
-
-window.saveEditAndroidDevice = async function () {
-  if (!editingAndroidDeviceUid) return;
-
-  const name = document.getElementById("editDeviceNameAndroid").value.trim();
-  const autoRun = document.getElementById("editAutoRunAndroid").checked;
-  const androidSpecSelect = document.getElementById(
-    "editAndroidSpecPresetAndroid"
-  );
-  const selectedAndroidSpecId =
-    androidSpecSelect?.value || DEFAULT_ANDROID_SPEC_ID;
-  const androidSpec = getAndroidSpecPayload(selectedAndroidSpecId);
-
-  if (!name) {
-    showToast("Nama device wajib diisi.", 3000, "warning");
-    return;
-  }
-
-  try {
-    const result = await window.electronAPI.editDevice({
-      uid: editingAndroidDeviceUid,
-      name,
-      autoRun,
-      mode: "desktop",
-      autoSender: false,
-      pendingUrl: "",
-      callbackUrl: "",
-      customUrl: "",
-      androidSpec,
-    });
-
-    if (result.success) {
-      showToast("✅ Android device berhasil diupdate!", 3000, "success");
-      closeEditModalAndroid();
-      await loadAllDevicesAndroid();
-    } else {
-      showToast(result.message || "Gagal update device.", 4000, "error");
-    }
-  } catch (err) {
-    console.error("Error editing Android device:", err);
-    showToast("Error: " + err.message, 4000, "error");
-  }
-};
+window.closeEditModalAndroid = function () {};
+window.saveEditAndroidDevice = function () {};
 
 // Helper: Populate Android spec preset dropdown
 function populateAndroidSpecPreset(selectId, descriptionId) {

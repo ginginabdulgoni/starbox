@@ -342,6 +342,7 @@ function initializeLogging() {
   // Setup paths globally
   userDataPath = app.getPath("userData");
   DB_PATH = path.join(userDataPath, "db", "devices.json");
+  ANDROID_REMOTE_DB_PATH = path.join(userDataPath, "db", "adb-devices.json");
 
   // Setup logging
   const logPath = path.join(userDataPath, "starbox.log");
@@ -1926,6 +1927,7 @@ async function refreshServicesFromServer() {
 // Global paths (will be initialized after app is ready)
 let userDataPath = null;
 let DB_PATH = null;
+let ANDROID_REMOTE_DB_PATH = null;
 
 // Manager instances
 let androidManager = null;
@@ -2234,6 +2236,12 @@ const CHROME_EXECUTABLE_CANDIDATES = {
     "/usr/bin/chromium",
   ],
 };
+
+const WHATSAPP_SAMPLE_MESSAGES = [
+  "Remote Android berjalan mulus nomor delapan",
+  "Almost done pesan ke sembilan dari StarBox",
+  "Pesan terakhir nomor sepuluh terima kasih",
+];
 
 function resolveChromeExecutablePath() {
   const override =
@@ -2637,6 +2645,482 @@ function getDeviceConfig(uid) {
     console.warn("⚠️ getDeviceConfig gagal:", err.message);
     return null;
   }
+}
+
+function ensureAndroidRemoteDb() {
+  if (!ANDROID_REMOTE_DB_PATH) return;
+  const dir = path.dirname(ANDROID_REMOTE_DB_PATH);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  if (!fs.existsSync(ANDROID_REMOTE_DB_PATH)) {
+    fs.writeFileSync(
+      ANDROID_REMOTE_DB_PATH,
+      JSON.stringify({ devices: [] }, null, 2)
+    );
+  }
+}
+
+function readAndroidRemoteDevices() {
+  ensureAndroidRemoteDb();
+  try {
+    const raw = fs.readFileSync(ANDROID_REMOTE_DB_PATH, "utf8");
+    if (!raw) return [];
+    const data = JSON.parse(raw);
+    if (Array.isArray(data?.devices)) {
+      return data.devices;
+    }
+  } catch (err) {
+    console.warn("⚠️ Gagal membaca adb-devices.json:", err?.message || err);
+  }
+  return [];
+}
+
+function writeAndroidRemoteDevices(devices = []) {
+  ensureAndroidRemoteDb();
+  try {
+    fs.writeFileSync(
+      ANDROID_REMOTE_DB_PATH,
+      JSON.stringify({ devices }, null, 2)
+    );
+  } catch (err) {
+    console.warn("⚠️ Gagal menulis adb-devices.json:", err?.message || err);
+  }
+}
+
+function findAndroidRemoteDevice(uid) {
+  if (!uid) return null;
+  const devices = readAndroidRemoteDevices();
+  return devices.find((device) => device.uid === uid) || null;
+}
+
+function sanitizeRemoteServiceId(service = "") {
+  return (service || "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-");
+}
+
+const androidRemoteActionTokens = new Map();
+
+function beginAndroidRemoteAction(uid) {
+  if (!uid) return null;
+  const existing = androidRemoteActionTokens.get(uid);
+  if (existing) {
+    existing.aborted = true;
+  }
+  const token = { aborted: false, startedAt: Date.now() };
+  androidRemoteActionTokens.set(uid, token);
+  return token;
+}
+
+function cancelAndroidRemoteAction(uid) {
+  if (!uid) return false;
+  const token = androidRemoteActionTokens.get(uid);
+  if (token) {
+    token.aborted = true;
+    return true;
+  }
+  return false;
+}
+
+function clearAndroidRemoteAction(uid) {
+  if (!uid) return;
+  androidRemoteActionTokens.delete(uid);
+}
+
+function addAndroidRemoteDeviceRecord(payload = {}) {
+  const devices = readAndroidRemoteDevices();
+  const name = String(
+    payload.name || payload.service || "Android Remote"
+  ).trim();
+  const adbId = String(payload.adbId || "").trim();
+  const adbName = payload.adbName ? String(payload.adbName || "").trim() : "";
+  const service = sanitizeRemoteServiceId(
+    payload.service || "android-whatsapp"
+  );
+  if (!adbId) {
+    throw new Error("ADB device harus dipilih.");
+  }
+  const duplicate = devices.find(
+    (device) => device.adbId.toLowerCase() === adbId.toLowerCase()
+  );
+  if (duplicate) {
+    throw new Error(
+      `ADB ${adbId} sudah terdaftar sebagai ${duplicate.name || duplicate.uid}.`
+    );
+  }
+
+  const record = {
+    uid: uuidv4(),
+    name,
+    adbId,
+    adbName,
+    service,
+    status: sanitizeRemoteServiceId(payload.status) || "disconnected",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  devices.push(record);
+  writeAndroidRemoteDevices(devices);
+  return record;
+}
+
+async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
+  if (!adbId) throw new Error("ADB ID tidak valid.");
+  const manager = ensureAndroidManagerReady();
+  const actionToken = options.token || null;
+  const messages =
+    (Array.isArray(options.messages) && options.messages.length
+      ? options.messages
+      : WHATSAPP_SAMPLE_MESSAGES) || WHATSAPP_SAMPLE_MESSAGES;
+  const phoneNumber = String(options.phoneNumber || "6282234528303").replace(
+    /[^\d]/g,
+    ""
+  );
+  if (!phoneNumber) {
+    throw new Error("Nomor tujuan WhatsApp tidak valid.");
+  }
+
+  for (let i = 0; i < messages.length; i += 1) {
+    if (actionToken?.aborted) {
+      throw new Error("Remote action dibatalkan oleh pengguna.");
+    }
+    const message = messages[i];
+    const waUrl = `https://wa.me/${phoneNumber}`;
+    console.log(
+      `📲 [ADB:${adbId}] Mengirim pesan WhatsApp ${i + 1}/${messages.length}`
+    );
+    await manager.runAdbCommand(
+      [
+        "-s",
+        adbId,
+        "shell",
+        "am",
+        "start",
+        "-a",
+        "android.intent.action.VIEW",
+        "-d",
+        waUrl,
+        "com.whatsapp",
+      ],
+      { timeout: 20000, silent: true }
+    );
+    await sleep(3500);
+    await clearWhatsappInputField(adbId);
+    if (actionToken?.aborted) {
+      throw new Error("Remote action dibatalkan oleh pengguna.");
+    }
+    await typeTextWithSpeed(adbId, message, options.typingSpeed);
+    if (actionToken?.aborted) {
+      throw new Error("Remote action dibatalkan oleh pengguna.");
+    }
+    await tapWhatsappSendButton(adbId);
+    await sleep(1200);
+  }
+}
+
+function encodeCharForAdbInput(char = "") {
+  if (!char) return "";
+  if (char === " ") return "%s";
+  if (char === "\n") return "%0A";
+  if (/^[0-9a-zA-Z]$/.test(char)) return char;
+  if (/[.,!?@#\-]/.test(char)) return char;
+  return "";
+}
+
+function encodeTextForAdbInput(text = "") {
+  return Array.from(text)
+    .map((char) => encodeCharForAdbInput(char))
+    .filter(Boolean)
+    .join("");
+}
+
+function containsNonAscii(text = "") {
+  return /[^\x20-\x7E]/.test(text);
+}
+
+async function typeTextWithSpeed(adbId, text = "", typingSpeed = "instant") {
+  if (!adbId || !text) return;
+  const manager = ensureAndroidManagerReady();
+  const normalized = (typingSpeed || "instant").toLowerCase();
+
+  const delayMap = {
+    robot: 35,
+    fasthuman: 60,
+    human: 90,
+    slowhuman: 130,
+    realistic: { base: 80, jitter: 70 },
+    stealth: { base: 70, jitter: 90 },
+  };
+
+  if (normalized === "paste") {
+    await setClipboardAndPaste(adbId, text, manager);
+    return;
+  }
+  if (normalized === "hybrid") {
+    await setClipboardAndPaste(adbId, text, manager);
+    await sleep(400);
+    return;
+  }
+  if (containsNonAscii(text)) {
+    await setClipboardAndPaste(adbId, text, manager);
+    return;
+  }
+
+  if (delayMap[normalized]) {
+    const config = delayMap[normalized];
+    const chars = Array.from(text);
+    for (const char of chars) {
+      const token = encodeCharForAdbInput(char);
+      if (!token) continue;
+      await manager.runAdbCommand(
+        ["-s", adbId, "shell", "input", "text", token],
+        { timeout: 10000, silent: true }
+      );
+      const delay =
+        typeof config === "number"
+          ? config
+          : config.base + Math.floor(Math.random() * config.jitter);
+      await sleep(delay);
+    }
+    return;
+  }
+
+  const encoded = encodeTextForAdbInput(text);
+  if (!encoded) return;
+  await manager.runAdbCommand(
+    ["-s", adbId, "shell", "input", "text", encoded],
+    { timeout: 10000, silent: true }
+  );
+}
+
+
+
+
+
+
+
+async function setClipboardAndPaste(adbId, text, manager) {
+  await manager.runAdbCommand(
+    [
+      "-s",
+      adbId,
+      "shell",
+      "am",
+      "broadcast",
+      "-a",
+      "clipper.set",
+      "-e",
+      "text",
+      text,
+    ],
+    { timeout: 15000, silent: true }
+  );
+  await manager.runAdbCommand(
+    ["-s", adbId, "shell", "input", "keyevent", "279"],
+    { timeout: 8000, silent: true }
+  );
+}
+
+async function tapWhatsappSendButton(adbId) {
+  const target =
+    (await resolveWhatsappSendButtonBounds(adbId)) ||
+    (await estimateWhatsappSendButton(adbId));
+  if (!target) return;
+  const manager = ensureAndroidManagerReady();
+  await manager.runAdbCommand(
+    [
+      "-s",
+      adbId,
+      "shell",
+      "input",
+      "tap",
+      String(Math.round(target.x)),
+      String(Math.round(target.y)),
+    ],
+    { timeout: 10000, silent: true }
+  );
+}
+
+async function getDeviceDisplayMetrics(adbId) {
+  const manager = ensureAndroidManagerReady();
+  try {
+    const output = await manager.runAdbCommand(
+      ["-s", adbId, "shell", "wm", "size"],
+      { timeout: 8000, silent: true }
+    );
+    const match = output.match(/Physical size:\s*(\d+)x(\d+)/i);
+    if (match) {
+      return { width: Number(match[1]), height: Number(match[2]) };
+    }
+  } catch (err) {
+    console.warn(
+      `⚠️ Gagal membaca resolusi device ${adbId}, gunakan default:`,
+      err?.message || err
+    );
+  }
+  return { width: 1080, height: 1920 };
+}
+
+async function clearWhatsappInputField(adbId) {
+  const manager = ensureAndroidManagerReady();
+  try {
+    await manager.runAdbCommand(
+      ["-s", adbId, "shell", "input", "keyevent", "123"],
+      { timeout: 6000, silent: true }
+    );
+    await manager.runAdbCommand(
+      ["-s", adbId, "shell", "input", "keyevent", "--longpress", "67"],
+      { timeout: 6000, silent: true }
+    );
+  } catch (err) {
+    console.warn(
+      `⚠️ Gagal clear dengan longpress untuk ${adbId}, fallback delete.`,
+      err?.message || err
+    );
+    for (let i = 0; i < 80; i += 1) {
+      try {
+        await manager.runAdbCommand(
+          ["-s", adbId, "shell", "input", "keyevent", "67"],
+          { timeout: 3000, silent: true }
+        );
+      } catch {
+        break;
+      }
+    }
+  }
+}
+
+async function resolveWhatsappSendButtonBounds(adbId) {
+  const manager = ensureAndroidManagerReady();
+  const dumpPath = "/sdcard/starbox_uidump.xml";
+  const resourceIds = [
+    "com.whatsapp:id/send",
+    "com.whatsapp:id/send_btn",
+    "com.whatsapp:id/send_button",
+    "com.whatsapp.w4b:id/send",
+  ];
+  try {
+    await manager.runAdbCommand(
+      ["-s", adbId, "shell", "uiautomator", "dump", dumpPath],
+      { timeout: 10000, silent: true }
+    );
+    const xml = await manager.runAdbCommand(
+      ["-s", adbId, "shell", "cat", dumpPath],
+      { timeout: 10000, silent: true }
+    );
+    if (!xml) return null;
+    for (const resourceId of resourceIds) {
+      const pattern = new RegExp(
+        `resource-id="${resourceId}"[\\s\\S]*?bounds="\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]"`,
+        "i"
+      );
+      const match = xml.match(pattern);
+      if (match) {
+        const x1 = Number(match[1]);
+        const y1 = Number(match[2]);
+        const x2 = Number(match[3]);
+        const y2 = Number(match[4]);
+        const x = x1 + (x2 - x1) / 2;
+        const y = y1 + (y2 - y1) / 2;
+        return { x, y };
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `⚠️ Gagal membaca tombol send WhatsApp (${adbId}):`,
+      err?.message || err
+    );
+  }
+  return null;
+}
+
+async function estimateWhatsappSendButton(adbId) {
+  const { width, height } = await getDeviceDisplayMetrics(adbId);
+  const x = Math.max(Math.floor(width * 0.92), width - 120);
+  const y = Math.max(Math.floor(height * 0.78), height - 260);
+  return { x, y };
+}
+
+async function performAndroidRemoteAction(
+  uid,
+  action = "default",
+  payload = {}
+) {
+  const record = findAndroidRemoteDevice(uid);
+  if (!record) {
+    throw new Error("Device Android tidak ditemukan.");
+  }
+  const token = beginAndroidRemoteAction(uid);
+  const service = sanitizeRemoteServiceId(record.service);
+  const normalizedAction = action || "default";
+
+  try {
+    if (service === "android-whatsapp") {
+      const actionType =
+        normalizedAction === "whatsapp-send-sample"
+          ? "whatsapp-send-sample"
+          : "default";
+      if (actionType === "whatsapp-send-sample" || actionType === "default") {
+        await sendWhatsappSampleMessagesThroughAdb(record.adbId, {
+          ...payload,
+          token,
+        });
+        return {
+          success: true,
+          message: "Pesan WhatsApp sampel berhasil dikirim.",
+        };
+      }
+    }
+
+    throw new Error(
+      "Aksi remote untuk layanan ini belum tersedia. Gunakan mode remote manual."
+    );
+  } finally {
+    clearAndroidRemoteAction(uid);
+  }
+}
+
+function updateAndroidRemoteDeviceRecord(payload = {}) {
+  const uid = payload.uid;
+  if (!uid) {
+    throw new Error("UID tidak valid.");
+  }
+  const devices = readAndroidRemoteDevices();
+  const index = devices.findIndex((device) => device.uid === uid);
+  if (index === -1) {
+    throw new Error("Device tidak ditemukan.");
+  }
+  const current = devices[index];
+  const next = { ...current };
+  if (typeof payload.name === "string" && payload.name.trim()) {
+    next.name = payload.name.trim();
+  }
+  if (typeof payload.service === "string" && payload.service.trim()) {
+    next.service = sanitizeRemoteServiceId(payload.service);
+  }
+  if (typeof payload.status === "string" && payload.status.trim()) {
+    next.status = sanitizeRemoteServiceId(payload.status);
+  }
+  next.updated_at = new Date().toISOString();
+  devices[index] = next;
+  writeAndroidRemoteDevices(devices);
+  return next;
+}
+
+function deleteAndroidRemoteDeviceRecord(uid) {
+  if (!uid) {
+    throw new Error("UID tidak valid.");
+  }
+  const devices = readAndroidRemoteDevices();
+  const next = devices.filter((device) => device.uid !== uid);
+  if (next.length === devices.length) {
+    throw new Error("Device tidak ditemukan.");
+  }
+  writeAndroidRemoteDevices(next);
+  return true;
 }
 
 function allowAutoSenderForService(service = "") {
@@ -4593,6 +5077,95 @@ ipcMain.handle("load-devices", () => {
   }
 
   return data;
+});
+
+ipcMain.handle("android-remote-load", () => {
+  return { devices: readAndroidRemoteDevices() };
+});
+
+ipcMain.handle("android-remote-add", (_event, payload = {}) => {
+  try {
+    const record = addAndroidRemoteDeviceRecord(payload);
+    return { success: true, device: record };
+  } catch (err) {
+    return {
+      success: false,
+      message: err?.message || "Gagal menambahkan device Android.",
+    };
+  }
+});
+
+ipcMain.handle("android-remote-edit", (_event, payload = {}) => {
+  try {
+    const record = updateAndroidRemoteDeviceRecord(payload);
+    return { success: true, device: record };
+  } catch (err) {
+    return {
+      success: false,
+      message: err?.message || "Gagal memperbarui device Android.",
+    };
+  }
+});
+
+ipcMain.handle("android-remote-delete", (_event, uid) => {
+  try {
+    deleteAndroidRemoteDeviceRecord(uid);
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      message: err?.message || "Gagal menghapus device Android.",
+    };
+  }
+});
+
+ipcMain.handle("android-remote-update-status", (_event, uid, status) => {
+  try {
+    const record = updateAndroidRemoteDeviceRecord({ uid, status });
+    return { success: true, device: record };
+  } catch (err) {
+    return {
+      success: false,
+      message: err?.message || "Gagal memperbarui status device.",
+    };
+  }
+});
+
+ipcMain.handle("android-list-physical-devices", async () => {
+  try {
+    const manager = ensureAndroidManagerReady();
+    const devices = await manager.listConnectedDevices();
+    return { success: true, devices };
+  } catch (err) {
+    return {
+      success: false,
+      message: err?.message || "Gagal membaca daftar ADB.",
+      devices: [],
+    };
+  }
+});
+
+ipcMain.handle(
+  "android-remote-run-action",
+  async (_event, uid, action = "default", payload = {}) => {
+    try {
+      const result = await performAndroidRemoteAction(uid, action, payload);
+      return { success: true, ...result };
+    } catch (err) {
+      return {
+        success: false,
+        message: err?.message || "Gagal menjalankan aksi remote.",
+      };
+    }
+  }
+);
+
+ipcMain.handle("android-remote-cancel-action", (_event, uid) => {
+  const cancelled = cancelAndroidRemoteAction(uid);
+  if (cancelled) {
+    return { success: true, message: "Remote action dihentikan." };
+  }
+  return { success: false, message: "Tidak ada aksi remote yang berjalan." };
 });
 
 ipcMain.handle("delete-device", (event, uid) => {
