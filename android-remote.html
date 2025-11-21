@@ -81,15 +81,6 @@
         background: rgba(59, 130, 246, 0.25);
       }
 
-      #remoteControlsContainer {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        overflow-y: auto;
-        max-height: 55vh;
-        padding-right: 4px;
-      }
-
       .sidebar-header h2 {
         font-size: 16px;
         color: #3ddc84;
@@ -108,17 +99,30 @@
         background: linear-gradient(135deg, #3ddc84 0%, #2ecc71 100%);
         color: #000;
         border: none;
-        padding: 9px 12px;
-        border-radius: 8px;
-        font-size: 12px;
+        padding: 7px 14px;
+        border-radius: 999px;
+        font-size: 11px;
         font-weight: 600;
         cursor: pointer;
         transition: all 0.2s ease;
         box-shadow: 0 2px 8px rgba(61, 220, 132, 0.3);
-        display: flex;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
         gap: 6px;
+        align-self: flex-start;
+        min-width: auto;
+        max-width: none;
+      }
+
+      .control-group {
+        display: flex;
+        flex-wrap: wrap;
+        width: 100%;
+        gap: 8px;
+        padding-left: 4px;
+        justify-content: flex-start;
+        margin-bottom: 6px;
       }
 
       .control-btn:hover {
@@ -413,88 +417,95 @@
           <span class="recording-text">Recording...</span>
         </div>
 
-        <div class="section-label">Power</div>
-        <button class="control-btn" id="btnWake" title="Wake screen">
-          <span class="btn-icon">☀️</span>
-          <span>Wake</span>
-        </button>
-        <button class="control-btn" id="btnUnlock" title="Unlock device">
-          <span class="btn-icon">🔓</span>
-          <span>Unlock</span>
-        </button>
+        <div class="control-group">
+          <button class="control-btn" id="btnWake" title="Wake screen">
+            <span class="btn-icon">☀️</span>
+            <span>Wake</span>
+          </button>
+          <button class="control-btn" id="btnUnlock" title="Unlock device">
+            <span class="btn-icon">🔓</span>
+            <span>Unlock</span>
+          </button>
+        </div>
 
-        <div class="section-label">Navigation</div>
-        <button class="control-btn secondary" id="btnBack" title="Back button">
-          <span class="btn-icon">◀</span>
-          <span>Back</span>
-        </button>
-        <button class="control-btn secondary" id="btnHome" title="Home button">
-          <span class="btn-icon">🏠</span>
-          <span>Home</span>
-        </button>
-        <button
-          class="control-btn secondary"
-          id="btnRecent"
-          title="Recent apps"
-        >
-          <span class="btn-icon">📱</span>
-          <span>Recent</span>
-        </button>
+        <div class="control-group">
+          <button class="control-btn secondary" id="btnBack" title="Back button">
+            <span class="btn-icon">◀</span>
+            <span>Back</span>
+          </button>
+          <button class="control-btn secondary" id="btnHome" title="Home button">
+            <span class="btn-icon">🏠</span>
+            <span>Home</span>
+          </button>
+          <button
+            class="control-btn secondary"
+            id="btnRecent"
+            title="Recent apps"
+          >
+            <span class="btn-icon">📱</span>
+            <span>Recent</span>
+          </button>
+        </div>
 
-        <div class="section-label">Screen</div>
-        <button class="control-btn" id="btnRotate" title="Rotate screen">
-          <span class="btn-icon">🔄</span>
-          <span>Rotate</span>
-        </button>
-        <button class="control-btn" id="btnScreenshot" title="Take screenshot">
-          <span class="btn-icon">📸</span>
-          <span>Screenshot</span>
-        </button>
+        <div class="control-group">
+          <button class="control-btn" id="btnRotate" title="Rotate screen">
+            <span class="btn-icon">🔄</span>
+            <span>Rotate</span>
+          </button>
+          <button class="control-btn" id="btnScreenshot" title="Take screenshot">
+            <span class="btn-icon">📸</span>
+            <span>Screenshot</span>
+          </button>
+        </div>
 
-        <div class="section-label">Recording</div>
-        <button class="control-btn" id="btnRecord" title="Start recording">
-          <span class="btn-icon">⏺</span>
-          <span>Record</span>
-        </button>
-        <button
-          class="control-btn danger"
-          id="btnStopRecord"
-          style="display: none"
-          title="Stop recording"
-        >
-          <span class="btn-icon">⏹</span>
-          <span>Stop Rec</span>
-        </button>
+        <div class="control-group">
+          <button class="control-btn" id="btnRecord" title="Start recording">
+            <span class="btn-icon">⏺</span>
+            <span>Record</span>
+          </button>
+          <button
+            class="control-btn danger"
+            id="btnStopRecord"
+            style="display: none"
+            title="Stop recording"
+          >
+            <span class="btn-icon">⏹</span>
+            <span>Stop Rec</span>
+          </button>
+        </div>
 
-        <div class="section-label">Volume</div>
-        <button
-          class="control-btn secondary"
-          id="btnVolumeUp"
-          title="Volume up"
-        >
-          <span class="btn-icon">🔊</span>
-          <span>Vol +</span>
-        </button>
-        <button
-          class="control-btn secondary"
-          id="btnVolumeDown"
-          title="Volume down"
-        >
-          <span class="btn-icon">🔉</span>
-          <span>Vol -</span>
-        </button>
+        <div class="control-group">
+          <button
+            class="control-btn secondary"
+            id="btnVolumeUp"
+            title="Volume up"
+          >
+            <span class="btn-icon">🔊</span>
+            <span>Vol +</span>
+          </button>
+          <button
+            class="control-btn secondary"
+            id="btnVolumeDown"
+            title="Volume down"
+          >
+            <span class="btn-icon">🔉</span>
+            <span>Vol -</span>
+          </button>
+        </div>
       </div>
 
       <div id="whatsappPendingSection" style="display: none">
         <div class="section-label">Pending Messages</div>
-        <button
-          class="control-btn secondary"
-          id="btnRefreshPending"
-          title="Refresh pending messages"
-        >
-          <span class="btn-icon">🔄</span>
-          <span>Refresh Pending</span>
-        </button>
+        <div class="control-group">
+          <button
+            class="control-btn secondary"
+            id="btnRefreshPending"
+            title="Refresh pending messages"
+          >
+            <span class="btn-icon">🔄</span>
+            <span>Refresh Pending</span>
+          </button>
+        </div>
 
         <div class="rate-limit-control">
           <div class="rate-limit-label">Rate Limiting</div>

@@ -3425,6 +3425,50 @@ function addAndroidRemoteDeviceRecord(payload = {}) {
 }
 
 /**
+ * Helper: Kirim callback ke API untuk update status pesan
+ */
+async function sendWhatsappCallback(callbackUrl, messageId, status) {
+  if (!callbackUrl || !messageId) return;
+  try {
+    const https = require("https");
+    const http = require("http");
+    const url = new URL(callbackUrl);
+    const postData = JSON.stringify({ id: messageId, status: status });
+
+    const options = {
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname + url.search,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(postData),
+      },
+    };
+
+    return new Promise((resolve, reject) => {
+      const protocol = url.protocol === "https:" ? https : http;
+      const req = protocol.request(options, (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => {
+          console.log(`✅ Callback sent: ${messageId} -> ${status}`);
+          resolve({ success: true });
+        });
+      });
+      req.on("error", (err) => {
+        console.warn(`⚠️ Callback failed:`, err.message);
+        reject(err);
+      });
+      req.write(postData);
+      req.end();
+    });
+  } catch (err) {
+    console.warn(`⚠️ Callback error:`, err.message);
+  }
+}
+
+/**
  * Helper: Deteksi apakah pesan mengandung emoji atau karakter non-ASCII kompleks
  * Comprehensive coverage: standard emoji, ZWJ sequences, skin tones, flags, keycaps, Unicode 15.0
  */
@@ -3528,6 +3572,8 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
     /[^\d]/g,
     ""
   );
+  const callbackUrl = options.callbackUrl || null;
+  const messageId = options.messageId || null;
   if (!phoneNumber) {
     throw new Error("Nomor tujuan WhatsApp tidak valid.");
   }
@@ -3555,6 +3601,14 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
         console.warn(
           `⚠️ [ADB:${adbId}] Pesan terlalu panjang untuk split (>3 chunks), fallback ke typing tanpa emoji`
         );
+
+        // Kirim callback SEBELUM fallback, agar message langsung di-mark "done" dan tidak di-fetch ulang
+        if (callbackUrl && messageId) {
+          console.log(`📞 [ADB:${adbId}] Mengirim callback sebelum fallback (pesan terlalu panjang)...`);
+          sendWhatsappCallback(callbackUrl, messageId, "done").catch(err => {
+            console.warn(`⚠️ Failed to send callback before fallback:`, err.message);
+          });
+        }
 
         const cleanMessage = stripEmoji(message);
         const waUrlSimple = `https://wa.me/${phoneNumber}`;
@@ -3597,6 +3651,7 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
         );
 
         // Pause auto-refresh interval during chunk sending
+        console.log(`⏸️ [ADB:${adbId}] Pausing auto-refresh for all windows during chunk sending...`);
         BrowserWindow.getAllWindows().forEach((win) => {
           if (!win.isDestroyed()) {
             win.webContents.send("android-whatsapp-pause-auto-refresh");
@@ -3638,6 +3693,14 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
             await tapWhatsappSendButton(adbId);
             await sleep(1200);
 
+            // Kirim callback setelah chunk 1 berhasil terkirim
+            if (chunkIdx === 0 && callbackUrl && messageId) {
+              console.log(`📞 [ADB:${adbId}] Mengirim callback setelah chunk 1 terkirim...`);
+              sendWhatsappCallback(callbackUrl, messageId, "done").catch(err => {
+                console.warn(`⚠️ Failed to send callback after chunk 1:`, err.message);
+              });
+            }
+
             // Delay antar chunk (kecuali chunk terakhir)
             if (chunkIdx < messageChunks.length - 1) {
               console.log(`  ⏳ Delay 2 detik sebelum chunk berikutnya...`);
@@ -3646,6 +3709,7 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
           }
         } finally {
           // Resume auto-refresh interval after all chunks sent (success or failure)
+          console.log(`▶️ [ADB:${adbId}] Resuming auto-refresh for all windows after chunk sending`);
           BrowserWindow.getAllWindows().forEach((win) => {
             if (!win.isDestroyed()) {
               win.webContents.send("android-whatsapp-resume-auto-refresh");
@@ -3690,6 +3754,14 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
 
       await tapWhatsappSendButton(adbId);
       await sleep(1200);
+
+      // Kirim callback setelah pesan tanpa emoji berhasil terkirim
+      if (callbackUrl && messageId) {
+        console.log(`📞 [ADB:${adbId}] Mengirim callback setelah non-emoji message terkirim...`);
+        sendWhatsappCallback(callbackUrl, messageId, "done").catch(err => {
+          console.warn(`⚠️ Failed to send callback after non-emoji:`, err.message);
+        });
+      }
     }
   }
 }
@@ -3699,6 +3771,8 @@ async function sendSingleWhatsappMessage(adbId, phoneNumber, message = "", optio
     messages: [String(message || "")],
     phoneNumber: phoneNumber,
     typingSpeed: options.typingSpeed || "instant",
+    callbackUrl: options.callbackUrl,
+    messageId: options.messageId,
   });
 }
 
@@ -6350,6 +6424,9 @@ ipcMain.handle(
         .replace(/[^\d]/g, "")
         .trim();
       const message = String(payload.message || "").trim();
+      const messageId = payload.id || null;
+      const callbackUrl = record.whatsappCallbackUrl || null;
+
       if (!phone) {
         throw new Error("Nomor tujuan tidak valid.");
       }
@@ -6358,6 +6435,8 @@ ipcMain.handle(
       }
       await sendSingleWhatsappMessage(record.adbId, phone, message, {
         typingSpeed: "instant",
+        callbackUrl: callbackUrl,
+        messageId: messageId,
       });
       return {
         success: true,
