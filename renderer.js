@@ -2118,6 +2118,108 @@ async function refreshAdbDeviceOptionsInternal(
   }
 }
 
+// Toggle between Scan and Manual input modes
+function toggleAdbInputMode() {
+  const scanMode = document.getElementById("adbModeScan");
+  const manualMode = document.getElementById("adbModeManual");
+  const scanSection = document.getElementById("adbScanOptionsSection");
+  const manualSection = document.getElementById("adbManualInputSection");
+
+  if (manualMode && manualMode.checked) {
+    // Show manual input, hide scan options
+    if (scanSection) scanSection.style.display = "none";
+    if (manualSection) manualSection.style.display = "block";
+  } else {
+    // Show scan options, hide manual input
+    if (scanSection) scanSection.style.display = "block";
+    if (manualSection) manualSection.style.display = "none";
+  }
+}
+
+// Connect to manually entered IP:port
+async function connectManualAdbDevice() {
+  const ipInput = document.getElementById("adbManualIp");
+  const portInput = document.getElementById("adbManualPort");
+  const select = document.getElementById("androidAdbDeviceSelect");
+
+  if (!ipInput || !portInput) return;
+
+  const ip = ipInput.value.trim();
+  const port = portInput.value.trim();
+
+  if (!ip || !port) {
+    showToast("Harap isi IP Address dan Port!", 3000, "error");
+    return;
+  }
+
+  // Validate IP format (basic)
+  const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+  if (!ipPattern.test(ip)) {
+    showToast("Format IP Address tidak valid!", 3000, "error");
+    return;
+  }
+
+  // Validate port (1-65535)
+  const portNum = parseInt(port, 10);
+  if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+    showToast("Port harus antara 1-65535!", 3000, "error");
+    return;
+  }
+
+  showToast(`Connecting ke ${ip}:${port}...`, 2000, "info");
+
+  try {
+    const api = window.electronAPI?.androidRemote;
+    if (!api?.connectManualAdb) {
+      showToast("API tidak tersedia!", 3000, "error");
+      return;
+    }
+
+    const result = await api.connectManualAdb({ ip, port });
+
+    if (result?.success) {
+      showToast(
+        `✅ Berhasil connect ke ${ip}:${port}!`,
+        3000,
+        "success"
+      );
+
+      // Add to dropdown
+      if (select && result.deviceId) {
+        const option = document.createElement("option");
+        option.value = result.deviceId;
+        option.textContent = `📱 ${result.deviceName || result.deviceId}`;
+        option.selected = true;
+        select.appendChild(option);
+      }
+
+      // Clear inputs
+      ipInput.value = "";
+      portInput.value = "";
+
+      // Switch back to scan mode
+      const scanModeRadio = document.getElementById("adbModeScan");
+      if (scanModeRadio) {
+        scanModeRadio.checked = true;
+        toggleAdbInputMode();
+      }
+    } else {
+      showToast(
+        result?.message || "Gagal connect ke device!",
+        4000,
+        "error"
+      );
+    }
+  } catch (err) {
+    console.error("❌ Error connecting manual ADB:", err);
+    showToast(
+      err?.message || "Gagal connect ke device!",
+      4000,
+      "error"
+    );
+  }
+}
+
 function applyAdbDevicesToSelect(select, devices = []) {
   select.innerHTML = "";
   if (!devices.length) {

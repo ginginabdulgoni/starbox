@@ -2396,16 +2396,60 @@ function probeAdbPort(ip, port = 5555, timeout = 1200) {
   });
 }
 
+/**
+ * Quick check if an IP is alive by testing common ports
+ * Returns true if ANY port responds within timeout
+ */
+async function isIpAlive(ip, timeout = 200) {
+  // Common ports termasuk ADB wireless ports yang sering dipakai
+  const commonPorts = [
+    // Standard ports
+    22, 80, 443, 8080,
+    // ADB wired & emulator
+    5555, 5556, 5557,
+    // ADB wireless common ports (sampling dari range 30000-49999)
+    37229, 37121, 40000, 43211, 43393, 45000, 47233, 49555,
+  ];
+  const probes = commonPorts.map(port =>
+    probeAdbPort(ip, port, timeout).catch(() => false)
+  );
+  const results = await Promise.all(probes);
+  return results.some(r => r === true);
+}
+
 async function scanLocalWifiForAdbDevices(
   emitProgress = true,
   scanMode = "quick"
 ) {
   const manager = ensureAndroidManagerReady();
-  const candidates = getWifiScanCandidates();
+  const allCandidates = getWifiScanCandidates();
   const connected = [];
   let scannedCount = 0;
   let index = 0;
-  const concurrency = Math.min(20, Math.max(2, candidates.length)); // Increased concurrency for deep scan
+  const concurrency = Math.min(20, Math.max(2, allCandidates.length)); // Increased concurrency for deep scan
+
+  let candidates = allCandidates;
+
+  // PRE-FILTER: Only for QUICK scan mode (deep scan needs to be comprehensive)
+  if (scanMode === "quick") {
+    logDev(`\n🔍 [WiFi Scan] Pre-filtering: Checking ${allCandidates.length} IPs untuk yang aktif...`);
+
+    const aliveCheckPromises = allCandidates.map(ip =>
+      isIpAlive(ip, 150).then(alive => ({ ip, alive }))
+    );
+    const aliveResults = await Promise.all(aliveCheckPromises);
+    candidates = aliveResults.filter(r => r.alive).map(r => r.ip);
+
+    const skippedCount = allCandidates.length - candidates.length;
+    logDev(`✅ [WiFi Scan] Pre-filter complete: ${candidates.length} aktif, ${skippedCount} di-skip`);
+
+    if (candidates.length === 0) {
+      logDev(`⚠️ [WiFi Scan] Tidak ada IP yang responding, scan dibatalkan`);
+      return { success: true, connected: [], scanned: allCandidates.length };
+    }
+  } else {
+    logDev(`\n🔍 [WiFi Scan] DEEP MODE: Scanning semua ${allCandidates.length} IPs (no pre-filter)`);
+  }
 
   // Common ADB wireless ports to check
   let portsToCheck = [];
@@ -6599,6 +6643,52 @@ ipcMain.handle("android-scan-local-wifi", async (event, options = {}) => {
     return {
       success: false,
       message: err?.message || "Gagal memindai jaringan lokal.",
+    };
+  }
+});
+
+ipcMain.handle("android-connect-manual-adb", async (event, options = {}) => {
+  try {
+    const { ip, port } = options;
+    if (!ip || !port) {
+      return {
+        success: false,
+        message: "IP dan Port harus diisi!",
+      };
+    }
+
+    const manager = ensureAndroidManagerReady();
+    const deviceId = `${ip}:${port}`;
+
+    // Try to connect
+    logDev(`🔌 Connecting to ${deviceId}...`);
+    const connectResult = await manager.runAdbCommand(['connect', deviceId], { timeout: 10000 });
+
+    if (connectResult.includes('connected') || connectResult.includes('already connected')) {
+      logDev(`✅ Successfully connected to ${deviceId}`);
+
+      // Get device info
+      const devices = await manager.listConnectedDevices();
+      const device = devices.find(d => d.adbId === deviceId);
+
+      return {
+        success: true,
+        message: `Berhasil connect ke ${deviceId}`,
+        deviceId: deviceId,
+        deviceName: device?.description || device?.model || deviceId,
+      };
+    } else {
+      logDev(`❌ Failed to connect to ${deviceId}: ${connectResult}`);
+      return {
+        success: false,
+        message: `Gagal connect: ${connectResult}`,
+      };
+    }
+  } catch (err) {
+    console.error("❌ Error connecting manual ADB:", err);
+    return {
+      success: false,
+      message: err?.message || "Gagal connect ke device!",
     };
   }
 });

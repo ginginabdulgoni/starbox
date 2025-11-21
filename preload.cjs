@@ -99,6 +99,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     captureScreenshot: (uid) =>
       ipcRenderer.invoke('android-remote-screenshot', uid),
     scanLocalWifi: (options) => ipcRenderer.invoke('android-scan-local-wifi', options),
+    connectManualAdb: (options) => ipcRenderer.invoke('android-connect-manual-adb', options),
     cancelAction: (uid) =>
       ipcRenderer.invoke('android-remote-cancel-action', uid),
     onStatusUpdated: (callback) => {

@@ -1710,42 +1710,97 @@
             </div>
           </div>
 
-          <!-- Scan Options -->
+          <!-- Mode Selection: Scan vs Manual Input -->
           <div style="margin-top: 12px; padding: 10px; background: rgba(61, 220, 132, 0.05); border: 1px solid rgba(61, 220, 132, 0.2); border-radius: 6px;">
             <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #333;">
-              Pilih Mode Scan:
+              Pilih Metode:
             </div>
 
-            <!-- USB Scan Option (Always enabled, instant) -->
-            <label style="display: flex; align-items: center; cursor: pointer; user-select: none; margin-bottom: 6px;">
-              <input type="checkbox" id="adbScanUsb" checked style="margin-right: 8px; cursor: pointer;">
-              <span style="font-size: 12px;">
-                <strong>USB/Kabel</strong>
-                <span style="color: #666; font-weight: normal;">(&lt;1 detik)</span>
-              </span>
-            </label>
+            <!-- Mode Toggle -->
+            <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+              <label style="display: flex; align-items: center; cursor: pointer; user-select: none;">
+                <input type="radio" name="adbInputMode" id="adbModeScan" value="scan" checked onchange="toggleAdbInputMode()" style="margin-right: 6px; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600;">🔍 Scan Otomatis</span>
+              </label>
+              <label style="display: flex; align-items: center; cursor: pointer; user-select: none;">
+                <input type="radio" name="adbInputMode" id="adbModeManual" value="manual" onchange="toggleAdbInputMode()" style="margin-right: 6px; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600;">✏️ Input Manual</span>
+              </label>
+            </div>
 
-            <!-- WiFi Quick Scan -->
-            <label style="display: flex; align-items: center; cursor: pointer; user-select: none; margin-bottom: 6px;">
-              <input type="checkbox" id="adbScanWifiQuick" style="margin-right: 8px; cursor: pointer;">
-              <span style="font-size: 12px;">
-                <strong>WiFi Quick</strong>
-                <span style="color: #666; font-weight: normal;">(30+ port umum, ~30-60 detik)</span>
-              </span>
-            </label>
+            <!-- Scan Options (shown when Scan mode selected) -->
+            <div id="adbScanOptionsSection">
+              <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #333;">
+                Pilih Mode Scan:
+              </div>
 
-            <!-- WiFi Deep Scan -->
-            <label style="display: flex; align-items: center; cursor: pointer; user-select: none;">
-              <input type="checkbox" id="adbScanWifiDeep" style="margin-right: 8px; cursor: pointer;">
-              <span style="font-size: 12px;">
-                <strong>WiFi Deep</strong>
-                <span style="color: #666; font-weight: normal;">(port 30000-49999, ~2-5 menit)</span>
-              </span>
-            </label>
+              <!-- USB Scan Option -->
+              <label style="display: flex; align-items: center; cursor: pointer; user-select: none; margin-bottom: 6px;">
+                <input type="checkbox" id="adbScanUsb" checked style="margin-right: 8px; cursor: pointer;">
+                <span style="font-size: 12px;">
+                  <strong>USB/Kabel</strong>
+                  <span style="color: #666; font-weight: normal;">(&lt;1 detik)</span>
+                </span>
+              </label>
 
-            <p style="font-size: 10px; color: #999; margin: 8px 0 0 0; line-height: 1.3;">
-              💡 Tip: Pilih USB saja untuk scan cepat, atau tambahkan WiFi jika device tidak terdeteksi.
-            </p>
+              <!-- WiFi Quick Scan -->
+              <label style="display: flex; align-items: center; cursor: pointer; user-select: none; margin-bottom: 6px;">
+                <input type="checkbox" id="adbScanWifiQuick" style="margin-right: 8px; cursor: pointer;">
+                <span style="font-size: 12px;">
+                  <strong>WiFi Quick</strong>
+                  <span style="color: #666; font-weight: normal;">(30+ port umum, ~30-60 detik)</span>
+                </span>
+              </label>
+
+              <!-- WiFi Deep Scan -->
+              <label style="display: flex; align-items: center; cursor: pointer; user-select: none;">
+                <input type="checkbox" id="adbScanWifiDeep" style="margin-right: 8px; cursor: pointer;">
+                <span style="font-size: 12px;">
+                  <strong>WiFi Deep</strong>
+                  <span style="color: #666; font-weight: normal;">(port 30000-49999, ~2-5 menit)</span>
+                </span>
+              </label>
+
+              <p style="font-size: 10px; color: #999; margin: 8px 0 0 0; line-height: 1.3;">
+                💡 Tip: Pilih USB saja untuk scan cepat, atau tambahkan WiFi jika device tidak terdeteksi.
+              </p>
+            </div>
+
+            <!-- Manual Input Section (hidden by default) -->
+            <div id="adbManualInputSection" style="display: none;">
+              <div style="margin-bottom: 8px;">
+                <label for="adbManualIp" style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">
+                  IP Address:
+                </label>
+                <input
+                  type="text"
+                  id="adbManualIp"
+                  placeholder="Misal: 192.168.100.21"
+                  style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px;"
+                />
+              </div>
+              <div>
+                <label for="adbManualPort" style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">
+                  Port:
+                </label>
+                <input
+                  type="text"
+                  id="adbManualPort"
+                  placeholder="Misal: 43393"
+                  style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px;"
+                />
+              </div>
+              <button
+                type="button"
+                onclick="connectManualAdbDevice()"
+                style="margin-top: 8px; width: 100%; padding: 8px; background: #3ddc84; color: white; border: none; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;"
+              >
+                <i class="bi bi-plug"></i> Connect Device
+              </button>
+              <p style="font-size: 10px; color: #999; margin: 8px 0 0 0; line-height: 1.3;">
+                💡 Tip: Pastikan ADB wireless debugging sudah aktif di HP. IP dan port bisa dilihat di Settings > Developer Options > Wireless debugging.
+              </p>
+            </div>
           </div>
 
           <p class="small-text" style="margin-top: 8px">
