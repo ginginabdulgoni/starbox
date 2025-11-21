@@ -44,5 +44,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onResumeAutoRefresh: (callback) => {
       ipcRenderer.on("android-whatsapp-resume-auto-refresh", (_event) => callback());
     },
+    onAutomationUpdate: (callback) => {
+      ipcRenderer.on("automation-update", (_event, data) => callback(data));
+    },
   },
 });

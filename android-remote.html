@@ -279,6 +279,18 @@
         display: flex;
         flex-direction: column;
         gap: 4px;
+        transition: all 0.3s ease-out;
+      }
+
+      /* Animasi untuk pesan yang terkirim (akan dihapus dari list) */
+      .pending-item.removing {
+        opacity: 0;
+        transform: translateX(20px);
+        max-height: 0;
+        padding-top: 0;
+        padding-bottom: 0;
+        margin-bottom: 0;
+        overflow: hidden;
       }
 
       .pending-meta {
@@ -701,8 +713,15 @@
             const phone = message?.phone || message?.uid || "-";
             const body = message?.message || "";
             const status = (message?.status || "pending").toLowerCase();
+            const messageId = message?.id || message?.messageId;
+
             const item = document.createElement("div");
             item.className = "pending-item";
+
+            // Simpan message ID sebagai data attribute untuk tracking status
+            if (messageId) {
+              item.setAttribute("data-message-id", messageId);
+            }
 
             const meta = document.createElement("div");
             meta.className = "pending-meta";
@@ -718,19 +737,9 @@
             const messageEl = document.createElement("div");
             messageEl.className = "pending-message";
             messageEl.textContent = body;
-            const actions = document.createElement("div");
-            actions.className = "pending-actions";
-            const sendBtn = document.createElement("button");
-            sendBtn.className = "pending-send-btn";
-            sendBtn.textContent = "Kirim";
-            sendBtn.addEventListener("click", () =>
-              sendPendingWhatsappMessage(message)
-            );
-            actions.appendChild(sendBtn);
 
             item.appendChild(meta);
             item.appendChild(messageEl);
-            item.appendChild(actions);
             fragment.appendChild(item);
           });
           pendingList.appendChild(fragment);
@@ -1055,6 +1064,60 @@
 
             // Restart countdown
             startRefreshCountdown();
+          });
+        }
+
+        // Function untuk remove message dengan animasi
+        function removeMessageFromList(messageId) {
+          if (!messageId || !pendingList) return;
+
+          const item = pendingList.querySelector(`[data-message-id="${messageId}"]`);
+          if (!item) {
+            console.log(`⚠️ Message ${messageId} not found in list`);
+            return;
+          }
+
+          console.log(`✨ Removing message ${messageId} with animation...`);
+
+          // Tambahkan class 'removing' untuk trigger animasi
+          item.classList.add('removing');
+
+          // Hapus element setelah animasi selesai (300ms)
+          setTimeout(() => {
+            item.remove();
+            console.log(`✅ Message ${messageId} removed from list`);
+
+            // Cek apakah list kosong
+            if (pendingList.children.length === 0) {
+              pendingEmptyState.style.display = 'block';
+            }
+          }, 300);
+        }
+
+        // Listen for automation status updates (dari main process)
+        if (window.electronAPI?.androidRemote?.onAutomationUpdate) {
+          window.electronAPI.androidRemote.onAutomationUpdate((payload) => {
+            console.log('📨 Received automation update:', payload);
+
+            const { messageId, status, statusText } = payload || {};
+
+            // Jika status 'sent', hapus message dari list dengan animasi
+            if (status === 'sent' && messageId) {
+              console.log(`✅ Message ${messageId} sent, removing from pending list...`);
+              removeMessageFromList(messageId);
+            }
+
+            // Update status tag jika message masih ada di list
+            else if (messageId && status) {
+              const item = pendingList?.querySelector(`[data-message-id="${messageId}"]`);
+              if (item) {
+                const statusTag = item.querySelector('.pending-status-tag');
+                if (statusTag) {
+                  statusTag.className = `pending-status-tag pending-${status}`;
+                  statusTag.textContent = statusText || status;
+                }
+              }
+            }
           });
         }
 

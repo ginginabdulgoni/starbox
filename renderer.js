@@ -4991,10 +4991,6 @@ function renderDevicesAndroid(devices = []) {
             <i class="bi bi-pencil-fill"></i>
             <span>Edit</span>
           </button>
-          <button class="remote">
-            <i class="bi bi-magic"></i>
-            <span>Remote</span>
-          </button>
           <button class="monitor">
             <i class="bi bi-display"></i>
             <span>Monitor</span>
@@ -5025,18 +5021,12 @@ function renderDevicesAndroid(devices = []) {
     `;
 
     const editButton = deviceCard.querySelector(".edit");
-    const remoteButton = deviceCard.querySelector(".remote");
     const monitorButton = deviceCard.querySelector(".monitor");
     const deleteButton = deviceCard.querySelector(".delete");
 
     editButton?.addEventListener("click", (evt) => {
       evt.stopPropagation();
       openEditAndroidRemoteDevice(device);
-    });
-
-    remoteButton?.addEventListener("click", (evt) => {
-      evt.stopPropagation();
-      remoteAndroidDevice(device);
     });
 
     monitorButton?.addEventListener("click", (evt) => {
@@ -5196,6 +5186,19 @@ function openEditAndroidRemoteDevice(device) {
     serviceSelect.value = device.service || "android-general";
   }
 
+  // Populate IP/Port fields from adbId (format: "IP:PORT")
+  const ipInput = document.getElementById("editAndroidRemoteIp");
+  const portInput = document.getElementById("editAndroidRemotePort");
+
+  if (device.adbId && device.adbId.includes(":")) {
+    const [ip, port] = device.adbId.split(":");
+    if (ipInput) ipInput.value = ip || "";
+    if (portInput) portInput.value = port || "";
+  } else {
+    if (ipInput) ipInput.value = "";
+    if (portInput) portInput.value = "";
+  }
+
   // Populate WhatsApp automation fields if available
   const baseUrlInput = document.getElementById("editWhatsAppBaseUrl");
   const callbackUrlInput = document.getElementById("editWhatsAppCallbackUrl");
@@ -5231,6 +5234,84 @@ function toggleWhatsAppAutomationFields() {
 function closeEditAndroidRemoteModal() {
   const modal = document.getElementById("editModalAndroidRemote");
   if (modal) modal.style.display = "none";
+}
+
+async function reconnectAndroidRemoteDevice() {
+  const ipInput = document.getElementById("editAndroidRemoteIp");
+  const portInput = document.getElementById("editAndroidRemotePort");
+  const uid = document.getElementById("editAndroidRemoteUid").value;
+
+  if (!ipInput || !portInput || !uid) return;
+
+  const ip = ipInput.value.trim();
+  const port = portInput.value.trim();
+
+  if (!ip || !port) {
+    showToast("Harap isi IP Address dan Port!", 3000, "error");
+    return;
+  }
+
+  // Validate IP format
+  const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+  if (!ipPattern.test(ip)) {
+    showToast("Format IP Address tidak valid!", 3000, "error");
+    return;
+  }
+
+  // Validate port
+  const portNum = parseInt(port, 10);
+  if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+    showToast("Port harus antara 1-65535!", 3000, "error");
+    return;
+  }
+
+  showToast(`Reconnecting ke ${ip}:${port}...`, 2000, "info");
+
+  try {
+    const api = window.electronAPI?.androidRemote;
+    if (!api?.connectManualAdb || !api?.getDevices) {
+      showToast("API tidak tersedia!", 3000, "error");
+      return;
+    }
+
+    // Get current device to get old adbId
+    const devicesResult = await api.getDevices();
+    const currentDevice = devicesResult?.devices?.find(d => d.uid === uid);
+    const oldAdbId = currentDevice?.adbId || null;
+
+    const newAdbId = `${ip}:${port}`;
+
+    // Connect to new IP:Port (will disconnect old one)
+    const result = await api.connectManualAdb({
+      ip,
+      port,
+      oldAdbId: oldAdbId
+    });
+
+    if (result?.success) {
+      showToast(`✅ Berhasil reconnect ke ${ip}:${port}!`, 3000, "success");
+
+      // Update the device record with new adbId
+      const updateResult = await api.editDevice({
+        uid: uid,
+        adbId: newAdbId,
+      });
+
+      if (updateResult?.success) {
+        console.log(`✅ Device ${uid} updated with new adbId: ${newAdbId}`);
+        // Reload devices list
+        await loadAllDevicesAndroid();
+        closeEditAndroidRemoteModal();
+      } else {
+        showToast("Reconnect berhasil tapi gagal menyimpan!", 4000, "warning");
+      }
+    } else {
+      showToast(result?.message || "Gagal reconnect ke device!", 4000, "error");
+    }
+  } catch (err) {
+    console.error("❌ Error reconnecting:", err);
+    showToast(err?.message || "Gagal reconnect ke device!", 4000, "error");
+  }
 }
 
 async function saveEditAndroidRemoteDevice() {

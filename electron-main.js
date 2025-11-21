@@ -339,6 +339,11 @@ let systemReportTimer = null;
 let authSession = createEmptyAuthSession();
 let authRefreshTimer = null;
 let cachedChromeVersion = DEFAULT_CHROME_VERSION;
+
+// WhatsApp Message Cache - untuk mencegah duplicate send saat fetch ulang
+// Map structure: messageId -> { status: 'sending' | 'sent' | 'failed', timestamp: number }
+const WHATSAPP_MESSAGE_CACHE = new Map();
+const MESSAGE_CACHE_EXPIRY_MS = 10 * 60 * 1000; // 10 menit
 let cachedChromeVersionUpdatedAt = 0;
 let chromeVersionFetchPromise = null;
 
@@ -3469,15 +3474,75 @@ function addAndroidRemoteDeviceRecord(payload = {}) {
 }
 
 /**
+ * Helper: Message Cache Management
+ */
+function cleanExpiredMessageCache() {
+  const now = Date.now();
+  for (const [messageId, data] of WHATSAPP_MESSAGE_CACHE.entries()) {
+    if (now - data.timestamp > MESSAGE_CACHE_EXPIRY_MS) {
+      WHATSAPP_MESSAGE_CACHE.delete(messageId);
+      console.log(`🧹 Cleaned expired message from cache: ${messageId}`);
+    }
+  }
+}
+
+function isMessageInCache(messageId) {
+  cleanExpiredMessageCache();
+  return WHATSAPP_MESSAGE_CACHE.has(messageId);
+}
+
+function addMessageToCache(messageId, status = 'sending') {
+  WHATSAPP_MESSAGE_CACHE.set(messageId, {
+    status: status,
+    timestamp: Date.now()
+  });
+  console.log(`💾 Message added to cache: ${messageId} (${status})`);
+}
+
+function updateMessageCacheStatus(messageId, status) {
+  if (WHATSAPP_MESSAGE_CACHE.has(messageId)) {
+    const data = WHATSAPP_MESSAGE_CACHE.get(messageId);
+    data.status = status;
+    data.timestamp = Date.now();
+    console.log(`🔄 Message cache updated: ${messageId} -> ${status}`);
+  }
+}
+
+function hasMessagesInProgress() {
+  cleanExpiredMessageCache();
+  for (const [messageId, data] of WHATSAPP_MESSAGE_CACHE.entries()) {
+    if (data.status === 'sending') {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getMessagesInProgress() {
+  cleanExpiredMessageCache();
+  const inProgress = [];
+  for (const [messageId, data] of WHATSAPP_MESSAGE_CACHE.entries()) {
+    if (data.status === 'sending') {
+      inProgress.push(messageId);
+    }
+  }
+  return inProgress;
+}
+
+/**
  * Helper: Kirim callback ke API untuk update status pesan
  */
-async function sendWhatsappCallback(callbackUrl, messageId, status) {
+async function sendWhatsappCallback(callbackUrl, messageId, status, errorMessage = null) {
   if (!callbackUrl || !messageId) return;
   try {
     const https = require("https");
     const http = require("http");
     const url = new URL(callbackUrl);
-    const postData = JSON.stringify({ id: messageId, status: status });
+    const payload = { id: messageId, status: status };
+    if (errorMessage) {
+      payload.error_message = errorMessage;
+    }
+    const postData = JSON.stringify(payload);
 
     const options = {
       hostname: url.hostname,
@@ -3628,34 +3693,72 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
       throw new Error("Remote action dibatalkan oleh pengguna.");
     }
     await ensureDeviceScreenAwake(adbId);
-    const message = messages[i];
+    let message = messages[i];
+
+    // CEK CACHE: Skip jika pesan sudah sedang/sudah dikirim
+    if (messageId && isMessageInCache(messageId)) {
+      const cacheData = WHATSAPP_MESSAGE_CACHE.get(messageId);
+      console.log(`⏭️ [ADB:${adbId}] Pesan ${messageId} sudah ada di cache (${cacheData.status}), skip!`);
+      continue;
+    }
+
+    // ADD TO CACHE: Tandai pesan sedang dikirim
+    if (messageId) {
+      addMessageToCache(messageId, 'sending');
+
+      // KIRIM STATUS UPDATE: Tampilkan status "sedang mengetik" di android-remote window
+      const scrcpyWin = scrcpyWindows.get(adbId);
+      if (scrcpyWin && !scrcpyWin.isDestroyed()) {
+        scrcpyWin.webContents.send('automation-update', {
+          messageId: messageId,
+          status: 'typing',
+          statusText: '⌨️ Sedang mengetik...',
+          message: message.substring(0, 50) + (message.length > 50 ? '...' : '')
+        });
+      }
+    }
+
+    // WhatsApp limit untuk pengguna individu: 65,536 karakter per pesan
+    const WHATSAPP_MESSAGE_LIMIT = 65536;
+
+    if (message.length > WHATSAPP_MESSAGE_LIMIT) {
+      console.warn(
+        `⚠️ [ADB:${adbId}] Pesan ${i + 1} terlalu panjang (${message.length} chars, limit: ${WHATSAPP_MESSAGE_LIMIT}), akan dipotong!`
+      );
+
+      // Potong pesan ke batas maksimal
+      message = message.substring(0, WHATSAPP_MESSAGE_LIMIT);
+
+      // Kirim callback dengan warning jika ada
+      if (callbackUrl && messageId) {
+        console.log(`📞 [ADB:${adbId}] Mengirim callback warning (pesan dipotong)...`);
+        sendWhatsappCallback(callbackUrl, messageId, "done",
+          `Pesan dipotong dari ${messages[i].length} ke ${WHATSAPP_MESSAGE_LIMIT} karakter (limit WhatsApp)`
+        ).catch(err => {
+          console.warn(`⚠️ Failed to send callback:`, err.message);
+        });
+      }
+    }
+
     const hasEmoji = hasEmojiOrComplexChars(message);
+    const MAX_TYPING_CHARS = 200; // Batas untuk gunakan typing method
 
     console.log(
-      `📲 [ADB:${adbId}] Mengirim pesan WhatsApp ${i + 1}/${messages.length} (emoji: ${hasEmoji ? 'yes' : 'no'})`
+      `📲 [ADB:${adbId}] Mengirim pesan WhatsApp ${i + 1}/${messages.length} (${message.length} chars, emoji: ${hasEmoji ? 'yes' : 'no'})`
     );
 
-    if (hasEmoji) {
-      // METODE 1: Dengan emoji - gunakan wa.me dengan text parameter
-      // Try smart split first untuk preserve emoji
-      const messageChunks = smartSplitMessage(message, 250, 3);
+    // Wrap sending logic in try-catch untuk error handling
+    try {
+      // LOGIKA:
+      // - Pesan < 200 chars & tanpa emoji: Gunakan typing method (cepat/instant)
+      // - Pesan >= 200 chars atau dengan emoji: Gunakan wa.me URL redirect
 
-      if (messageChunks === null) {
-        // Smart split failed (would require >3 chunks), fallback ke typing tanpa emoji
-        console.warn(
-          `⚠️ [ADB:${adbId}] Pesan terlalu panjang untuk split (>3 chunks), fallback ke typing tanpa emoji`
-        );
-
-        // Kirim callback SEBELUM fallback, agar message langsung di-mark "done" dan tidak di-fetch ulang
-        if (callbackUrl && messageId) {
-          console.log(`📞 [ADB:${adbId}] Mengirim callback sebelum fallback (pesan terlalu panjang)...`);
-          sendWhatsappCallback(callbackUrl, messageId, "done").catch(err => {
-            console.warn(`⚠️ Failed to send callback before fallback:`, err.message);
-          });
-        }
-
+      if (message.length < MAX_TYPING_CHARS && !hasEmoji) {
+        // METODE 1: TYPING - Untuk pesan pendek tanpa emoji
         const cleanMessage = stripEmoji(message);
-        const waUrlSimple = `https://wa.me/${phoneNumber}`;
+        const waUrl = `https://wa.me/${phoneNumber}`;
+
+        console.log(`⌨️ [ADB:${adbId}] Kirim via typing instant (${cleanMessage.length} chars)...`);
 
         await manager.runAdbCommand(
           [
@@ -3667,7 +3770,7 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
             "-a",
             "android.intent.action.VIEW",
             "-d",
-            waUrlSimple,
+            waUrl,
             "com.whatsapp",
           ],
           { timeout: 20000, silent: true }
@@ -3680,132 +3783,116 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
           throw new Error("Remote action dibatalkan oleh pengguna.");
         }
 
-        await typeTextWithSpeed(adbId, cleanMessage, options.typingSpeed);
+        await typeTextWithSpeed(adbId, cleanMessage, options.typingSpeed || "instant");
+
+        console.log(`✅ [ADB:${adbId}] Typing selesai, tunggu 1 detik sebelum klik send...`);
+        await sleep(1000);
+
+        if (actionToken?.aborted) {
+          throw new Error("Remote action dibatalkan oleh pengguna.");
+        }
+
+        console.log(`📤 [ADB:${adbId}] Klik tombol send...`);
+        await tapWhatsappSendButton(adbId);
+
+        console.log(`⏳ [ADB:${adbId}] Menunggu pesan terkirim (3 detik)...`);
+        await sleep(3000);
+      } else {
+        // METODE 2: URL REDIRECT - Untuk pesan panjang atau dengan emoji
+        const encodedMessage = encodeURIComponent(message);
+        const waUrl = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
+
+        console.log(
+          `🔗 [ADB:${adbId}] Kirim via URL redirect (${message.length} chars, URL: ${waUrl.length} chars)`
+        );
+
+        await manager.runAdbCommand(
+          [
+            "-s",
+            adbId,
+            "shell",
+            "am",
+            "start",
+            "-a",
+            "android.intent.action.VIEW",
+            "-d",
+            waUrl,
+            "com.whatsapp",
+          ],
+          { timeout: 20000, silent: true }
+        );
+
+        await sleep(2500);
 
         if (actionToken?.aborted) {
           throw new Error("Remote action dibatalkan oleh pengguna.");
         }
 
         await tapWhatsappSendButton(adbId);
-        await sleep(1200);
-      } else {
-        // Smart split succeeded, send each chunk dengan emoji preserved
-        console.log(
-          `📨 [ADB:${adbId}] Mengirim pesan dalam ${messageChunks.length} chunk(s) dengan emoji preserved`
-        );
 
-        // Pause auto-refresh interval during chunk sending
-        console.log(`⏸️ [ADB:${adbId}] Pausing auto-refresh for all windows during chunk sending...`);
-        BrowserWindow.getAllWindows().forEach((win) => {
-          if (!win.isDestroyed()) {
-            win.webContents.send("android-whatsapp-pause-auto-refresh");
-          }
-        });
+        console.log(`⏳ [ADB:${adbId}] Menunggu pesan terkirim (2 detik)...`);
+        await sleep(2000);
+      }
 
-        try {
-          for (let chunkIdx = 0; chunkIdx < messageChunks.length; chunkIdx++) {
-            const chunk = messageChunks[chunkIdx];
-            const encodedChunk = encodeURIComponent(chunk);
-            const waUrl = `https://wa.me/${phoneNumber}?text=${encodedChunk}`;
+      // Update cache: pesan berhasil terkirim
+      if (messageId) {
+        updateMessageCacheStatus(messageId, 'sent');
 
-            console.log(
-              `  📤 Chunk ${chunkIdx + 1}/${messageChunks.length} (${chunk.length} chars, URL: ${waUrl.length} chars)`
-            );
-
-            await manager.runAdbCommand(
-              [
-                "-s",
-                adbId,
-                "shell",
-                "am",
-                "start",
-                "-a",
-                "android.intent.action.VIEW",
-                "-d",
-                waUrl,
-                "com.whatsapp",
-              ],
-              { timeout: 20000, silent: true }
-            );
-
-            await sleep(2500);
-
-            if (actionToken?.aborted) {
-              throw new Error("Remote action dibatalkan oleh pengguna.");
-            }
-
-            await tapWhatsappSendButton(adbId);
-            await sleep(1200);
-
-            // Kirim callback setelah chunk 1 berhasil terkirim
-            if (chunkIdx === 0 && callbackUrl && messageId) {
-              console.log(`📞 [ADB:${adbId}] Mengirim callback setelah chunk 1 terkirim...`);
-              sendWhatsappCallback(callbackUrl, messageId, "done").catch(err => {
-                console.warn(`⚠️ Failed to send callback after chunk 1:`, err.message);
-              });
-            }
-
-            // Delay antar chunk (kecuali chunk terakhir)
-            if (chunkIdx < messageChunks.length - 1) {
-              console.log(`  ⏳ Delay 2 detik sebelum chunk berikutnya...`);
-              await sleep(2000);
-            }
-          }
-        } finally {
-          // Resume auto-refresh interval after all chunks sent (success or failure)
-          console.log(`▶️ [ADB:${adbId}] Resuming auto-refresh for all windows after chunk sending`);
-          BrowserWindow.getAllWindows().forEach((win) => {
-            if (!win.isDestroyed()) {
-              win.webContents.send("android-whatsapp-resume-auto-refresh");
-            }
+        // KIRIM STATUS UPDATE: Tampilkan status "terkirim" di android-remote window
+        const scrcpyWin = scrcpyWindows.get(adbId);
+        if (scrcpyWin && !scrcpyWin.isDestroyed()) {
+          scrcpyWin.webContents.send('automation-update', {
+            messageId: messageId,
+            status: 'sent',
+            statusText: '✅ Terkirim',
+            message: message.substring(0, 50) + (message.length > 50 ? '...' : '')
           });
         }
       }
-    } else {
-      // METODE 2: Tanpa emoji - gunakan typing manual (lebih cepat)
-      // Strip any edge case emoji that might not be detected to ensure typing works normally
-      const cleanMessage = stripEmoji(message);
-      const waUrl = `https://wa.me/${phoneNumber}`;
 
-      await manager.runAdbCommand(
-        [
-          "-s",
-          adbId,
-          "shell",
-          "am",
-          "start",
-          "-a",
-          "android.intent.action.VIEW",
-          "-d",
-          waUrl,
-          "com.whatsapp",
-        ],
-        { timeout: 20000, silent: true }
-      );
-
-      await sleep(3500);
-      await clearWhatsappInputField(adbId);
-
-      if (actionToken?.aborted) {
-        throw new Error("Remote action dibatalkan oleh pengguna.");
-      }
-
-      await typeTextWithSpeed(adbId, cleanMessage, options.typingSpeed);
-
-      if (actionToken?.aborted) {
-        throw new Error("Remote action dibatalkan oleh pengguna.");
-      }
-
-      await tapWhatsappSendButton(adbId);
-      await sleep(1200);
-
-      // Kirim callback setelah pesan tanpa emoji berhasil terkirim
+      // Kirim callback sukses
       if (callbackUrl && messageId) {
-        console.log(`📞 [ADB:${adbId}] Mengirim callback setelah non-emoji message terkirim...`);
+        console.log(`📞 [ADB:${adbId}] Mengirim callback sukses...`);
         sendWhatsappCallback(callbackUrl, messageId, "done").catch(err => {
-          console.warn(`⚠️ Failed to send callback after non-emoji:`, err.message);
+          console.warn(`⚠️ Failed to send callback:`, err.message);
         });
       }
+    } catch (error) {
+      // Error handling: Update cache ke failed dan kirim callback
+      console.error(`❌ [ADB:${adbId}] Error saat mengirim pesan ${i + 1}:`, error.message);
+
+      // Update cache ke failed
+      if (messageId) {
+        updateMessageCacheStatus(messageId, 'failed');
+
+        // KIRIM STATUS UPDATE: Tampilkan status "gagal" di android-remote window
+        const scrcpyWin = scrcpyWindows.get(adbId);
+        if (scrcpyWin && !scrcpyWin.isDestroyed()) {
+          scrcpyWin.webContents.send('automation-update', {
+            messageId: messageId,
+            status: 'failed',
+            statusText: '❌ Gagal',
+            message: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
+            error: error.message
+          });
+        }
+      }
+
+      // Kirim callback failed
+      if (callbackUrl && messageId) {
+        sendWhatsappCallback(callbackUrl, messageId, "failed", error.message).catch(err => {
+          console.warn(`⚠️ Failed to send error callback:`, err.message);
+        });
+      }
+
+      // Continue ke pesan berikutnya (jangan throw error, biar pesan lain tetap dikirim)
+    }
+
+    // Delay antar pesan untuk memastikan pesan sebelumnya sudah benar-benar terkirim
+    // sebelum memulai pesan berikutnya
+    if (i < messages.length - 1) {
+      console.log(`⏸️ [ADB:${adbId}] Delay 2 detik sebelum pesan berikutnya (${i + 2}/${messages.length})...`);
+      await sleep(2000);
     }
   }
 }
@@ -3817,6 +3904,7 @@ async function sendSingleWhatsappMessage(adbId, phoneNumber, message = "", optio
     typingSpeed: options.typingSpeed || "instant",
     callbackUrl: options.callbackUrl,
     messageId: options.messageId,
+    deviceUid: options.deviceUid,
   });
 }
 
@@ -3845,6 +3933,10 @@ async function typeTextWithSpeed(adbId, text = "", typingSpeed = "instant") {
   const manager = ensureAndroidManagerReady();
   const normalized = (typingSpeed || "instant").toLowerCase();
 
+  // ADB input text has buffer limit ~200-300 chars
+  // For long text, use clipboard paste automatically
+  const ADB_INPUT_SAFE_LIMIT = 200;
+
   const delayMap = {
     robot: 35,
     fasthuman: 60,
@@ -3864,6 +3956,13 @@ async function typeTextWithSpeed(adbId, text = "", typingSpeed = "instant") {
     return;
   }
   if (containsNonAscii(text)) {
+    await setClipboardAndPaste(adbId, text, manager);
+    return;
+  }
+
+  // Auto-paste for long messages to avoid ADB buffer limit
+  if (text.length > ADB_INPUT_SAFE_LIMIT) {
+    console.log(`📋 [ADB:${adbId}] Pesan panjang (${text.length} chars), gunakan clipboard paste otomatis`);
     await setClipboardAndPaste(adbId, text, manager);
     return;
   }
@@ -3896,25 +3995,79 @@ async function typeTextWithSpeed(adbId, text = "", typingSpeed = "instant") {
 }
 
 async function setClipboardAndPaste(adbId, text, manager) {
-  await manager.runAdbCommand(
-    [
-      "-s",
-      adbId,
-      "shell",
-      "am",
-      "broadcast",
-      "-a",
-      "clipper.set",
-      "-e",
-      "text",
-      text,
-    ],
-    { timeout: 15000, silent: true }
-  );
-  await manager.runAdbCommand(
-    ["-s", adbId, "shell", "input", "keyevent", "279"],
-    { timeout: 8000, silent: true }
-  );
+  // For very long text, use chunked typing approach
+  const CHUNK_SIZE = 150; // Safe chunk size for ADB input
+
+  if (text.length > CHUNK_SIZE) {
+    console.log(`📝 [ADB:${adbId}] Text panjang (${text.length} chars), kirim dalam chunks...`);
+
+    // Split text into chunks
+    const chunks = [];
+    for (let i = 0; i < text.length; i += CHUNK_SIZE) {
+      chunks.push(text.substring(i, i + CHUNK_SIZE));
+    }
+
+    // Send each chunk sequentially
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const encoded = encodeTextForAdbInput(chunk);
+
+      if (encoded) {
+        await manager.runAdbCommand(
+          ["-s", adbId, "shell", "input", "text", encoded],
+          { timeout: 10000, silent: true }
+        );
+
+        console.log(`  ✓ Chunk ${i + 1}/${chunks.length} sent (${chunk.length} chars)`);
+
+        // Small delay between chunks
+        if (i < chunks.length - 1) {
+          await sleep(100);
+        }
+      }
+    }
+
+    console.log(`✅ [ADB:${adbId}] Semua ${chunks.length} chunks berhasil dikirim`);
+    return;
+  }
+
+  // For short text, try clipper broadcast method
+  try {
+    await manager.runAdbCommand(
+      [
+        "-s",
+        adbId,
+        "shell",
+        "am",
+        "broadcast",
+        "-a",
+        "clipper.set",
+        "-e",
+        "text",
+        text,
+      ],
+      { timeout: 15000, silent: true }
+    );
+
+    // Paste using keyevent 279 (KEYCODE_PASTE)
+    await manager.runAdbCommand(
+      ["-s", adbId, "shell", "input", "keyevent", "279"],
+      { timeout: 8000, silent: true }
+    );
+
+    console.log(`📋 [ADB:${adbId}] Clipboard paste method used`);
+  } catch (err) {
+    console.warn(`⚠️ Clipboard method failed, using direct input:`, err.message);
+
+    // Fallback to direct input
+    const encoded = encodeTextForAdbInput(text);
+    if (encoded) {
+      await manager.runAdbCommand(
+        ["-s", adbId, "shell", "input", "text", encoded],
+        { timeout: 10000, silent: true }
+      );
+    }
+  }
 }
 
 async function tapWhatsappSendButton(adbId) {
@@ -4317,7 +4470,7 @@ function launchScrcpyForDevice(
         "--window-title",
         windowTitle,
         "--stay-awake",
-        "--power-off-on-close",
+        // REMOVED: --power-off-on-close (menyebabkan HP mati saat window ditutup)
       ],
       {
         stdio: "ignore",
@@ -4409,6 +4562,10 @@ function updateAndroidRemoteDeviceRecord(payload = {}) {
   const next = { ...current };
   if (typeof payload.name === "string" && payload.name.trim()) {
     next.name = payload.name.trim();
+  }
+  if (typeof payload.adbId === "string" && payload.adbId.trim()) {
+    next.adbId = payload.adbId.trim();
+    console.log(`✅ Updated adbId for ${uid}: ${next.adbId}`);
   }
   if (typeof payload.service === "string" && payload.service.trim()) {
     next.service = sanitizeRemoteServiceId(payload.service);
@@ -6277,6 +6434,16 @@ ipcMain.on("monitor-trigger-fetch-pending", (_event, uid) => {
     return;
   }
 
+  // CEK: Jangan fetch jika masih ada pesan yang sedang dikirim
+  if (hasMessagesInProgress()) {
+    const inProgress = getMessagesInProgress();
+    console.log(
+      `⏸️ Skip fetch pending untuk ${uid} - masih ada ${inProgress.length} pesan sedang dikirim:`,
+      inProgress
+    );
+    return;
+  }
+
   console.log(
     `⏰ Monitor meminta fetch pending untuk UID ${uid} (device sedang running)`
   );
@@ -6649,7 +6816,7 @@ ipcMain.handle("android-scan-local-wifi", async (event, options = {}) => {
 
 ipcMain.handle("android-connect-manual-adb", async (event, options = {}) => {
   try {
-    const { ip, port } = options;
+    const { ip, port, oldAdbId } = options;
     if (!ip || !port) {
       return {
         success: false,
@@ -6659,6 +6826,16 @@ ipcMain.handle("android-connect-manual-adb", async (event, options = {}) => {
 
     const manager = ensureAndroidManagerReady();
     const deviceId = `${ip}:${port}`;
+
+    // Disconnect old device first if provided
+    if (oldAdbId && oldAdbId !== deviceId) {
+      try {
+        logDev(`🔌 Disconnecting old device ${oldAdbId}...`);
+        await manager.runAdbCommand(['disconnect', oldAdbId], { timeout: 5000, silent: true });
+      } catch (err) {
+        console.warn(`⚠️ Could not disconnect old device:`, err.message);
+      }
+    }
 
     // Try to connect
     logDev(`🔌 Connecting to ${deviceId}...`);
