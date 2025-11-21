@@ -5359,6 +5359,146 @@ async function saveEditAndroidRemoteDevice() {
   }
 }
 
+// Toggle between WiFi and Cable mode in Edit Android Remote modal
+function toggleEditConnectionMode() {
+  const wifiMode = document.getElementById("editModeWifi");
+  const cableMode = document.getElementById("editModeCable");
+  const wifiSection = document.getElementById("editWifiConnectionSection");
+  const cableSection = document.getElementById("editCableConnectionSection");
+
+  if (cableMode && cableMode.checked) {
+    // Show cable section, hide WiFi section
+    if (wifiSection) wifiSection.style.display = "none";
+    if (cableSection) cableSection.style.display = "block";
+
+    // Auto-scan ADB devices when switching to cable mode
+    scanEditAdbDevices();
+  } else {
+    // Show WiFi section, hide cable section
+    if (wifiSection) wifiSection.style.display = "block";
+    if (cableSection) cableSection.style.display = "none";
+  }
+}
+
+// Scan ADB devices via cable in Edit Android Remote modal
+async function scanEditAdbDevices() {
+  const select = document.getElementById("editAdbDeviceSelect");
+  const progressBar = document.getElementById("editAdbScanProgressBar");
+  const progressSection = document.getElementById("editAdbScanProgress");
+  const statusText = document.getElementById("editAdbScanStatus");
+  const percentText = document.getElementById("editAdbScanPercent");
+
+  if (!select) return;
+
+  // Show progress
+  if (progressSection) progressSection.style.display = "block";
+  if (statusText) statusText.textContent = "Scanning USB devices...";
+  if (percentText) percentText.textContent = "0%";
+  if (progressBar) progressBar.style.width = "0%";
+
+  select.innerHTML = '<option value="">Scanning...</option>';
+
+  try {
+    const api = window.electronAPI?.androidRemote;
+    if (!api?.listAdbDevices) {
+      showToast("API tidak tersedia!", 3000, "error");
+      return;
+    }
+
+    // Animate progress
+    if (progressBar) progressBar.style.width = "50%";
+    if (percentText) percentText.textContent = "50%";
+
+    // Get list of ADB devices (USB devices are automatically detected)
+    const response = await api.listAdbDevices();
+    const list = Array.isArray(response?.devices) ? response.devices : [];
+
+    // Animate progress
+    if (progressBar) progressBar.style.width = "100%";
+    if (percentText) percentText.textContent = "100%";
+    if (statusText) statusText.textContent = "Scan selesai";
+
+    if (list.length > 0) {
+      select.innerHTML = '<option value="">-- Pilih Perangkat --</option>';
+      list.forEach((device) => {
+        const option = document.createElement("option");
+        option.value = device.id || device.adbId;
+        const displayName = device.name || device.id || device.adbId;
+        const modelInfo = device.model ? ` (${device.model})` : "";
+        option.textContent = `${displayName}${modelInfo}`;
+        select.appendChild(option);
+      });
+      showToast(`Ditemukan ${list.length} perangkat`, 3000, "success");
+    } else {
+      select.innerHTML = '<option value="">Tidak ada perangkat ditemukan</option>';
+      showToast("Tidak ada perangkat ADB terdeteksi", 3000, "warning");
+    }
+  } catch (err) {
+    console.error("❌ Error scanning ADB devices:", err);
+    select.innerHTML = '<option value="">Error scanning devices</option>';
+    showToast(err?.message || "Gagal scan perangkat ADB", 3500, "error");
+  } finally {
+    // Hide progress after delay
+    setTimeout(() => {
+      if (progressSection) progressSection.style.display = "none";
+    }, 500);
+  }
+}
+
+// Connect selected ADB device in Edit Android Remote modal
+async function connectEditAdbDevice() {
+  const select = document.getElementById("editAdbDeviceSelect");
+  const uid = document.getElementById("editAndroidRemoteUid").value;
+
+  if (!select || !uid) return;
+
+  const adbId = select.value;
+  if (!adbId) {
+    showToast("Harap pilih perangkat ADB terlebih dahulu!", 3000, "error");
+    return;
+  }
+
+  showToast(`Connecting ke ${adbId}...`, 2000, "info");
+
+  try {
+    const api = window.electronAPI?.androidRemote;
+    if (!api?.editDevice) {
+      showToast("API tidak tersedia!", 3000, "error");
+      return;
+    }
+
+    // Update device with new adbId
+    const updateResult = await api.editDevice({
+      uid: uid,
+      adbId: adbId,
+    });
+
+    if (updateResult?.success) {
+      showToast(`✅ Berhasil connect ke ${adbId}!`, 3000, "success");
+
+      // Reload devices list
+      await loadAllDevicesAndroid();
+      closeEditAndroidRemoteModal();
+    } else {
+      showToast(updateResult?.message || "Gagal connect ke device!", 4000, "error");
+    }
+  } catch (err) {
+    console.error("❌ Error connecting ADB device:", err);
+    showToast(err?.message || "Gagal connect ke device!", 4000, "error");
+  }
+}
+
+// Toggle WhatsApp automation fields in Add Android modal
+function toggleAddWhatsAppFields() {
+  const serviceSelect = document.getElementById("androidRemoteServiceSelect");
+  const whatsappFields = document.getElementById("addWhatsAppAutomationFields");
+
+  if (!serviceSelect || !whatsappFields) return;
+
+  const isWhatsApp = serviceSelect.value === "android-whatsapp";
+  whatsappFields.style.display = isWhatsApp ? "block" : "none";
+}
+
 function openAndroidRemoteDisplay(uid, options = {}) {
   if (!uid) return Promise.resolve(false);
   const { silent = false, silentSuccess = false } = options;
@@ -6377,6 +6517,15 @@ window.closeModalAndroid = function () {
   if (serviceSelect) serviceSelect.selectedIndex = 0;
   const nameInput = document.getElementById("deviceNameAndroid");
   if (nameInput) nameInput.value = "";
+
+  // Clear WhatsApp fields
+  const baseUrlInput = document.getElementById("addWhatsAppBaseUrl");
+  const callbackUrlInput = document.getElementById("addWhatsAppCallbackUrl");
+  const whatsappFields = document.getElementById("addWhatsAppAutomationFields");
+
+  if (baseUrlInput) baseUrlInput.value = "";
+  if (callbackUrlInput) callbackUrlInput.value = "";
+  if (whatsappFields) whatsappFields.style.display = "none";
 };
 
 window.submitAndroidDevice = async function () {
@@ -6385,7 +6534,7 @@ window.submitAndroidDevice = async function () {
   const serviceSelect = document.getElementById("androidRemoteServiceSelect");
 
   const adbId = adbSelect?.value || "";
-  const service = serviceSelect?.value || "android-whatsapp";
+  const service = serviceSelect?.value || "";
 
   if (!name) {
     showToast("Nama device wajib diisi.", 3000, "warning");
@@ -6395,17 +6544,33 @@ window.submitAndroidDevice = async function () {
     showToast("Pilih perangkat ADB terlebih dahulu.", 3000, "warning");
     return;
   }
+  if (!service) {
+    showToast("Pilih jenis layanan terlebih dahulu.", 3000, "warning");
+    return;
+  }
 
   const selectedAdb = cachedAdbDevices.find((item) => item.adbId === adbId);
 
+  // Prepare device data
+  const deviceData = {
+    name,
+    adbId,
+    adbName: selectedAdb?.description || "",
+    service,
+    status: selectedAdb?.status === "device" ? "connected" : "disconnected",
+  };
+
+  // Add WhatsApp automation URLs if service is android-whatsapp
+  if (service === "android-whatsapp") {
+    const baseUrl = document.getElementById("addWhatsAppBaseUrl")?.value.trim() || "";
+    const callbackUrl = document.getElementById("addWhatsAppCallbackUrl")?.value.trim() || "";
+
+    deviceData.whatsappBaseUrl = baseUrl;
+    deviceData.whatsappCallbackUrl = callbackUrl;
+  }
+
   try {
-    const result = await window.electronAPI.androidRemote.addDevice({
-      name,
-      adbId,
-      adbName: selectedAdb?.description || "",
-      service,
-      status: selectedAdb?.status === "device" ? "connected" : "disconnected",
-    });
+    const result = await window.electronAPI.androidRemote.addDevice(deviceData);
 
     if (result.success) {
       showToast("✅ Device Android berhasil ditambahkan!", 3000, "success");

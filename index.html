@@ -1686,7 +1686,7 @@
             >Pilih Perangkat ADB</label
           >
           <div class="adb-select-row">
-            <select id="androidAdbDeviceSelect"></select>
+            <select id="androidAdbDeviceSelect" class="adb-device-select"></select>
             <button
               type="button"
               class="ghost"
@@ -1810,11 +1810,45 @@
           <label for="androidRemoteServiceSelect" style="margin-top: 12px"
             >Jenis Layanan</label
           >
-          <select id="androidRemoteServiceSelect"></select>
+          <select id="androidRemoteServiceSelect" onchange="toggleAddWhatsAppFields()">
+            <option value="" disabled selected>-- Pilih Layanan --</option>
+            <option value="android-general">General (SCRCPY)</option>
+            <option value="android-whatsapp">WhatsApp Automation</option>
+            <option value="android-shopee">Shopee Automation</option>
+          </select>
           <p class="small-text" style="margin-top: 4px">
             Tentukan layanan utama yang akan dijalankan di perangkat fisik
             (WhatsApp, TikTok, YouTube, dll).
           </p>
+
+          <!-- WhatsApp Automation Fields (conditional) -->
+          <div id="addWhatsAppAutomationFields" style="display: none; margin-top: 16px; padding: 12px; background: rgba(37, 211, 102, 0.05); border: 1px solid rgba(37, 211, 102, 0.2); border-radius: 8px;">
+            <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px; color: #25D366;">
+              <i class="bi bi-whatsapp"></i> WhatsApp Automation Settings
+            </div>
+
+            <label for="addWhatsAppBaseUrl">Base URL (Fetch Messages)</label>
+            <input
+              type="url"
+              id="addWhatsAppBaseUrl"
+              placeholder="https://yourapi.com/api/messages"
+              style="font-family: monospace; font-size: 12px;"
+            />
+            <p class="small-text" style="margin: 4px 0 12px 0; color: #666;">
+              POST ke URL ini dengan <code>{ uid: "device-uid" }</code> untuk mendapatkan pending messages
+            </p>
+
+            <label for="addWhatsAppCallbackUrl">Callback URL (Status Update)</label>
+            <input
+              type="url"
+              id="addWhatsAppCallbackUrl"
+              placeholder="https://yourapi.com/api/callback"
+              style="font-family: monospace; font-size: 12px;"
+            />
+            <p class="small-text" style="margin: 4px 0 0 0; color: #666;">
+              POST ke URL ini dengan <code>{ id, status: "done" }</code> setelah message terkirim
+            </p>
+          </div>
 
           <div
             class="modal-buttons"
@@ -1883,41 +1917,105 @@
             <option value="android-shopee">Shopee Automation</option>
           </select>
 
-          <!-- IP & Port Fields for WiFi connection -->
+          <!-- Connection Mode Toggle -->
           <div style="margin-top: 16px; padding: 12px; background: rgba(61, 220, 132, 0.05); border: 1px solid rgba(61, 220, 132, 0.2); border-radius: 8px;">
-            <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px; color: #3ddc84;">
-              <i class="bi bi-wifi"></i> Koneksi WiFi ADB
+            <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px; color: #333;">
+              Pilih Mode Koneksi:
             </div>
-            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
-              <div>
-                <label for="editAndroidRemoteIp" style="font-size: 12px;">IP Address</label>
-                <input
-                  type="text"
-                  id="editAndroidRemoteIp"
-                  placeholder="Misal: 192.168.100.21"
-                  style="font-family: monospace; font-size: 12px;"
-                />
-              </div>
-              <div>
-                <label for="editAndroidRemotePort" style="font-size: 12px;">Port</label>
-                <input
-                  type="text"
-                  id="editAndroidRemotePort"
-                  placeholder="43393"
-                  style="font-family: monospace; font-size: 12px;"
-                />
-              </div>
+
+            <!-- Mode Toggle -->
+            <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+              <label style="display: flex; align-items: center; cursor: pointer; user-select: none;">
+                <input type="radio" name="editConnectionMode" id="editModeWifi" value="wifi" checked onchange="toggleEditConnectionMode()" style="margin-right: 6px; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600;"><i class="bi bi-wifi"></i> WiFi</span>
+              </label>
+              <label style="display: flex; align-items: center; cursor: pointer; user-select: none;">
+                <input type="radio" name="editConnectionMode" id="editModeCable" value="cable" onchange="toggleEditConnectionMode()" style="margin-right: 6px; cursor: pointer;">
+                <span style="font-size: 12px; font-weight: 600;"><i class="bi bi-usb-symbol"></i> Kabel/USB</span>
+              </label>
             </div>
-            <button
-              type="button"
-              onclick="reconnectAndroidRemoteDevice()"
-              style="margin-top: 8px; width: 100%; padding: 6px; background: #3ddc84; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer;"
-            >
-              <i class="bi bi-arrow-repeat"></i> Reconnect dengan IP:Port Baru
-            </button>
-            <p class="small-text" style="margin: 8px 0 0 0; color: #666; font-size: 10px;">
-              💡 Port WiFi ADB sering berubah. Update IP:Port lalu klik Reconnect jika device tidak terhubung.
-            </p>
+
+            <!-- WiFi Connection Section -->
+            <div id="editWifiConnectionSection">
+              <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px; color: #3ddc84;">
+                <i class="bi bi-wifi"></i> Koneksi WiFi ADB
+              </div>
+              <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+                <div>
+                  <label for="editAndroidRemoteIp" style="font-size: 12px;">IP Address</label>
+                  <input
+                    type="text"
+                    id="editAndroidRemoteIp"
+                    placeholder="Misal: 192.168.100.21"
+                    style="font-family: monospace; font-size: 12px;"
+                  />
+                </div>
+                <div>
+                  <label for="editAndroidRemotePort" style="font-size: 12px;">Port</label>
+                  <input
+                    type="text"
+                    id="editAndroidRemotePort"
+                    placeholder="43393"
+                    style="font-family: monospace; font-size: 12px;"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                onclick="reconnectAndroidRemoteDevice()"
+                style="margin-top: 8px; width: 100%; padding: 6px; background: #3ddc84; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer;"
+              >
+                <i class="bi bi-arrow-repeat"></i> Reconnect dengan IP:Port Baru
+              </button>
+              <p class="small-text" style="margin: 8px 0 0 0; color: #666; font-size: 10px;">
+                💡 Port WiFi ADB sering berubah. Update IP:Port lalu klik Reconnect jika device tidak terhubung.
+              </p>
+            </div>
+
+            <!-- Cable Connection Section -->
+            <div id="editCableConnectionSection" style="display: none;">
+              <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px; color: #3ddc84;">
+                <i class="bi bi-usb-symbol"></i> Koneksi Kabel/USB
+              </div>
+
+              <label for="editAdbDeviceSelect" style="font-size: 12px; margin-bottom: 8px; display: block;">
+                Pilih Perangkat ADB:
+              </label>
+              <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                <select id="editAdbDeviceSelect" class="adb-device-select"></select>
+                <button
+                  type="button"
+                  onclick="scanEditAdbDevices()"
+                  style="padding: 6px 12px; background: #3ddc84; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer;"
+                  title="Scan perangkat ADB"
+                >
+                  <i class="bi bi-arrow-repeat"></i> Scan
+                </button>
+              </div>
+
+              <!-- Progress Bar untuk Scanning -->
+              <div id="editAdbScanProgress" style="display:none; margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                  <span id="editAdbScanStatus" style="font-size: 12px; color: #666;">Scanning...</span>
+                  <span id="editAdbScanPercent" style="font-size: 12px; font-weight: 600; color: #3ddc84;">0%</span>
+                </div>
+                <div style="width: 100%; height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden;">
+                  <div id="editAdbScanProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3ddc84, #2ecc71); transition: width 0.3s ease;"></div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onclick="connectEditAdbDevice()"
+                style="width: 100%; padding: 8px; background: #3ddc84; color: white; border: none; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;"
+              >
+                <i class="bi bi-plug"></i> Connect Perangkat Terpilih
+              </button>
+
+              <p class="small-text" style="margin: 8px 0 0 0; color: #666; font-size: 10px;">
+                💡 Tip: Pastikan HP sudah terhubung via kabel USB dan USB Debugging aktif. Klik Scan untuk mendeteksi perangkat.
+              </p>
+            </div>
           </div>
 
           <!-- WhatsApp Automation Fields (conditional) -->
