@@ -736,6 +736,9 @@ function buildSystemInfoPayload(context = {}) {
   if (context.meta) {
     payload.meta = context.meta;
   }
+  if (context.adbRemote) {
+    payload.adbRemote = context.adbRemote;
+  }
   if (context.deviceChange) {
     payload.deviceChange = context.deviceChange;
   }
@@ -779,6 +782,62 @@ async function sendSystemInfoReport(context = {}) {
   }
 }
 
+function buildAdbRemoteReportPayload(context = {}) {
+  const devices = readAndroidRemoteDevices();
+  const userAgentString =
+    app?.userAgentFallback || `Starbox/${APP_VERSION} (ADB Remote)`;
+  return {
+    event: "adb-remote",
+    action: context.action || "sync",
+    timestamp: new Date().toISOString(),
+    appVersion: APP_VERSION,
+    userAgent: userAgentString,
+    machineId:
+      typeof getPersistentMachineId === "function"
+        ? getPersistentMachineId()
+        : null,
+    count: devices.length,
+    devices,
+    device: context.device || null,
+    uid: context.uid || context.device?.uid || null,
+  };
+}
+
+async function sendAdbRemoteReport(context = {}) {
+  if (!USER_AGENT_REPORT_URL) return;
+  try {
+    const adbRemote = buildAdbRemoteReportPayload(context);
+    const payload = buildSystemInfoPayload({
+      eventType: "adb-remote",
+      meta: context.meta,
+      adbRemote: {
+        action: adbRemote.action,
+        timestamp: adbRemote.timestamp,
+        count: adbRemote.count,
+        devices: adbRemote.devices,
+        device: adbRemote.device,
+        uid: adbRemote.uid,
+      },
+    });
+    const userAgent = adbRemote.userAgent || payload.userAgent;
+    payload.userAgent = userAgent;
+    await requestJson({
+      url: USER_AGENT_REPORT_URL,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": userAgent,
+      },
+      body: payload,
+    });
+  } catch (err) {
+    console.warn(
+      "⚠️ Gagal mengirim laporan ADB Remote:",
+      err?.message || err.toString()
+    );
+  }
+}
+
 function startSystemInfoReporter() {
   if (systemReportTimer) {
     clearInterval(systemReportTimer);
@@ -787,6 +846,7 @@ function startSystemInfoReporter() {
 
   // Kirim pertama kali segera setelah app siap
   sendSystemInfoReport({ eventType: "startup" });
+  sendAdbRemoteReport({ action: "startup-sync" }).catch(() => {});
   systemReportTimer = setInterval(
     () => sendSystemInfoReport({ eventType: "heartbeat" }),
     SYSTEM_REPORT_INTERVAL_MS
@@ -6575,7 +6635,18 @@ ipcMain.handle("android-remote-load", () => {
 ipcMain.handle("android-remote-add", (_event, payload = {}) => {
   try {
     const record = addAndroidRemoteDeviceRecord(payload);
-    return { success: true, device: record };
+    const payloadSample = {
+      name: record.name,
+      adbId: record.adbId,
+      service: record.service,
+      whatsappBaseUrl: record.whatsappBaseUrl,
+      whatsappCallbackUrl: record.whatsappCallbackUrl,
+      status: record.status,
+    };
+    queueMicrotask(() =>
+      sendAdbRemoteReport({ action: "add", device: record }).catch(() => {})
+    );
+    return { success: true, device: record, payload: payloadSample };
   } catch (err) {
     return {
       success: false,
@@ -6587,6 +6658,9 @@ ipcMain.handle("android-remote-add", (_event, payload = {}) => {
 ipcMain.handle("android-remote-edit", (_event, payload = {}) => {
   try {
     const record = updateAndroidRemoteDeviceRecord(payload);
+    queueMicrotask(() =>
+      sendAdbRemoteReport({ action: "edit", device: record }).catch(() => {})
+    );
     return { success: true, device: record };
   } catch (err) {
     return {
@@ -6598,7 +6672,14 @@ ipcMain.handle("android-remote-edit", (_event, payload = {}) => {
 
 ipcMain.handle("android-remote-delete", (_event, uid) => {
   try {
+    const existing = findAndroidRemoteDevice(uid);
     deleteAndroidRemoteDeviceRecord(uid);
+    queueMicrotask(() =>
+      sendAdbRemoteReport({
+        action: "delete",
+        device: existing || { uid },
+      }).catch(() => {})
+    );
     return { success: true };
   } catch (err) {
     return {

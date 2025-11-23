@@ -1499,6 +1499,8 @@ const authState = {
 
 if (typeof window !== "undefined") {
   window.getCurrentAuthState = () => authState;
+  window.openAdsInfoModal = openAdsInfoModal;
+  window.closeAdsInfoModal = closeAdsInfoModal;
 }
 
 const authModalState = {
@@ -1522,6 +1524,543 @@ let lastAuthDeviceSnapshot = {
   unlimited: authState.isUnlimited,
   limit: getServiceLimitValue(),
 };
+let isDevBuildCached = null;
+const ADS_API_BASE = {
+  dev: "http://starbox.test",
+  prod: "https://starbox.weagate.com",
+};
+const ADS_API_PATH = "/api/ads/items";
+const PACKAGES_API_PATH = "/api/packages?include_inactive=1";
+const ADS_PAGE_KEYS = [
+  "web-emulator",
+  "android-ios",
+  "whatsapp-gateway",
+  "remox",
+  "os-virtual",
+  "cctv",
+];
+const ADS_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const adsState = {
+  items: [],
+  endpoint: null,
+  lastError: null,
+  cache: new Map(),
+  loadingKeys: new Set(),
+  refreshTimer: null,
+  countdownTimer: null,
+  lastRefreshAt: null,
+  nextRefreshAt: null,
+};
+const packagesState = {
+  items: [],
+  loading: false,
+  lastError: null,
+};
+let cachedApiBase = null;
+
+function shuffleAdsItems(list = []) {
+  const array = list.slice();
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
+
+function parsePriceValue(raw) {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "number") {
+    return Number.isFinite(raw) ? raw : null;
+  }
+  const text = String(raw).trim();
+  if (!text) return null;
+  const lowered = text.toLowerCase();
+  if (lowered.includes("gratis") || lowered.includes("free")) return 0;
+  const numeric = Number(text.replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function isFreePackageTier() {
+  if (!authState?.package) return false;
+  const priceValue = parsePriceValue(
+    authState.package.price ?? authState.package.price_display
+  );
+  if (priceValue === null) return false;
+  return priceValue <= 0;
+}
+
+function shouldDisplayAds() {
+  if (!authState.isLoggedIn) return true;
+  return isFreePackageTier();
+}
+
+function formatAdsPrice(price) {
+  const numeric = parsePriceValue(price);
+  if (numeric === null) {
+    return typeof price === "string" && price.trim()
+      ? price
+      : "Rp -";
+  }
+  return `Rp ${numeric.toLocaleString("id-ID")}`;
+}
+
+function buildAdsId(base, pageKey) {
+  if (!pageKey || pageKey === "web-emulator") return base;
+  return `${base}-${pageKey}`;
+}
+
+async function getApiBase() {
+  if (cachedApiBase) return cachedApiBase;
+  let isDev =
+    typeof process !== "undefined" &&
+    process.env &&
+    process.env.NODE_ENV === "development";
+  try {
+    if (window.electronAPI?.isDevBuild) {
+      isDev = await window.electronAPI.isDevBuild();
+    } else if (window.location?.hostname) {
+      isDev = window.location.hostname.includes("starbox.test");
+    }
+  } catch {
+    isDev = false;
+  }
+  isDevBuildCached = isDev;
+  cachedApiBase = ((isDev ? ADS_API_BASE.dev : ADS_API_BASE.prod) || "").replace(
+    /\/$/,
+    ""
+  );
+  return cachedApiBase;
+}
+
+async function resolveAdsEndpoint() {
+  if (adsState.endpoint) return adsState.endpoint;
+  const base = await getApiBase();
+  adsState.endpoint = `${base}${ADS_API_PATH}`;
+  return adsState.endpoint;
+}
+
+function ensureAdsSection(pageKey = "web-emulator") {
+  const isDefault = pageKey === "web-emulator";
+  const containerId = buildAdsId("adsShowcase", pageKey);
+  let container = document.getElementById(containerId);
+  if (container) {
+    return {
+      container,
+      horizontal: document.getElementById(buildAdsId("adsTrackHorizontal", pageKey)),
+      vertical: document.getElementById(buildAdsId("adsTrackVertical", pageKey)),
+    };
+  }
+
+  const pageMain = document.querySelector(`#page-${pageKey} .page-main`);
+  if (!pageMain) {
+    return { container: null, horizontal: null, vertical: null };
+  }
+
+  container = document.createElement("section");
+  container.id = containerId;
+  container.className = "ads-showcase";
+  container.dataset.pageKey = pageKey;
+
+  const head = document.createElement("div");
+  head.className = "ads-head";
+  const titleWrap = document.createElement("div");
+  titleWrap.className = "ads-title";
+  const eyebrow = document.createElement("p");
+  eyebrow.className = "ads-eyebrow";
+  eyebrow.textContent = "Rekomendasi pilihan";
+  const title = document.createElement("h4");
+  title.textContent = "Iklan";
+  titleWrap.appendChild(eyebrow);
+  titleWrap.appendChild(title);
+
+  const countdown = document.createElement("span");
+  countdown.id = buildAdsId("adsCountdown", pageKey);
+  countdown.className = "ads-countdown";
+  countdown.textContent = "";
+
+  const hideBtn = document.createElement("button");
+  hideBtn.type = "button";
+  hideBtn.className = "ads-hide-btn";
+  hideBtn.textContent = "Sembunyikan iklan";
+  hideBtn.addEventListener("click", openAdsInfoModal);
+  head.appendChild(titleWrap);
+  head.appendChild(countdown);
+  head.appendChild(hideBtn);
+
+  const marqueeH = document.createElement("div");
+  marqueeH.className = "ads-marquee ads-marquee-horizontal";
+  const trackH = document.createElement("div");
+  trackH.className = "ads-track";
+  trackH.id = buildAdsId("adsTrackHorizontal", pageKey);
+  trackH.innerHTML = `<div class="ads-empty">Memuat rekomendasi...</div>`;
+  marqueeH.appendChild(trackH);
+
+  const marqueeV = document.createElement("div");
+  marqueeV.className = "ads-marquee ads-marquee-vertical";
+  const trackV = document.createElement("div");
+  trackV.className = "ads-track";
+  trackV.id = buildAdsId("adsTrackVertical", pageKey);
+  trackV.innerHTML = `<div class="ads-empty">Memuat rekomendasi...</div>`;
+  marqueeV.appendChild(trackV);
+
+  container.appendChild(head);
+  container.appendChild(marqueeH);
+  container.appendChild(marqueeV);
+  pageMain.appendChild(container);
+
+  return { container, horizontal: trackH, vertical: trackV };
+}
+
+function setAdsContainerVisible(pageKey = "web-emulator", visible = false) {
+  const { container } = getAdsElements(pageKey);
+  if (!container) return;
+  container.style.display = visible ? "" : "none";
+}
+
+function getAdsElements(pageKey = "web-emulator") {
+  const result = ensureAdsSection(pageKey);
+  return result;
+}
+
+function setAdsMessage(message, pageKey = "web-emulator") {
+  const { horizontal, vertical } = getAdsElements(pageKey);
+  const content = `<div class="ads-empty">${message}</div>`;
+  if (horizontal) horizontal.innerHTML = content;
+  if (vertical) vertical.innerHTML = content;
+}
+
+function createAdsCardElement(item = {}) {
+  const link = document.createElement("a");
+  link.className = "ads-card";
+  const targetUrl = item.short_url || item.product_url || item.productUrl || "#";
+  link.href = targetUrl || "#";
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+
+  const imageUrl =
+    item.image ||
+    (Array.isArray(item.images) && item.images[0]?.url) ||
+    "";
+  const image = document.createElement("img");
+  image.alt = item.name || "Produk rekomendasi";
+  image.src = imageUrl;
+  image.onerror = () => {
+    image.onerror = null;
+    image.src = "assets/starbox.png";
+  };
+
+  const content = document.createElement("div");
+  content.className = "ads-card-content";
+
+  const title = document.createElement("p");
+  title.className = "ads-card-title";
+  title.textContent = item.name || "Produk rekomendasi";
+
+  const sourceName =
+    item.source?.name || item.source?.code || "StarBox Partner";
+  const source = document.createElement("div");
+  source.className = "ads-source";
+  source.textContent = sourceName;
+
+  const shortLink = document.createElement("p");
+  shortLink.className = "ads-short-url";
+  const shortValue = item.short_url || item.product_url || item.productUrl || "";
+  shortLink.textContent = shortValue || "";
+
+  const priceEl = document.createElement("div");
+  priceEl.className = "ads-price";
+  priceEl.textContent = formatAdsPrice(
+    item.price ?? item.price_display ?? item.priceDisplay
+  );
+
+  content.appendChild(title);
+  content.appendChild(source);
+  content.appendChild(shortLink);
+  content.appendChild(priceEl);
+
+  link.appendChild(image);
+  link.appendChild(content);
+
+  return link;
+}
+
+function populateAdsTrack(track, cards = [], direction = "horizontal") {
+  if (!track) return;
+  track.innerHTML = "";
+  if (!cards.length) {
+    track.innerHTML = `<div class="ads-empty">Belum ada rekomendasi.</div>`;
+    return;
+  }
+  const minItems = direction === "horizontal" ? 6 : 4;
+  const baseSet = [];
+  const repeats = Math.max(minItems, cards.length);
+  for (let i = 0; i < repeats; i++) {
+    baseSet.push(cards[i % cards.length].cloneNode(true));
+  }
+  const fullSequence = baseSet.concat(
+    baseSet.map((node) => node.cloneNode(true))
+  );
+  fullSequence.forEach((node) => track.appendChild(node));
+  const speedSeconds = Math.max(24, Math.min(48, repeats * 4));
+  track.style.setProperty("--ads-speed", `${speedSeconds}s`);
+}
+
+function renderAdsShowcase(items = [], pageKey = "web-emulator") {
+  const { container, horizontal, vertical } = getAdsElements(pageKey);
+  if (!container || !horizontal || !vertical) return;
+
+  if (!items.length) {
+    setAdsContainerVisible(pageKey, false);
+    return;
+  }
+
+  const cards = items.map((item) => createAdsCardElement(item));
+  populateAdsTrack(horizontal, cards, "horizontal");
+  populateAdsTrack(vertical, cards, "vertical");
+  setAdsContainerVisible(pageKey, true);
+}
+
+async function loadAdsItems(force = false, pageKey = "web-emulator") {
+  if (!shouldDisplayAds()) return [];
+  const cache = adsState.cache.get(pageKey) || {
+    items: [],
+    lastFetchedAt: 0,
+  };
+  const now = Date.now();
+  if (
+    !force &&
+    adsState.loadingKeys.has(pageKey) &&
+    cache.items &&
+    cache.items.length
+  ) {
+    return cache.items;
+  }
+  if (!force && now - cache.lastFetchedAt < ADS_REFRESH_INTERVAL_MS) {
+    return cache.items;
+  }
+
+  adsState.loadingKeys.add(pageKey);
+  setAdsMessage("Memuat rekomendasi...", pageKey);
+
+  try {
+    const endpoint = await resolveAdsEndpoint();
+    const response = await fetch(endpoint);
+    if (!response.ok) {
+      throw new Error(`Server merespons ${response.status}`);
+    }
+    const payload = await response.json();
+    const data = Array.isArray(payload?.data) ? payload.data : [];
+    const shuffled = shuffleAdsItems(data).slice(0, 30);
+    adsState.items = shuffled;
+    adsState.lastError = null;
+    adsState.cache.set(pageKey, {
+      items: shuffled,
+      lastFetchedAt: Date.now(),
+    });
+    if (!shuffled.length) {
+      setAdsContainerVisible(pageKey, false);
+      return [];
+    }
+    renderAdsShowcase(shuffled, pageKey);
+    return shuffled;
+  } catch (err) {
+    console.error("⚠️ Gagal memuat iklan promosi:", err);
+    adsState.lastError = err?.message || String(err);
+    setAdsContainerVisible(pageKey, false);
+    return [];
+  } finally {
+    adsState.loadingKeys.delete(pageKey);
+  }
+}
+
+function syncAdsShowcaseForPage(pageKey = "web-emulator", options = {}) {
+  const { container } = getAdsElements(pageKey);
+  if (!container) return;
+  const shouldShow = shouldDisplayAds();
+  container.style.display = shouldShow ? "" : "none";
+  if (!shouldShow) return;
+
+  const cache = adsState.cache.get(pageKey);
+  if (cache?.items?.length && !options.forceRender && !options.forceRefresh) {
+    renderAdsShowcase(cache.items, pageKey);
+  }
+
+  if (options.forceRefresh || !cache?.items?.length) {
+    loadAdsItems(true, pageKey);
+  } else {
+    loadAdsItems(false, pageKey);
+  }
+
+  if (!cache?.items?.length) {
+    setAdsContainerVisible(pageKey, false);
+  }
+}
+
+function syncAllAdsShowcases(options = {}) {
+  if (!shouldDisplayAds()) return;
+  ADS_PAGE_KEYS.forEach((key) => {
+    syncAdsShowcaseForPage(key, options);
+  });
+  updateAdsCountdownDisplays();
+}
+
+function startAdsAutoRefresh() {
+  if (adsState.refreshTimer) return;
+  getApiBase()
+    .then(() => {
+      adsState.lastRefreshAt = Date.now();
+      adsState.nextRefreshAt = adsState.lastRefreshAt + ADS_REFRESH_INTERVAL_MS;
+      startAdsCountdownTimer();
+      adsState.refreshTimer = setInterval(() => {
+        if (!shouldDisplayAds()) return;
+        adsState.lastRefreshAt = Date.now();
+        adsState.nextRefreshAt = adsState.lastRefreshAt + ADS_REFRESH_INTERVAL_MS;
+        syncAllAdsShowcases({ forceRefresh: true });
+      }, ADS_REFRESH_INTERVAL_MS);
+    })
+    .catch(() => {
+      // fallback tanpa countdown jika gagal resolve base
+      adsState.refreshTimer = setInterval(() => {
+        if (!shouldDisplayAds()) return;
+        syncAllAdsShowcases({ forceRefresh: true });
+      }, ADS_REFRESH_INTERVAL_MS);
+    });
+}
+
+function renderPackagesList(items = []) {
+  const container = document.getElementById("adsPackagesList");
+  if (!container) return;
+  if (!items.length) {
+    container.innerHTML = `<p class="loading-text">Belum ada data paket.</p>`;
+    return;
+  }
+  container.innerHTML = "";
+  items.forEach((pkg) => {
+    const card = document.createElement("div");
+    card.className = "ads-package-card";
+
+    const title = document.createElement("h4");
+    title.textContent = pkg.name || "Paket";
+
+    const price = document.createElement("p");
+    price.className = "ads-package-price";
+    price.textContent =
+      pkg.price_display ||
+      formatAdsPrice(pkg.price) ||
+      (pkg.price ? `Rp ${pkg.price}` : "Rp -");
+
+    const desc = document.createElement("p");
+    desc.className = "ads-package-desc";
+    desc.textContent = pkg.description || "Paket berlangganan StarBox.";
+
+    const meta = document.createElement("div");
+    meta.className = "ads-package-meta";
+    const limit =
+      pkg.is_device_limit_unlimited === true
+        ? "Device: Unlimited"
+        : `Device: ${pkg.device_limit ?? "-"} / layanan`;
+    const cycle = pkg.billing_cycle
+      ? `Billing: ${pkg.billing_cycle}/${pkg.billing_interval || 1}`
+      : "Billing: -";
+    [limit, cycle].forEach((text) => {
+      const pill = document.createElement("span");
+      pill.textContent = text;
+      meta.appendChild(pill);
+    });
+
+    card.appendChild(title);
+    card.appendChild(price);
+    card.appendChild(desc);
+    card.appendChild(meta);
+    container.appendChild(card);
+  });
+}
+
+async function loadPackagesList(force = false) {
+  if (packagesState.loading && !force) return packagesState.items;
+  const container = document.getElementById("adsPackagesList");
+  if (container) {
+    container.innerHTML = `<p class="loading-text">Memuat paket...</p>`;
+  }
+  packagesState.loading = true;
+  try {
+    const base = await getApiBase();
+    const response = await fetch(`${base}${PACKAGES_API_PATH}`);
+    if (!response.ok) throw new Error(`Server merespons ${response.status}`);
+    const payload = await response.json();
+    const data = Array.isArray(payload?.data) ? payload.data : [];
+    packagesState.items = data;
+    packagesState.lastError = null;
+    renderPackagesList(data);
+    return data;
+  } catch (err) {
+    console.error("⚠️ Gagal memuat daftar paket:", err);
+    packagesState.lastError = err?.message || String(err);
+    if (container) {
+      container.innerHTML = `<p class="loading-text">Gagal memuat paket: ${packagesState.lastError}</p>`;
+    }
+    return [];
+  } finally {
+    packagesState.loading = false;
+  }
+}
+
+function openAdsInfoModal() {
+  const modal = document.getElementById("adsInfoModal");
+  if (!modal) return;
+  modal.style.display = "flex";
+  if (packagesState.items.length) {
+    renderPackagesList(packagesState.items);
+  } else {
+    const container = document.getElementById("adsPackagesList");
+    if (container) {
+      container.innerHTML = `<p class="loading-text">Memuat paket...</p>`;
+    }
+    loadPackagesList();
+  }
+}
+
+function closeAdsInfoModal() {
+  const modal = document.getElementById("adsInfoModal");
+  if (modal) modal.style.display = "none";
+}
+
+function formatCountdown(ms) {
+  if (ms <= 0) return "0:00";
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function updateAdsCountdownDisplays() {
+  if (!isDevBuildCached) {
+    ADS_PAGE_KEYS.forEach((key) => {
+      const el = document.getElementById(buildAdsId("adsCountdown", key));
+      if (el) {
+        el.style.display = "none";
+        el.textContent = "";
+      }
+    });
+    return;
+  }
+  const remaining = (adsState.nextRefreshAt || 0) - Date.now();
+  const text = remaining > 0 ? `Auto refresh: ${formatCountdown(remaining)}` : "Refresh...";
+  ADS_PAGE_KEYS.forEach((key) => {
+    const el = document.getElementById(buildAdsId("adsCountdown", key));
+    if (el) {
+      el.style.display = "inline-flex";
+      el.textContent = text;
+    }
+  });
+}
+
+function startAdsCountdownTimer() {
+  if (!isDevBuildCached) return;
+  if (adsState.countdownTimer) return;
+  adsState.countdownTimer = setInterval(updateAdsCountdownDisplays, 1000);
+  updateAdsCountdownDisplays();
+}
 
 function getStoredLayout() {
   try {
@@ -2454,6 +2993,7 @@ function applyAuthSession(session = {}) {
   updateDeviceQuotaBanner();
   syncServiceAvailability();
   updateAddDeviceQuotaHint();
+  syncAllAdsShowcases({ forceRefresh: true });
   updateIOSButtonVisibility();
   const nextLimit = getServiceLimitValue();
   const shouldReload =
@@ -5499,6 +6039,13 @@ function toggleAddWhatsAppFields() {
   whatsappFields.style.display = isWhatsApp ? "block" : "none";
 }
 
+function getAndroidRemoteLimit() {
+  if (authState.allowsAndroidEmulator) return Infinity;
+  if (!authState.isLoggedIn) return 1;
+  if (isFreePackageTier()) return 1;
+  return 1;
+}
+
 function openAndroidRemoteDisplay(uid, options = {}) {
   if (!uid) return Promise.resolve(false);
   const { silent = false, silentSuccess = false } = options;
@@ -6165,6 +6712,9 @@ window.addEventListener("DOMContentLoaded", () => {
   applyRememberedLogin();
   loadPhoneCodesIntoSelect();
   loadAllDevices();
+  ADS_PAGE_KEYS.forEach((key) => ensureAdsSection(key));
+  syncAllAdsShowcases({ forceRefresh: true });
+  startAdsAutoRefresh();
   loadSystemInfoBadge();
   document.addEventListener("DOMContentLoaded", loadSystemInfoBadge);
   window.addEventListener("focus", () => {
@@ -6482,6 +7032,17 @@ window.changeLayout = function (layout) {
 // ANDROID / iOS SEPARATE FUNCTIONS
 // ========================================
 
+// ADB tutorial modal controls
+window.openAdbTutorialModal = function () {
+  const modal = document.getElementById("adbTutorialModal");
+  if (modal) modal.style.display = "flex";
+};
+
+window.closeAdbTutorialModal = function () {
+  const modal = document.getElementById("adbTutorialModal");
+  if (modal) modal.style.display = "none";
+};
+
 // Modal functions for Android
 window.openModalAndroid = async function () {
   const modal = document.getElementById("addModalAndroid");
@@ -6569,11 +7130,52 @@ window.submitAndroidDevice = async function () {
     deviceData.whatsappCallbackUrl = callbackUrl;
   }
 
+  const limit = getAndroidRemoteLimit();
+  if (Number.isFinite(limit)) {
+    let currentCount = Array.isArray(cachedAndroidRemoteDevices)
+      ? cachedAndroidRemoteDevices.length
+      : 0;
+    if (currentCount < limit && window.electronAPI?.androidRemote?.getDevices) {
+      try {
+        const snapshot = await window.electronAPI.androidRemote.getDevices();
+        const list = Array.isArray(snapshot?.devices) ? snapshot.devices : [];
+        cachedAndroidRemoteDevices = list;
+        currentCount = list.length;
+      } catch (err) {
+        console.warn("⚠️ Gagal sinkron jumlah ADB devices:", err);
+      }
+    }
+    if (currentCount >= limit) {
+      const needUpgrade =
+        authState.allowsAndroidEmulator !== true &&
+        (authState.isLoggedIn ? !isFreePackageTier() : true);
+      const reason = !authState.isLoggedIn || isFreePackageTier()
+        ? "Mode tamu/paket gratis dibatasi 1 device ADB Remote."
+        : "Paket Anda belum mendukung Android Emulator/ADB tanpa batas.";
+      const action = needUpgrade
+        ? "Silakan login atau upgrade paket yang mendukung Android Emulator."
+        : "Silakan hapus device lama sebelum menambah yang baru.";
+      showToast(`${reason} ${action}`, 4500, "warning");
+      return;
+    }
+  }
+
   try {
     const result = await window.electronAPI.androidRemote.addDevice(deviceData);
 
     if (result.success) {
       showToast("✅ Device Android berhasil ditambahkan!", 3000, "success");
+      if (result.payload) {
+        console.log(
+          "📦 Payload adb-devices.json yang disimpan:",
+          JSON.stringify(result.payload, null, 2)
+        );
+        showToast(
+          `Payload tersimpan: ${result.payload.name} (${result.payload.adbId})`,
+          4200,
+          "info"
+        );
+      }
       closeModalAndroid();
       await loadAllDevicesAndroid();
     } else {
@@ -6772,6 +7374,9 @@ window.switchPage = async function (page) {
       console.warn("loadWAGatewayPage is not defined.");
     }
   }
+
+  // Refresh iklan per halaman (hit ulang per menu)
+  syncAdsShowcaseForPage(page, { forceRefresh: true });
 
   // Close sidebar overlay on mobile after switching pages
   if (window.innerWidth <= 768) {

@@ -367,6 +367,39 @@
           ></div>
 
           <div id="device-list">Loading...</div>
+
+          <section
+            id="adsShowcase"
+            class="ads-showcase"
+            aria-live="polite"
+            style="display: none"
+          >
+            <div class="ads-head">
+              <div class="ads-title">
+                <p class="ads-eyebrow">Rekomendasi pilihan</p>
+                <h4>Iklan</h4>
+              </div>
+              <span id="adsCountdown" class="ads-countdown"></span>
+              <button
+                type="button"
+                id="adsHideButton"
+                class="ads-hide-btn"
+                onclick="openAdsInfoModal()"
+              >
+                Sembunyikan iklan
+              </button>
+            </div>
+            <div class="ads-marquee ads-marquee-horizontal">
+              <div id="adsTrackHorizontal" class="ads-track">
+                <div class="ads-empty">Memuat rekomendasi...</div>
+              </div>
+            </div>
+            <div class="ads-marquee ads-marquee-vertical">
+              <div id="adsTrackVertical" class="ads-track">
+                <div class="ads-empty">Memuat rekomendasi...</div>
+              </div>
+            </div>
+          </section>
         </main>
       </div>
       <!-- End Page: Web Emulator -->
@@ -384,6 +417,14 @@
               style="display: none"
             >
               <i class="bi bi-phone"></i> iOS Simulator
+            </button>
+            <button
+              type="button"
+              class="secondary"
+              onclick="openAdbTutorialModal()"
+              title="Lihat panduan Developer Options, USB Debugging, dan ADB Wireless"
+            >
+              <i class="bi bi-journal-check"></i> Tutorial ADB
             </button>
             <button
               id="fixAndroidButtonAndroid"
@@ -553,6 +594,24 @@
               💻
               <a href="https://github.com/ginginabdulgoni" target="_blank">
                 GitHub
+              </a>
+            </li>
+            <li>
+              📘
+              <a
+                href="https://www.facebook.com/groups/2445336465861387"
+                target="_blank"
+              >
+                Komunitas Facebook
+              </a>
+            </li>
+            <li>
+              ▶️
+              <a
+                href="https://www.youtube.com/channel/UCdszTqfUaxHDIrcn0YQnXNA"
+                target="_blank"
+              >
+                Channel YouTube
               </a>
             </li>
           </ul>
@@ -870,6 +929,29 @@
           </div>
           <div class="modal-buttons">
             <button onclick="closePackageModal()">Tutup</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="adsInfoModal" class="modal">
+        <div class="modal-content" style="max-width: 640px">
+          <span class="close" onclick="closeAdsInfoModal()">&times;</span>
+          <h3>Hilangkan Iklan</h3>
+          <p style="color: #94a3b8; margin: 6px 0 12px">
+            Login dan berlangganan paket untuk menghilangkan iklan di dashboard.
+          </p>
+          <div id="adsPackagesList" class="ads-packages-list">
+            <p class="loading-text">Memuat paket...</p>
+          </div>
+          <div class="modal-buttons" style="justify-content: flex-end">
+            <button
+              type="button"
+              class="secondary"
+              onclick="openAuthModal('login')"
+            >
+              Login / Berlangganan
+            </button>
+            <button type="button" onclick="closeAdsInfoModal()">Tutup</button>
           </div>
         </div>
       </div>
@@ -1859,6 +1941,153 @@
             </button>
             <button onclick="closeModalAndroid()" class="ghost">Batal</button>
           </div>
+        </div>
+      </div>
+
+      <!-- Modal: ADB Tutorial -->
+      <div id="adbTutorialModal" class="modal">
+        <div
+          class="modal-content"
+          style="max-width: 760px; max-height: 90vh; overflow-y: auto"
+        >
+          <span class="close" onclick="closeAdbTutorialModal()">&times;</span>
+          <h3><i class="bi bi-journal-check"></i> Tutorial Koneksi ADB</h3>
+          <p class="small-text" style="margin-top: 0">
+            Langkah singkat menyalakan Developer Options, USB Debugging, dan
+            Debugging nirkabel untuk dipakai di StarBox (Android/iOS page).
+          </p>
+
+          <div
+            style="
+              display: grid;
+              gap: 12px;
+              grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            "
+          >
+            <section
+              style="
+                background: #0f172a;
+                border-radius: 10px;
+                padding: 14px;
+                border: 1px solid rgba(255, 255, 255, 0.06);
+              "
+            >
+              <h4 style="margin: 0 0 8px; color: #22d3ee">
+                1) Aktifkan Developer Options
+              </h4>
+              <ol
+                style="
+                  margin: 0;
+                  padding-left: 18px;
+                  color: #cbd5e1;
+                  line-height: 1.6;
+                "
+              >
+                <li>Buka Settings → About Phone.</li>
+                <li>Ketuk <strong>Build Number</strong> 7x sampai muncul pesan pengembang aktif.</li>
+                <li>Masukkan PIN jika diminta.</li>
+              </ol>
+            </section>
+
+            <section
+              style="
+                background: #0f172a;
+                border-radius: 10px;
+                padding: 14px;
+                border: 1px solid rgba(255, 255, 255, 0.06);
+              "
+            >
+              <h4 style="margin: 0 0 8px; color: #22d3ee">
+                2) Aktifkan USB Debugging
+              </h4>
+              <ol
+                style="
+                  margin: 0;
+                  padding-left: 18px;
+                  color: #cbd5e1;
+                  line-height: 1.6;
+                "
+              >
+                <li>Buka Settings → Developer Options (kadang di Sistem → Lanjutan).</li>
+                <li>Nyalakan <strong>USB Debugging</strong> dan konfirmasi OK.</li>
+              </ol>
+              <p class="small-text" style="margin: 8px 0 0; color: #94a3b8">
+                Setelah aktif, sambungkan HP via kabel lalu klik Refresh ADB di
+                dialog <em>Tambah Android</em>.
+              </p>
+            </section>
+
+            <section
+              style="
+                background: #0f172a;
+                border-radius: 10px;
+                padding: 14px;
+                border: 1px solid rgba(255, 255, 255, 0.06);
+              "
+            >
+              <h4 style="margin: 0 0 8px; color: #22d3ee">
+                3) Debugging Nirkabel (opsional)
+              </h4>
+              <ol
+                style="
+                  margin: 0;
+                  padding-left: 18px;
+                  color: #cbd5e1;
+                  line-height: 1.6;
+                "
+              >
+                <li>Nyalakan <strong>Wireless Debugging</strong>.</li>
+                <li>Pastikan HP dan PC di WiFi yang sama.</li>
+                <li>Pilih <em>Pair device with pairing code</em> lalu jalankan:</li>
+              </ol>
+              <pre
+                style="
+                  background: #111b24;
+                  color: #e2e8f0;
+                  padding: 10px;
+                  border-radius: 8px;
+                  margin: 10px 0 0;
+                  font-size: 12px;
+                "
+              ><code>adb pair ip:port
+adb connect ip:port</code></pre>
+            </section>
+          </div>
+
+          <section
+            style="
+              margin-top: 12px;
+              background: #0f172a;
+              border-radius: 10px;
+              padding: 14px;
+              border: 1px solid rgba(255, 255, 255, 0.06);
+            "
+          >
+            <h4 style="margin: 0 0 8px; color: #f59e0b">Catatan Vendor</h4>
+            <ul
+              style="
+                margin: 0;
+                padding-left: 18px;
+                color: #e2e8f0;
+                line-height: 1.6;
+              "
+            >
+              <li>
+                <strong>Xiaomi / Redmi / POCO:</strong> aktifkan juga
+                <em>USB Debugging (Security Settings)</em> di Developer Options
+                (butuh akun Mi).
+              </li>
+              <li>
+                <strong>Samsung:</strong> Build Number ada di Settings → About
+                phone → Software Information.
+              </li>
+            </ul>
+            <p class="small-text" style="margin: 10px 0 0; color: #94a3b8">
+              Jika Wireless Debugging belum terdeteksi (terutama di Mac), pastikan
+              firewall mati atau izinkan <code>adb</code> melewati firewall, lalu
+              ulangi pair/connect.
+            </p>
+          </section>
         </div>
       </div>
 
@@ -4028,6 +4257,7 @@
 
     <!-- WhatsApp Gateway Scripts -->
     <script src="assets/js/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <script>
       // ============================================
@@ -5565,35 +5795,90 @@
         return dataRows;
       }
 
+      function detectCampaignFileType(fileName = "") {
+        const lower = fileName.toLowerCase();
+        if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
+          return "excel";
+        }
+        return "csv";
+      }
+
+      function parseCampaignExcel(arrayBuffer) {
+        if (!arrayBuffer) return [];
+        if (!window.XLSX || !window.XLSX.read || !window.XLSX.utils) {
+          throw new Error(
+            "Parser Excel tidak tersedia. Pastikan koneksi internet untuk memuat library XLSX."
+          );
+        }
+        const workbook = window.XLSX.read(arrayBuffer, { type: "array" });
+        const sheetName = workbook.SheetNames?.[0];
+        if (!sheetName) return [];
+        const sheet = workbook.Sheets[sheetName];
+        const rows = window.XLSX.utils.sheet_to_json(sheet, { defval: "" });
+        return normalizeCampaignRows(rows);
+      }
+
       function handleCampaignFile(input) {
         const file = input?.files?.[0];
         if (!file) return;
+        const fileType = detectCampaignFileType(file.name);
         const reader = new FileReader();
         reader.onload = () => {
-          const text = reader.result;
-          if (!text) {
-            Swal.fire("Error", "File campaign kosong.", "error");
-            return;
+          try {
+            let rows = [];
+            if (fileType === "excel") {
+              rows = parseCampaignExcel(reader.result);
+            } else {
+              const text = reader.result || "";
+              if (!text) {
+                Swal.fire("Error", "File campaign kosong.", "error");
+                return;
+              }
+              if (window.Papa && window.Papa.parse) {
+                const parsed = window.Papa.parse(text, {
+                  header: true,
+                  skipEmptyLines: true,
+                });
+                rows = normalizeCampaignRows(parsed.data);
+              } else {
+                rows = normalizeCampaignRows(parseCampaignText(text));
+              }
+            }
+
+            if (!rows.length) {
+              Swal.fire(
+                "Error",
+                "Tidak ada data valid pada file campaign.",
+                "error"
+              );
+              campaignMessages = [];
+              renderCampaignPreview();
+              updateCampaignControls();
+              return;
+            }
+
+            campaignMessages = rows;
+            renderCampaignPreview();
+            updateCampaignControls();
+          } catch (error) {
+            console.error("❌ Failed to parse campaign file:", error);
+            Swal.fire(
+              "Error",
+              error?.message ||
+                "Gagal membaca file campaign. Gunakan CSV atau Excel dengan header phone,message.",
+              "error"
+            );
           }
-          let rows = [];
-          if (window.Papa && window.Papa.parse) {
-            const parsed = window.Papa.parse(text, {
-              header: true,
-              skipEmptyLines: true,
-            });
-            rows = normalizeCampaignRows(parsed.data);
-          } else {
-            rows = normalizeCampaignRows(parseCampaignText(text));
-          }
-          campaignMessages = rows;
-          renderCampaignPreview();
-          updateCampaignControls();
         };
         reader.onerror = (error) => {
           console.error("❌ Failed to read campaign file:", error);
           Swal.fire("Error", "Gagal membaca file campaign.", "error");
         };
-        reader.readAsText(file, "UTF-8");
+        if (fileType === "excel") {
+          reader.readAsArrayBuffer(file);
+        } else {
+          reader.readAsText(file, "UTF-8");
+        }
       }
 
       function wait(ms) {
