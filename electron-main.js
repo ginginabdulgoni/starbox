@@ -11,8 +11,10 @@ const screen = electron.screen;
 const clipboard = electron.clipboard;
 const net = electron.net;
 const dialog = electron.dialog;
+const shell = electron.shell;
 const nodeNet = require("net");
 const https = require("https");
+const WebSocket = require("ws");
 const { spawn, spawnSync } = require("child_process");
 
 const Store = require("electron-store");
@@ -23,6 +25,34 @@ const Module = require("module");
 const fs = require("fs");
 const { pathToFileURL } = require("url");
 const { machineIdSync } = require("node-machine-id");
+const { VirtualOSStorage } = require("./vm-storage");
+
+function ensureDefaultPath() {
+  // Tambah path umum supaya binary seperti adb/scrcpy ditemukan di build production
+  const extraPaths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"];
+  const current = process.env.PATH || "";
+  const parts = current.split(path.delimiter).filter(Boolean);
+  extraPaths.forEach((p) => {
+    if (!parts.includes(p)) {
+      parts.push(p);
+    }
+  });
+  process.env.PATH = parts.join(path.delimiter);
+}
+
+ensureDefaultPath();
+
+// Stub optional native dependency that causes issues on Windows builds
+const __originalModuleLoad = Module._load;
+Module._load = function (request, parent, isMain) {
+  if (request === "extract-file-icon") {
+    return {
+      default: () => null,
+      getIcon: () => null,
+    };
+  }
+  return __originalModuleLoad(request, parent, isMain);
+};
 
 const isPackaged = app ? app.isPackaged : false;
 if (isPackaged) {
@@ -62,7 +92,18 @@ const iOSManager = require("./ios-manager");
 const BaileysManager = require("./baileys-manager");
 const cronParser = require("cron-parser");
 const { version: packageVersion } = require("./package.json");
-const { windowManager } = require("node-window-manager");
+let windowManager = null;
+try {
+  ({ windowManager } = require("node-window-manager"));
+} catch (err) {
+  console.warn(
+    "⚠️ node-window-manager gagal dimuat, fitur deteksi window OS dinonaktifkan:",
+    err?.message || err
+  );
+  windowManager = {
+    getWindows: () => [],
+  };
+}
 
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
@@ -339,6 +380,7 @@ let systemReportTimer = null;
 let authSession = createEmptyAuthSession();
 let authRefreshTimer = null;
 let cachedChromeVersion = DEFAULT_CHROME_VERSION;
+let virtualOSStorage = null;
 
 // WhatsApp Message Cache - untuk mencegah duplicate send saat fetch ulang
 // Map structure: messageId -> { status: 'sending' | 'sent' | 'failed', timestamp: number }
@@ -346,6 +388,9 @@ const WHATSAPP_MESSAGE_CACHE = new Map();
 const MESSAGE_CACHE_EXPIRY_MS = 10 * 60 * 1000; // 10 menit
 let cachedChromeVersionUpdatedAt = 0;
 let chromeVersionFetchPromise = null;
+let OS_VM_DB_PATH = null;
+const vmProcesses = new Map();
+const vmVncProxies = new Map();
 
 // Initialize logging after app is ready
 function initializeLogging() {
@@ -360,6 +405,7 @@ function initializeLogging() {
   userDataPath = app.getPath("userData");
   DB_PATH = path.join(userDataPath, "db", "devices.json");
   ANDROID_REMOTE_DB_PATH = path.join(userDataPath, "db", "adb-devices.json");
+  OS_VM_DB_PATH = path.join(userDataPath, "db", "virtual-machines.json");
 
   // Setup logging
   const logPath = path.join(userDataPath, "starbox.log");
@@ -415,6 +461,7 @@ function initializeLogging() {
   // Initialize managers
   androidManager = new AndroidManager();
   iosManager = new iOSManager();
+  virtualOSStorage = new VirtualOSStorage(userDataPath);
 
   console.log("✅ Paths and managers initialized");
   logConsoleOnly("   DB_PATH:", DB_PATH);
@@ -2024,6 +2071,22 @@ const MONITOR_DIMENSIONS = Object.freeze({
   headerHeight: 80,
   screenGap: 16,
 });
+const tiktokControlWindows = new Map();
+const tiktokAutomationState = new Map();
+const DEFAULT_TIKTOK_AUTOMATION_STATE = Object.freeze({
+  autoLike: false,
+  autoComment: false,
+  commentText: "Mantap videonya!",
+  likeIntervalMs: 5000,
+  commentIntervalMs: 60000,
+  likeMode: "interval", // interval | burst
+  burstDurationMs: 30000,
+  burstRestMs: 20000,
+  commentPool: [],
+  commentIndex: 0,
+  commentSentCount: 0,
+});
+const TIKTOK_BURST_SPAM_INTERVAL_MS = 120;
 const scrcpySessions = new Map();
 const ANDROID_REMOTE_SHORTCUTS = Object.freeze({
   "wake-screen": { label: "Bangunkan layar", type: "wake" },
@@ -2052,9 +2115,98 @@ function isCommandAvailable(command = "") {
   }
 }
 
+function getBrewExecutable() {
+  // Cari brew di PATH atau di lokasi default install Mac
+  if (isCommandAvailable("brew")) return "brew";
+  const candidates = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"];
+  for (const candidate of candidates) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch (_) {
+      // continue
+    }
+  }
+  return null;
+}
+
+function resolveScrcpyBinary() {
+  // Windows needs .exe extension and different paths
+  const platform = process.platform;
+  const isWindows = platform === "win32";
+  const scrcpyCmd = isWindows ? "scrcpy.exe" : "scrcpy";
+
+  // On Windows, try to get full path from 'where' command first
+  if (isWindows) {
+    try {
+      const result = spawnSync("where", ["scrcpy"], {
+        stdio: ["ignore", "pipe", "ignore"],
+        encoding: "utf8",
+      });
+      if (result.status === 0 && result.stdout) {
+        // where returns multiple paths, take the first one
+        const paths = result.stdout.trim().split("\n").filter(Boolean);
+        if (paths.length > 0) {
+          const firstPath = paths[0].trim().replace(/\r/g, "");
+          if (fs.existsSync(firstPath)) {
+            return firstPath;
+          }
+        }
+      }
+    } catch (_) {
+      // Continue to manual search
+    }
+  }
+
+  // Check if scrcpy is in PATH
+  if (isCommandAvailable("scrcpy")) return scrcpyCmd;
+
+  // Windows-specific paths
+  if (isWindows) {
+    const candidates = [
+      // Chocolatey
+      "C:\\ProgramData\\chocolatey\\bin\\scrcpy.exe",
+      // winget / manual install
+      "C:\\Program Files\\scrcpy\\scrcpy.exe",
+      "C:\\Program Files (x86)\\scrcpy\\scrcpy.exe",
+      // User local
+      path.join(os.homedir(), "scoop", "apps", "scrcpy", "current", "scrcpy.exe"),
+      path.join(os.homedir(), "AppData", "Local", "scrcpy", "scrcpy.exe"),
+    ];
+    for (const candidate of candidates) {
+      try {
+        if (fs.existsSync(candidate)) {
+          return candidate;
+        }
+      } catch (_) {
+        // continue
+      }
+    }
+  } else {
+    // Unix/macOS paths
+    const candidates = [
+      "/opt/homebrew/bin/scrcpy",
+      "/usr/local/bin/scrcpy",
+      "/usr/bin/scrcpy",
+    ];
+    for (const candidate of candidates) {
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch (_) {
+        // continue
+      }
+    }
+  }
+
+  return null;
+}
+
 function isScrcpyInstalled() {
   try {
-    const result = spawnSync("scrcpy", ["--version"], {
+    const scrcpyBin = resolveScrcpyBinary();
+    if (!scrcpyBin) return false;
+    const result = spawnSync(scrcpyBin, ["--version"], {
       stdio: "ignore",
     });
     return result.status === 0;
@@ -2066,10 +2218,11 @@ function isScrcpyInstalled() {
 function detectScrcpyInstaller() {
   const platform = process.platform;
   if (platform === "darwin") {
-    if (isCommandAvailable("brew")) {
+    const brewBin = getBrewExecutable();
+    if (brewBin) {
       return {
         supported: true,
-        command: "brew",
+        command: brewBin,
         args: ["install", "scrcpy"],
         label: "Homebrew",
       };
@@ -2077,7 +2230,7 @@ function detectScrcpyInstaller() {
     return {
       supported: false,
       reason:
-        "Homebrew tidak ditemukan. Install Homebrew (https://brew.sh) lalu jalankan 'brew install scrcpy'.",
+        "Homebrew tidak ditemukan. Pastikan Homebrew terpasang (biasanya di /opt/homebrew/bin/brew atau /usr/local/bin/brew) lalu jalankan 'brew install scrcpy'.",
     };
   }
   if (platform === "win32") {
@@ -2123,7 +2276,19 @@ function detectScrcpyInstaller() {
   };
 }
 
-function runScrcpyInstallerCommand(installer) {
+function runScrcpyInstallerCommand(installer, onProgress) {
+  const emitProgress = (percent, message) => {
+    if (typeof onProgress !== "function") return;
+    try {
+      onProgress({
+        percent,
+        message,
+        installer: installer.label || installer.command,
+      });
+    } catch (_) {
+      // ignore
+    }
+  };
   return new Promise((resolve, reject) => {
     const proc = spawn(installer.command, installer.args, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -2131,19 +2296,26 @@ function runScrcpyInstallerCommand(installer) {
     });
     let stdout = "";
     let stderr = "";
+    emitProgress(10, `Menjalankan ${installer.label || installer.command}...`);
     if (proc.stdout) {
       proc.stdout.on("data", (data) => {
         stdout += data.toString();
+        emitProgress(50, "Mengunduh / memasang scrcpy...");
       });
     }
     if (proc.stderr) {
       proc.stderr.on("data", (data) => {
         stderr += data.toString();
+        emitProgress(
+          65,
+          "Memeriksa hasil instalasi... (log installer diterima)"
+        );
       });
     }
     proc.once("error", (err) => reject(err));
     proc.once("close", (code) => {
       if (code === 0) {
+        emitProgress(100, "Instalasi selesai");
         resolve({ stdout, stderr });
       } else {
         const message =
@@ -2156,7 +2328,7 @@ function runScrcpyInstallerCommand(installer) {
   });
 }
 
-async function installScrcpyAutomatically() {
+async function installScrcpyAutomatically(onProgress) {
   const installer = detectScrcpyInstaller();
   if (!installer || installer.supported === false) {
     const error = new Error(
@@ -2166,7 +2338,14 @@ async function installScrcpyAutomatically() {
     error.code = "SCRCPY_INSTALLER_UNAVAILABLE";
     throw error;
   }
-  await runScrcpyInstallerCommand(installer);
+  if (typeof onProgress === "function") {
+    onProgress({
+      percent: 5,
+      message: "Menyiapkan installer scrcpy...",
+      installer: installer.label || installer.command,
+    });
+  }
+  await runScrcpyInstallerCommand(installer, onProgress);
 }
 
 async function sendAndroidKeyevent(adbId, keyCode, options = {}) {
@@ -2214,18 +2393,65 @@ async function sendAndroidSwipe(adbId, from = {}, to = {}, duration = 250) {
   );
 }
 
+async function isDeviceShowingLockscreen(adbId) {
+  if (!adbId) return null;
+  const manager = ensureAndroidManagerReady();
+  try {
+    const output = await manager.runAdbCommand(
+      ["-s", adbId, "shell", "dumpsys", "window", "policy"],
+      { timeout: 6000, silent: true }
+    );
+    const text = String(output || "").toLowerCase();
+    if (!text) return null;
+    if (
+      text.includes("mshowinglockscreen=true") ||
+      text.includes("isstatusbarkeyguard=true") ||
+      text.includes("keyguardshowing=true") ||
+      text.includes("mdreaminglockscreen=true")
+    ) {
+      return true;
+    }
+    if (
+      text.includes("mshowinglockscreen=false") ||
+      text.includes("isstatusbarkeyguard=false") ||
+      text.includes("keyguardshowing=false")
+    ) {
+      return false;
+    }
+  } catch (err) {
+    console.warn(
+      `⚠️ Tidak bisa membaca status lockscreen (${adbId}):`,
+      err?.message || err
+    );
+  }
+  return null;
+}
+
 async function ensureDeviceScreenAwake(adbId) {
   if (!adbId) return;
+  let isLocked = null;
   try {
-    await sendAndroidKeyevent(adbId, 224, { delayAfter: 180 }); // KEYCODE_WAKEUP
+    isLocked = await isDeviceShowingLockscreen(adbId);
+  } catch (err) {
+    console.warn(
+      `⚠️ Gagal mendeteksi status lockscreen (${adbId}):`,
+      err?.message || err
+    );
+  }
+  try {
+    await sendAndroidKeyevent(adbId, 224, { delayAfter: 160 }); // KEYCODE_WAKEUP
   } catch (err) {
     console.warn(
       `⚠️ Tidak bisa mengirim WAKEUP ke ${adbId}:`,
       err?.message || err
     );
   }
+  // Skip aggressive unlock gestures when device sudah tidak di lockscreen
+  if (isLocked === false) {
+    return;
+  }
   try {
-    await sendAndroidKeyevent(adbId, 82, { delayAfter: 160 }); // KEYCODE_MENU
+    await sendAndroidKeyevent(adbId, 82, { delayAfter: 140 }); // KEYCODE_MENU
   } catch (err) {
     console.warn(
       `⚠️ Tidak bisa mengirim MENU ke ${adbId}:`,
@@ -2235,9 +2461,10 @@ async function ensureDeviceScreenAwake(adbId) {
   try {
     const { width, height } = await getDeviceDisplayMetrics(adbId);
     const x = Math.round(width / 2);
-    const startY = Math.round(height * 0.78);
-    const endY = Math.round(height * 0.22);
-    await sendAndroidSwipe(adbId, { x, y: startY }, { x, y: endY }, 320);
+    const startY = Math.round(height * 0.72);
+    const endY = Math.round(height * 0.28);
+    // Faster, shorter swipe to avoid gesture-nav drifting into Recent Apps
+    await sendAndroidSwipe(adbId, { x, y: startY }, { x, y: endY }, 180);
   } catch (err) {
     console.warn(`⚠️ Swipe unlock gagal untuk ${adbId}:`, err?.message || err);
   }
@@ -2475,11 +2702,11 @@ async function isIpAlive(ip, timeout = 200) {
     // ADB wireless common ports (sampling dari range 30000-49999)
     37229, 37121, 40000, 43211, 43393, 45000, 47233, 49555,
   ];
-  const probes = commonPorts.map(port =>
+  const probes = commonPorts.map((port) =>
     probeAdbPort(ip, port, timeout).catch(() => false)
   );
   const results = await Promise.all(probes);
-  return results.some(r => r === true);
+  return results.some((r) => r === true);
 }
 
 async function scanLocalWifiForAdbDevices(
@@ -2497,23 +2724,29 @@ async function scanLocalWifiForAdbDevices(
 
   // PRE-FILTER: Only for QUICK scan mode (deep scan needs to be comprehensive)
   if (scanMode === "quick") {
-    logDev(`\n🔍 [WiFi Scan] Pre-filtering: Checking ${allCandidates.length} IPs untuk yang aktif...`);
+    logDev(
+      `\n🔍 [WiFi Scan] Pre-filtering: Checking ${allCandidates.length} IPs untuk yang aktif...`
+    );
 
-    const aliveCheckPromises = allCandidates.map(ip =>
-      isIpAlive(ip, 150).then(alive => ({ ip, alive }))
+    const aliveCheckPromises = allCandidates.map((ip) =>
+      isIpAlive(ip, 150).then((alive) => ({ ip, alive }))
     );
     const aliveResults = await Promise.all(aliveCheckPromises);
-    candidates = aliveResults.filter(r => r.alive).map(r => r.ip);
+    candidates = aliveResults.filter((r) => r.alive).map((r) => r.ip);
 
     const skippedCount = allCandidates.length - candidates.length;
-    logDev(`✅ [WiFi Scan] Pre-filter complete: ${candidates.length} aktif, ${skippedCount} di-skip`);
+    logDev(
+      `✅ [WiFi Scan] Pre-filter complete: ${candidates.length} aktif, ${skippedCount} di-skip`
+    );
 
     if (candidates.length === 0) {
       logDev(`⚠️ [WiFi Scan] Tidak ada IP yang responding, scan dibatalkan`);
       return { success: true, connected: [], scanned: allCandidates.length };
     }
   } else {
-    logDev(`\n🔍 [WiFi Scan] DEEP MODE: Scanning semua ${allCandidates.length} IPs (no pre-filter)`);
+    logDev(
+      `\n🔍 [WiFi Scan] DEEP MODE: Scanning semua ${allCandidates.length} IPs (no pre-filter)`
+    );
   }
 
   // Common ADB wireless ports to check
@@ -3551,10 +3784,10 @@ function isMessageInCache(messageId) {
   return WHATSAPP_MESSAGE_CACHE.has(messageId);
 }
 
-function addMessageToCache(messageId, status = 'sending') {
+function addMessageToCache(messageId, status = "sending") {
   WHATSAPP_MESSAGE_CACHE.set(messageId, {
     status: status,
-    timestamp: Date.now()
+    timestamp: Date.now(),
   });
   console.log(`💾 Message added to cache: ${messageId} (${status})`);
 }
@@ -3571,7 +3804,7 @@ function updateMessageCacheStatus(messageId, status) {
 function hasMessagesInProgress() {
   cleanExpiredMessageCache();
   for (const [messageId, data] of WHATSAPP_MESSAGE_CACHE.entries()) {
-    if (data.status === 'sending') {
+    if (data.status === "sending") {
       return true;
     }
   }
@@ -3582,7 +3815,7 @@ function getMessagesInProgress() {
   cleanExpiredMessageCache();
   const inProgress = [];
   for (const [messageId, data] of WHATSAPP_MESSAGE_CACHE.entries()) {
-    if (data.status === 'sending') {
+    if (data.status === "sending") {
       inProgress.push(messageId);
     }
   }
@@ -3592,7 +3825,12 @@ function getMessagesInProgress() {
 /**
  * Helper: Kirim callback ke API untuk update status pesan
  */
-async function sendWhatsappCallback(callbackUrl, messageId, status, errorMessage = null) {
+async function sendWhatsappCallback(
+  callbackUrl,
+  messageId,
+  status,
+  errorMessage = null
+) {
   if (!callbackUrl || !messageId) return;
   try {
     const https = require("https");
@@ -3651,7 +3889,8 @@ function hasEmojiOrComplexChars(text) {
   // - Keycap sequences (#️⃣, *️⃣, 0️⃣-9️⃣)
   // - Tag sequences for subdivision flags
   // - Unicode 15.0 additions
-  const emojiRegex = /[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F000}-\u{1F6FF}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FAFF}]|[\u{1F680}-\u{1F6FF}]|[\u{2300}-\u{23FF}]|[\u{2B50}]|[\u{2B55}]|[\u{231A}-\u{231B}]|[\u{23E9}-\u{23EC}]|[\u{23F0}]|[\u{23F3}]|[\u{25FD}-\u{25FE}]|[\u{2614}-\u{2615}]|[\u{2648}-\u{2653}]|[\u{267F}]|[\u{2693}]|[\u{26A1}]|[\u{26AA}-\u{26AB}]|[\u{26BD}-\u{26BE}]|[\u{26C4}-\u{26C5}]|[\u{26CE}]|[\u{26D4}]|[\u{26EA}]|[\u{26F2}-\u{26F3}]|[\u{26F5}]|[\u{26FA}]|[\u{26FD}]|[\u{2705}]|[\u{270A}-\u{270B}]|[\u{2728}]|[\u{274C}]|[\u{274E}]|[\u{2753}-\u{2755}]|[\u{2757}]|[\u{2795}-\u{2797}]|[\u{27B0}]|[\u{27BF}]|[\u{2B1B}-\u{2B1C}]|[\u{1F004}]|[\u{1F0CF}]|[\u{1F18E}]|[\u{1F191}-\u{1F19A}]|[\u{1F201}]|[\u{1F21A}]|[\u{1F22F}]|[\u{1F232}-\u{1F236}]|[\u{1F238}-\u{1F23A}]|[\u{1F250}-\u{1F251}]|[\u{1F3FB}-\u{1F3FF}]|[\u{1F1E6}-\u{1F1FF}]|[\u{00A9}]|[\u{00AE}]|[\u{203C}]|[\u{2049}]|[\u{2122}]|[\u{2139}]|[\u{2194}-\u{2199}]|[\u{21A9}-\u{21AA}]|[\u{2328}]|[\u{23CF}]|[\u{24C2}]|[\u{25AA}-\u{25AB}]|[\u{25B6}]|[\u{25C0}]|[\u{2934}-\u{2935}]|[\u{2B05}-\u{2B07}]|[\u{3030}]|[\u{303D}]|[\u{3297}]|[\u{3299}]|\u200D|\uFE0F|[\u{E0020}-\u{E007F}]/u;
+  const emojiRegex =
+    /[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F000}-\u{1F6FF}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FAFF}]|[\u{1F680}-\u{1F6FF}]|[\u{2300}-\u{23FF}]|[\u{2B50}]|[\u{2B55}]|[\u{231A}-\u{231B}]|[\u{23E9}-\u{23EC}]|[\u{23F0}]|[\u{23F3}]|[\u{25FD}-\u{25FE}]|[\u{2614}-\u{2615}]|[\u{2648}-\u{2653}]|[\u{267F}]|[\u{2693}]|[\u{26A1}]|[\u{26AA}-\u{26AB}]|[\u{26BD}-\u{26BE}]|[\u{26C4}-\u{26C5}]|[\u{26CE}]|[\u{26D4}]|[\u{26EA}]|[\u{26F2}-\u{26F3}]|[\u{26F5}]|[\u{26FA}]|[\u{26FD}]|[\u{2705}]|[\u{270A}-\u{270B}]|[\u{2728}]|[\u{274C}]|[\u{274E}]|[\u{2753}-\u{2755}]|[\u{2757}]|[\u{2795}-\u{2797}]|[\u{27B0}]|[\u{27BF}]|[\u{2B1B}-\u{2B1C}]|[\u{1F004}]|[\u{1F0CF}]|[\u{1F18E}]|[\u{1F191}-\u{1F19A}]|[\u{1F201}]|[\u{1F21A}]|[\u{1F22F}]|[\u{1F232}-\u{1F236}]|[\u{1F238}-\u{1F23A}]|[\u{1F250}-\u{1F251}]|[\u{1F3FB}-\u{1F3FF}]|[\u{1F1E6}-\u{1F1FF}]|[\u{00A9}]|[\u{00AE}]|[\u{203C}]|[\u{2049}]|[\u{2122}]|[\u{2139}]|[\u{2194}-\u{2199}]|[\u{21A9}-\u{21AA}]|[\u{2328}]|[\u{23CF}]|[\u{24C2}]|[\u{25AA}-\u{25AB}]|[\u{25B6}]|[\u{25C0}]|[\u{2934}-\u{2935}]|[\u{2B05}-\u{2B07}]|[\u{3030}]|[\u{303D}]|[\u{3297}]|[\u{3299}]|\u200D|\uFE0F|[\u{E0020}-\u{E007F}]/u;
   return emojiRegex.test(text);
 }
 
@@ -3660,10 +3899,13 @@ function hasEmojiOrComplexChars(text) {
  * Digunakan untuk membersihkan pesan sebelum typing manual agar tidak gagal
  */
 function stripEmoji(text) {
-  if (!text) return '';
+  if (!text) return "";
   // Remove ALL emoji using comprehensive regex (with global flag)
   // Replaces undetected emoji with empty string to ensure typing continues normally
-  return text.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F000}-\u{1F6FF}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FAFF}]|[\u{1F680}-\u{1F6FF}]|[\u{2300}-\u{23FF}]|[\u{2B50}]|[\u{2B55}]|[\u{231A}-\u{231B}]|[\u{23E9}-\u{23EC}]|[\u{23F0}]|[\u{23F3}]|[\u{25FD}-\u{25FE}]|[\u{2614}-\u{2615}]|[\u{2648}-\u{2653}]|[\u{267F}]|[\u{2693}]|[\u{26A1}]|[\u{26AA}-\u{26AB}]|[\u{26BD}-\u{26BE}]|[\u{26C4}-\u{26C5}]|[\u{26CE}]|[\u{26D4}]|[\u{26EA}]|[\u{26F2}-\u{26F3}]|[\u{26F5}]|[\u{26FA}]|[\u{26FD}]|[\u{2705}]|[\u{270A}-\u{270B}]|[\u{2728}]|[\u{274C}]|[\u{274E}]|[\u{2753}-\u{2755}]|[\u{2757}]|[\u{2795}-\u{2797}]|[\u{27B0}]|[\u{27BF}]|[\u{2B1B}-\u{2B1C}]|[\u{1F004}]|[\u{1F0CF}]|[\u{1F18E}]|[\u{1F191}-\u{1F19A}]|[\u{1F201}]|[\u{1F21A}]|[\u{1F22F}]|[\u{1F232}-\u{1F236}]|[\u{1F238}-\u{1F23A}]|[\u{1F250}-\u{1F251}]|[\u{1F3FB}-\u{1F3FF}]|[\u{1F1E6}-\u{1F1FF}]|[\u{00A9}]|[\u{00AE}]|[\u{203C}]|[\u{2049}]|[\u{2122}]|[\u{2139}]|[\u{2194}-\u{2199}]|[\u{21A9}-\u{21AA}]|[\u{2328}]|[\u{23CF}]|[\u{24C2}]|[\u{25AA}-\u{25AB}]|[\u{25B6}]|[\u{25C0}]|[\u{2934}-\u{2935}]|[\u{2B05}-\u{2B07}]|[\u{3030}]|[\u{303D}]|[\u{3297}]|[\u{3299}]|\u200D|\uFE0F|[\u{E0020}-\u{E007F}]/gu, '');
+  return text.replace(
+    /[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F000}-\u{1F6FF}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FAFF}]|[\u{1F680}-\u{1F6FF}]|[\u{2300}-\u{23FF}]|[\u{2B50}]|[\u{2B55}]|[\u{231A}-\u{231B}]|[\u{23E9}-\u{23EC}]|[\u{23F0}]|[\u{23F3}]|[\u{25FD}-\u{25FE}]|[\u{2614}-\u{2615}]|[\u{2648}-\u{2653}]|[\u{267F}]|[\u{2693}]|[\u{26A1}]|[\u{26AA}-\u{26AB}]|[\u{26BD}-\u{26BE}]|[\u{26C4}-\u{26C5}]|[\u{26CE}]|[\u{26D4}]|[\u{26EA}]|[\u{26F2}-\u{26F3}]|[\u{26F5}]|[\u{26FA}]|[\u{26FD}]|[\u{2705}]|[\u{270A}-\u{270B}]|[\u{2728}]|[\u{274C}]|[\u{274E}]|[\u{2753}-\u{2755}]|[\u{2757}]|[\u{2795}-\u{2797}]|[\u{27B0}]|[\u{27BF}]|[\u{2B1B}-\u{2B1C}]|[\u{1F004}]|[\u{1F0CF}]|[\u{1F18E}]|[\u{1F191}-\u{1F19A}]|[\u{1F201}]|[\u{1F21A}]|[\u{1F22F}]|[\u{1F232}-\u{1F236}]|[\u{1F238}-\u{1F23A}]|[\u{1F250}-\u{1F251}]|[\u{1F3FB}-\u{1F3FF}]|[\u{1F1E6}-\u{1F1FF}]|[\u{00A9}]|[\u{00AE}]|[\u{203C}]|[\u{2049}]|[\u{2122}]|[\u{2139}]|[\u{2194}-\u{2199}]|[\u{21A9}-\u{21AA}]|[\u{2328}]|[\u{23CF}]|[\u{24C2}]|[\u{25AA}-\u{25AB}]|[\u{25B6}]|[\u{25C0}]|[\u{2934}-\u{2935}]|[\u{2B05}-\u{2B07}]|[\u{3030}]|[\u{303D}]|[\u{3297}]|[\u{3299}]|\u200D|\uFE0F|[\u{E0020}-\u{E007F}]/gu,
+    ""
+  );
 }
 
 /**
@@ -3678,9 +3920,9 @@ function smartSplitMessage(text, maxChunkChars = 250, maxChunks = 3) {
   if (!text) return [text];
 
   // First split by newlines (natural breaks)
-  const lines = text.split('\n');
+  const lines = text.split("\n");
   const chunks = [];
-  let currentChunk = '';
+  let currentChunk = "";
 
   for (const line of lines) {
     // Check if adding this line would exceed chunk limit
@@ -3693,13 +3935,13 @@ function smartSplitMessage(text, maxChunkChars = 250, maxChunks = 3) {
       // Doesn't fit
       if (currentChunk) {
         chunks.push(currentChunk);
-        currentChunk = '';
+        currentChunk = "";
       }
 
       // Check if single line is too long
       if (line.length > maxChunkChars) {
         // Split long line by words
-        const words = line.split(' ');
+        const words = line.split(" ");
         for (const word of words) {
           const testWord = currentChunk ? `${currentChunk} ${word}` : word;
           if (testWord.length <= maxChunkChars) {
@@ -3722,7 +3964,9 @@ function smartSplitMessage(text, maxChunkChars = 250, maxChunks = 3) {
 
   // Check if exceeds max chunks limit
   if (chunks.length > maxChunks) {
-    console.warn(`⚠️ Message would require ${chunks.length} chunks (max: ${maxChunks}), returning null for fallback`);
+    console.warn(
+      `⚠️ Message would require ${chunks.length} chunks (max: ${maxChunks}), returning null for fallback`
+    );
     return null; // Signal to use fallback method
   }
 
@@ -3758,22 +4002,25 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
     // CEK CACHE: Skip jika pesan sudah sedang/sudah dikirim
     if (messageId && isMessageInCache(messageId)) {
       const cacheData = WHATSAPP_MESSAGE_CACHE.get(messageId);
-      console.log(`⏭️ [ADB:${adbId}] Pesan ${messageId} sudah ada di cache (${cacheData.status}), skip!`);
+      console.log(
+        `⏭️ [ADB:${adbId}] Pesan ${messageId} sudah ada di cache (${cacheData.status}), skip!`
+      );
       continue;
     }
 
     // ADD TO CACHE: Tandai pesan sedang dikirim
     if (messageId) {
-      addMessageToCache(messageId, 'sending');
+      addMessageToCache(messageId, "sending");
 
       // KIRIM STATUS UPDATE: Tampilkan status "sedang mengetik" di android-remote window
       const scrcpyWin = scrcpyWindows.get(adbId);
       if (scrcpyWin && !scrcpyWin.isDestroyed()) {
-        scrcpyWin.webContents.send('automation-update', {
+        scrcpyWin.webContents.send("automation-update", {
           messageId: messageId,
-          status: 'typing',
-          statusText: '⌨️ Sedang mengetik...',
-          message: message.substring(0, 50) + (message.length > 50 ? '...' : '')
+          status: "typing",
+          statusText: "⌨️ Sedang mengetik...",
+          message:
+            message.substring(0, 50) + (message.length > 50 ? "..." : ""),
         });
       }
     }
@@ -3783,7 +4030,9 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
 
     if (message.length > WHATSAPP_MESSAGE_LIMIT) {
       console.warn(
-        `⚠️ [ADB:${adbId}] Pesan ${i + 1} terlalu panjang (${message.length} chars, limit: ${WHATSAPP_MESSAGE_LIMIT}), akan dipotong!`
+        `⚠️ [ADB:${adbId}] Pesan ${i + 1} terlalu panjang (${
+          message.length
+        } chars, limit: ${WHATSAPP_MESSAGE_LIMIT}), akan dipotong!`
       );
 
       // Potong pesan ke batas maksimal
@@ -3791,10 +4040,15 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
 
       // Kirim callback dengan warning jika ada
       if (callbackUrl && messageId) {
-        console.log(`📞 [ADB:${adbId}] Mengirim callback warning (pesan dipotong)...`);
-        sendWhatsappCallback(callbackUrl, messageId, "done",
+        console.log(
+          `📞 [ADB:${adbId}] Mengirim callback warning (pesan dipotong)...`
+        );
+        sendWhatsappCallback(
+          callbackUrl,
+          messageId,
+          "done",
           `Pesan dipotong dari ${messages[i].length} ke ${WHATSAPP_MESSAGE_LIMIT} karakter (limit WhatsApp)`
-        ).catch(err => {
+        ).catch((err) => {
           console.warn(`⚠️ Failed to send callback:`, err.message);
         });
       }
@@ -3804,7 +4058,9 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
     const MAX_TYPING_CHARS = 200; // Batas untuk gunakan typing method
 
     console.log(
-      `📲 [ADB:${adbId}] Mengirim pesan WhatsApp ${i + 1}/${messages.length} (${message.length} chars, emoji: ${hasEmoji ? 'yes' : 'no'})`
+      `📲 [ADB:${adbId}] Mengirim pesan WhatsApp ${i + 1}/${messages.length} (${
+        message.length
+      } chars, emoji: ${hasEmoji ? "yes" : "no"})`
     );
 
     // Wrap sending logic in try-catch untuk error handling
@@ -3818,7 +4074,9 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
         const cleanMessage = stripEmoji(message);
         const waUrl = `https://wa.me/${phoneNumber}`;
 
-        console.log(`⌨️ [ADB:${adbId}] Kirim via typing instant (${cleanMessage.length} chars)...`);
+        console.log(
+          `⌨️ [ADB:${adbId}] Kirim via typing instant (${cleanMessage.length} chars)...`
+        );
 
         await manager.runAdbCommand(
           [
@@ -3843,9 +4101,15 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
           throw new Error("Remote action dibatalkan oleh pengguna.");
         }
 
-        await typeTextWithSpeed(adbId, cleanMessage, options.typingSpeed || "instant");
+        await typeTextWithSpeed(
+          adbId,
+          cleanMessage,
+          options.typingSpeed || "instant"
+        );
 
-        console.log(`✅ [ADB:${adbId}] Typing selesai, tunggu 1 detik sebelum klik send...`);
+        console.log(
+          `✅ [ADB:${adbId}] Typing selesai, tunggu 1 detik sebelum klik send...`
+        );
         await sleep(1000);
 
         if (actionToken?.aborted) {
@@ -3896,16 +4160,17 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
 
       // Update cache: pesan berhasil terkirim
       if (messageId) {
-        updateMessageCacheStatus(messageId, 'sent');
+        updateMessageCacheStatus(messageId, "sent");
 
         // KIRIM STATUS UPDATE: Tampilkan status "terkirim" di android-remote window
         const scrcpyWin = scrcpyWindows.get(adbId);
         if (scrcpyWin && !scrcpyWin.isDestroyed()) {
-          scrcpyWin.webContents.send('automation-update', {
+          scrcpyWin.webContents.send("automation-update", {
             messageId: messageId,
-            status: 'sent',
-            statusText: '✅ Terkirim',
-            message: message.substring(0, 50) + (message.length > 50 ? '...' : '')
+            status: "sent",
+            statusText: "✅ Terkirim",
+            message:
+              message.substring(0, 50) + (message.length > 50 ? "..." : ""),
           });
         }
       }
@@ -3913,34 +4178,43 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
       // Kirim callback sukses
       if (callbackUrl && messageId) {
         console.log(`📞 [ADB:${adbId}] Mengirim callback sukses...`);
-        sendWhatsappCallback(callbackUrl, messageId, "done").catch(err => {
+        sendWhatsappCallback(callbackUrl, messageId, "done").catch((err) => {
           console.warn(`⚠️ Failed to send callback:`, err.message);
         });
       }
     } catch (error) {
       // Error handling: Update cache ke failed dan kirim callback
-      console.error(`❌ [ADB:${adbId}] Error saat mengirim pesan ${i + 1}:`, error.message);
+      console.error(
+        `❌ [ADB:${adbId}] Error saat mengirim pesan ${i + 1}:`,
+        error.message
+      );
 
       // Update cache ke failed
       if (messageId) {
-        updateMessageCacheStatus(messageId, 'failed');
+        updateMessageCacheStatus(messageId, "failed");
 
         // KIRIM STATUS UPDATE: Tampilkan status "gagal" di android-remote window
         const scrcpyWin = scrcpyWindows.get(adbId);
         if (scrcpyWin && !scrcpyWin.isDestroyed()) {
-          scrcpyWin.webContents.send('automation-update', {
+          scrcpyWin.webContents.send("automation-update", {
             messageId: messageId,
-            status: 'failed',
-            statusText: '❌ Gagal',
-            message: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
-            error: error.message
+            status: "failed",
+            statusText: "❌ Gagal",
+            message:
+              message.substring(0, 50) + (message.length > 50 ? "..." : ""),
+            error: error.message,
           });
         }
       }
 
       // Kirim callback failed
       if (callbackUrl && messageId) {
-        sendWhatsappCallback(callbackUrl, messageId, "failed", error.message).catch(err => {
+        sendWhatsappCallback(
+          callbackUrl,
+          messageId,
+          "failed",
+          error.message
+        ).catch((err) => {
           console.warn(`⚠️ Failed to send error callback:`, err.message);
         });
       }
@@ -3951,13 +4225,22 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
     // Delay antar pesan untuk memastikan pesan sebelumnya sudah benar-benar terkirim
     // sebelum memulai pesan berikutnya
     if (i < messages.length - 1) {
-      console.log(`⏸️ [ADB:${adbId}] Delay 2 detik sebelum pesan berikutnya (${i + 2}/${messages.length})...`);
+      console.log(
+        `⏸️ [ADB:${adbId}] Delay 2 detik sebelum pesan berikutnya (${i + 2}/${
+          messages.length
+        })...`
+      );
       await sleep(2000);
     }
   }
 }
 
-async function sendSingleWhatsappMessage(adbId, phoneNumber, message = "", options = {}) {
+async function sendSingleWhatsappMessage(
+  adbId,
+  phoneNumber,
+  message = "",
+  options = {}
+) {
   await sendWhatsappSampleMessagesThroughAdb(adbId, {
     messages: [String(message || "")],
     phoneNumber: phoneNumber,
@@ -4022,7 +4305,9 @@ async function typeTextWithSpeed(adbId, text = "", typingSpeed = "instant") {
 
   // Auto-paste for long messages to avoid ADB buffer limit
   if (text.length > ADB_INPUT_SAFE_LIMIT) {
-    console.log(`📋 [ADB:${adbId}] Pesan panjang (${text.length} chars), gunakan clipboard paste otomatis`);
+    console.log(
+      `📋 [ADB:${adbId}] Pesan panjang (${text.length} chars), gunakan clipboard paste otomatis`
+    );
     await setClipboardAndPaste(adbId, text, manager);
     return;
   }
@@ -4059,7 +4344,9 @@ async function setClipboardAndPaste(adbId, text, manager) {
   const CHUNK_SIZE = 150; // Safe chunk size for ADB input
 
   if (text.length > CHUNK_SIZE) {
-    console.log(`📝 [ADB:${adbId}] Text panjang (${text.length} chars), kirim dalam chunks...`);
+    console.log(
+      `📝 [ADB:${adbId}] Text panjang (${text.length} chars), kirim dalam chunks...`
+    );
 
     // Split text into chunks
     const chunks = [];
@@ -4078,7 +4365,9 @@ async function setClipboardAndPaste(adbId, text, manager) {
           { timeout: 10000, silent: true }
         );
 
-        console.log(`  ✓ Chunk ${i + 1}/${chunks.length} sent (${chunk.length} chars)`);
+        console.log(
+          `  ✓ Chunk ${i + 1}/${chunks.length} sent (${chunk.length} chars)`
+        );
 
         // Small delay between chunks
         if (i < chunks.length - 1) {
@@ -4087,7 +4376,9 @@ async function setClipboardAndPaste(adbId, text, manager) {
       }
     }
 
-    console.log(`✅ [ADB:${adbId}] Semua ${chunks.length} chunks berhasil dikirim`);
+    console.log(
+      `✅ [ADB:${adbId}] Semua ${chunks.length} chunks berhasil dikirim`
+    );
     return;
   }
 
@@ -4117,7 +4408,10 @@ async function setClipboardAndPaste(adbId, text, manager) {
 
     console.log(`📋 [ADB:${adbId}] Clipboard paste method used`);
   } catch (err) {
-    console.warn(`⚠️ Clipboard method failed, using direct input:`, err.message);
+    console.warn(
+      `⚠️ Clipboard method failed, using direct input:`,
+      err.message
+    );
 
     // Fallback to direct input
     const encoded = encodeTextForAdbInput(text);
@@ -4283,6 +4577,8 @@ function openAndroidDeviceDisplay(uid) {
 const scrcpyWindows = new Map();
 const scrcpyRecordings = new Map();
 const scrcpyWindowWatchers = new Map();
+const scrcpyRestartMeta = new Map();
+const MAX_SCRCPY_RESTART = 1;
 
 function createScrcpyWindow(
   uid,
@@ -4511,62 +4807,132 @@ function launchScrcpyForDevice(
   deviceName = "Android Device",
   options = {}
 ) {
-  const meta = {
-    service: options?.service || "android-full-remote",
-    whatsappBaseUrl: options?.whatsappBaseUrl || "",
-    whatsappCallbackUrl: options?.whatsappCallbackUrl || "",
-  };
-  try {
-    // Create control window first
-    createScrcpyWindow(uid || adbId, adbId, deviceName, meta);
+  scrcpyRestartMeta.set(adbId, {
+    uid: uid || adbId,
+    deviceName,
+    options,
+    attempts: 0,
+  });
+  const scrcpyBin = resolveScrcpyBinary();
+  if (!scrcpyBin) {
+    const platform = process.platform;
+    let errorMsg = "scrcpy tidak ditemukan. ";
+    if (platform === "win32") {
+      errorMsg += "Pastikan scrcpy terpasang via Chocolatey (choco install scrcpy), winget (winget install Genymobile.scrcpy), atau manual dari https://github.com/Genymobile/scrcpy/releases. Setelah install, restart StarBox.";
+    } else if (platform === "darwin") {
+      errorMsg += "Pastikan scrcpy terpasang (contoh: brew install scrcpy di /opt/homebrew/bin/scrcpy atau /usr/local/bin/scrcpy).";
+    } else {
+      errorMsg += "Pastikan scrcpy terpasang via package manager distro Anda (apt, snap, pacman, dll).";
+    }
+    throw new Error(errorMsg);
+  }
+  const startProcess = () => {
+    const meta = scrcpyRestartMeta.get(adbId) || {
+      service: options?.service || "android-full-remote",
+      whatsappBaseUrl: options?.whatsappBaseUrl || "",
+      whatsappCallbackUrl: options?.whatsappCallbackUrl || "",
+      uid: uid || adbId,
+      deviceName,
+      attempts: 0,
+    };
+    scrcpyRestartMeta.set(adbId, meta);
+    try {
+      createScrcpyWindow(meta.uid, adbId, meta.deviceName, meta.options || meta);
 
-    // Launch scrcpy process with custom window title and full window controls
-    const windowTitle = `${deviceName} (${adbId})`;
-    const proc = spawn(
-      "scrcpy",
-      [
+      const windowTitle = `${meta.deviceName} (${adbId})`;
+      // On Windows, use shell if path contains spaces or special chars
+      const needsShell = process.platform === "win32" && /[\s()]/.test(scrcpyBin);
+      console.log(`🚀 Launching scrcpy from: ${scrcpyBin} (shell=${needsShell})`);
+      const proc = spawn(scrcpyBin, [
         "-s",
         adbId,
         "--window-title",
         windowTitle,
         "--stay-awake",
-        // REMOVED: --power-off-on-close (menyebabkan HP mati saat window ditutup)
-      ],
-      {
-        stdio: "ignore",
-        env: process.env,
+      ], {
+        shell: needsShell,
+        windowsHide: true,
+      });
+
+      // Capture output for debugging
+      if (proc.stdout) {
+        proc.stdout.on("data", (data) => {
+          console.log(`[scrcpy ${adbId}] ${data.toString().trim()}`);
+        });
       }
-    );
-
-    scrcpySessions.set(adbId, proc);
-
-    // Simplified: No heavy window synchronization
-    console.log(`✅ SCRCPY launched for ${deviceName} (${adbId})`);
-
-    const cleanup = () => {
-      if (scrcpySessions.get(adbId) === proc) {
-        scrcpySessions.delete(adbId);
+      if (proc.stderr) {
+        proc.stderr.on("data", (data) => {
+          console.warn(`[scrcpy ${adbId}] ${data.toString().trim()}`);
+        });
       }
-      // Close control window if scrcpy exits
-      const win = scrcpyWindows.get(adbId);
-      if (win && !win.isDestroyed()) {
-        win.close();
-      }
-    };
 
-    proc.once("exit", cleanup);
-    proc.once("error", (err) => {
-      cleanup();
-      console.warn(`⚠️ scrcpy gagal untuk ${adbId}:`, err?.message || err);
-    });
+      scrcpySessions.set(adbId, proc);
 
-    return { message: "Membuka tampilan perangkat dengan kontrol UI..." };
-  } catch (err) {
-    console.warn(`⚠️ Tidak bisa menjalankan scrcpy:`, err?.message || err);
-    throw new Error(
-      "scrcpy tidak ditemukan atau gagal dijalankan. Pastikan scrcpy terinstal di komputer ini."
-    );
-  }
+      console.log(`✅ SCRCPY launched for ${meta.deviceName} (${adbId})`);
+
+      const cleanup = () => {
+        if (scrcpySessions.get(adbId) === proc) {
+          scrcpySessions.delete(adbId);
+        }
+      };
+
+      const attemptRestart = (reason = "") => {
+        const data = scrcpyRestartMeta.get(adbId);
+        if (!data) return false;
+        if (data.attempts >= MAX_SCRCPY_RESTART) return false;
+        data.attempts += 1;
+        scrcpyRestartMeta.set(adbId, data);
+        console.warn(
+          `⚠️ SCRCPY exit (${reason || "unknown"}). Auto-restart attempt ${data.attempts}/${MAX_SCRCPY_RESTART} for ${adbId}`
+        );
+        setTimeout(() => startProcess(), 800);
+        return true;
+      };
+
+      proc.once("exit", (code, signal) => {
+        const restarted = attemptRestart(`exit code ${code} signal ${signal || "none"}`);
+        if (!restarted) {
+          cleanup();
+          const win = scrcpyWindows.get(adbId);
+          if (win && !win.isDestroyed()) {
+            win.close();
+          }
+          scrcpyRestartMeta.delete(adbId);
+        }
+      });
+      proc.once("error", (err) => {
+        console.error(`❌ scrcpy error for ${adbId}:`, {
+          message: err?.message,
+          code: err?.code,
+          path: scrcpyBin,
+          errno: err?.errno,
+          syscall: err?.syscall,
+        });
+        const restarted = attemptRestart(err?.message || "spawn error");
+        if (!restarted) {
+          cleanup();
+          console.warn(`⚠️ scrcpy gagal untuk ${adbId}:`, err?.message || err);
+          scrcpyRestartMeta.delete(adbId);
+        }
+      });
+      proc.once("close", (code, signal) => {
+        if (code !== 0) {
+          console.warn(
+            `⚠️ scrcpy keluar dengan kode ${code} untuk ${adbId} (signal=${signal || "none"})`
+          );
+        }
+      });
+    } catch (err) {
+      console.warn(`⚠️ Tidak bisa menjalankan scrcpy:`, err?.message || err);
+      scrcpyRestartMeta.delete(adbId);
+      throw new Error(
+        "scrcpy tidak ditemukan atau gagal dijalankan. Pastikan scrcpy terinstal di komputer ini."
+      );
+    }
+  };
+
+  startProcess();
+  return { message: "Membuka tampilan perangkat dengan kontrol UI..." };
 }
 
 async function performAndroidRemoteAction(
@@ -5283,12 +5649,13 @@ async function sendWhatsappMessages(uid, queue = [], options = {}) {
         console.log(`🤖 Mengirim pesan ke ${item.phone} untuk UID ${uid}`);
         await win.loadURL(targetUrl, { userAgent });
         await waitForLoad(win, 20000);
-        await new Promise((res) => setTimeout(res, 900));
+        await new Promise((res) => setTimeout(res, 1200));
 
-        const success = await win.webContents.executeJavaScript(
+        const sendResult = await win.webContents.executeJavaScript(
           `
           (async () => {
             const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+            const targetMessage = ${JSON.stringify(item.message || "")};
             const sendSelectors = [
               '[data-testid="compose-btn-send"]',
               'footer [data-testid="conversation-compose-box"] [data-testid="compose-btn-send"]',
@@ -5301,72 +5668,118 @@ async function sendWhatsappMessages(uid, queue = [], options = {}) {
               'div[contenteditable="true"][role="textbox"]'
             ];
 
+            const findInput = () => inputSelectors
+              .map(selector => document.querySelector(selector))
+              .find(el => el && typeof el.focus === "function");
+            const findSendButton = () => sendSelectors
+              .map(selector => document.querySelector(selector))
+              .find(btn => btn && !btn.disabled);
+
             // Cari input box terlebih dahulu
             let input = null;
             for (let attempt = 0; attempt < 24; attempt++) {
-              input = inputSelectors
-                .map(selector => document.querySelector(selector))
-                .find(Boolean);
+              input = findInput();
               if (input) break;
               await sleep(350);
             }
 
-            if (!input) return false;
+            if (!input) return { ok: false, reason: "no-input" };
 
-            // Focus pada input dan ketik 10 spasi dengan cepat (simulasi mengetik)
+            // Focus pada input dan pastikan field terisi
             input.focus();
-            await sleep(200);
+            await sleep(180);
 
-            // Ketik 10 spasi dengan cepat (hanya simulasi, tidak dimasukkan ke input)
-            for (let i = 0; i < 10; i++) {
-              // Hanya trigger event keyboard tanpa menambahkan ke input
-              const spaceKeydown = new KeyboardEvent('keydown', {
-                key: ' ',
-                code: 'Space',
-                keyCode: 32,
-                which: 32,
+            const ensureMessageValue = () => {
+              const current =
+                (typeof input.value === "string" ? input.value : input.textContent || "").trim();
+              if (current || !targetMessage) {
+                return current || targetMessage || "";
+              }
+              try {
+                const proto = Object.getPrototypeOf(input) || input;
+                const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+                if (setter) {
+                  setter.call(input, targetMessage);
+                } else {
+                  input.value = targetMessage;
+                  input.textContent = targetMessage;
+                }
+                input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+                input.dispatchEvent(new Event("change", { bubbles: true }));
+              } catch (err) {
+                console.warn("Gagal mengisi pesan otomatis:", err);
+              }
+              return targetMessage || "";
+            };
+
+            const messageValue = ensureMessageValue();
+
+            // Cari tombol kirim yang aktif
+            let sendButton = null;
+            for (let attempt = 0; attempt < 40; attempt++) {
+              sendButton = findSendButton();
+              if (sendButton) break;
+              await sleep(200);
+            }
+
+            if (sendButton) {
+              sendButton.click();
+            } else {
+              // Fallback: tekan Enter
+              const enterDown = new KeyboardEvent('keydown', {
+                key: 'Enter',
+                code: 'Enter',
+                keyCode: 13,
+                which: 13,
                 bubbles: true,
                 cancelable: true
               });
-              input.dispatchEvent(spaceKeydown);
-
-              // Delay cepat antara spasi (30-50ms)
-              await sleep(30 + Math.random() * 20);
+              input.dispatchEvent(enterDown);
+              const enterUp = new KeyboardEvent('keyup', {
+                key: 'Enter',
+                code: 'Enter',
+                keyCode: 13,
+                which: 13,
+                bubbles: true,
+                cancelable: true
+              });
+              input.dispatchEvent(enterUp);
             }
 
-            // Tunggu sebentar setelah simulasi mengetik
-            await sleep(200);
-
-            // Langsung tekan Enter untuk kirim
-            const enterEvent = new KeyboardEvent('keydown', {
-              key: 'Enter',
-              code: 'Enter',
-              keyCode: 13,
-              which: 13,
-              bubbles: true,
-              cancelable: true
-            });
-            input.dispatchEvent(enterEvent);
-
             // Tunggu pesan terkirim
-            await sleep(500);
-            return true;
+            await sleep(900);
+            return {
+              ok: true,
+              via: sendButton ? "button" : "enter",
+              messageLength: (messageValue || "").length
+            };
           })();
         `,
           true
         );
 
+        const success = !!sendResult?.ok;
         if (success) {
           console.log(
-            `✅ Pesan ${item.id || item.message.slice(0, 20)} terkirim.`
+            `✅ Pesan ${item.id || item.message.slice(0, 20)} terkirim via ${
+              sendResult?.via || "enter"
+            }.`
           );
           // Tunggu tambahan untuk memastikan pesan benar-benar terkirim
-          await new Promise((res) => setTimeout(res, 1000));
+          await new Promise((res) => setTimeout(res, 1200));
           results.push({ ...item, status: "done" });
           if (entryIndex !== -1) queueState[entryIndex].status = "done";
         } else {
-          console.warn(`⚠️ Gagal mengirim pesan ke ${item.phone}`);
-          results.push({ ...item, status: "done" });
+          console.warn(
+            `⚠️ Gagal mengirim pesan ke ${item.phone}${
+              sendResult?.reason ? ` (${sendResult.reason})` : ""
+            }`
+          );
+          results.push({
+            ...item,
+            status: "failed",
+            error: sendResult?.reason || "send-failed",
+          });
           if (entryIndex !== -1) queueState[entryIndex].status = "done";
         }
       } catch (err) {
@@ -5399,7 +5812,7 @@ async function sendWhatsappMessages(uid, queue = [], options = {}) {
       }
 
       pushMonitorUpdate(null, false);
-      await new Promise((res) => setTimeout(res, 600));
+      await new Promise((res) => setTimeout(res, 900));
     }
   } finally {
     pushMonitorUpdate(null, false);
@@ -5448,6 +5861,740 @@ function updateDeviceStatus(uid, status) {
   }
 }
 
+function isTikTokUrl(url = "") {
+  if (!url) return false;
+  const value = String(url || "").trim();
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return (parsed.hostname || "").includes("tiktok.com");
+  } catch (_) {
+    return value.includes("tiktok.com");
+  }
+}
+
+function sanitizeTikTokComment(text = "") {
+  return String(text || "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getTikTokAutomationState(uid) {
+  if (!uid) return null;
+  if (!tiktokAutomationState.has(uid)) {
+    tiktokAutomationState.set(uid, {
+      ...DEFAULT_TIKTOK_AUTOMATION_STATE,
+      uid,
+      likeTimer: null,
+      likeBurstTicker: null,
+      likeRestTimer: null,
+      commentTimer: null,
+      likeLock: false,
+      commentLock: false,
+      lastLike: null,
+      lastComment: null,
+      lastMessage: "",
+      targetUrl: "",
+      commentPool: [],
+      commentIndex: 0,
+      commentSentCount: 0,
+    });
+  }
+  return tiktokAutomationState.get(uid);
+}
+
+function serializeTikTokState(state) {
+  if (!state) return null;
+  return {
+    autoLike: !!state.autoLike,
+    autoComment: !!state.autoComment,
+    commentText: state.commentText || "",
+    likeIntervalMs: state.likeIntervalMs || DEFAULT_TIKTOK_AUTOMATION_STATE.likeIntervalMs,
+    commentIntervalMs:
+      state.commentIntervalMs || DEFAULT_TIKTOK_AUTOMATION_STATE.commentIntervalMs,
+    likeMode: state.likeMode || DEFAULT_TIKTOK_AUTOMATION_STATE.likeMode,
+    burstDurationMs: state.burstDurationMs || DEFAULT_TIKTOK_AUTOMATION_STATE.burstDurationMs,
+    burstRestMs: state.burstRestMs || DEFAULT_TIKTOK_AUTOMATION_STATE.burstRestMs,
+    commentPoolSize: Array.isArray(state.commentPool) ? state.commentPool.length : 0,
+    commentSentCount: state.commentSentCount || 0,
+    lastLike: state.lastLike || null,
+    lastComment: state.lastComment || null,
+    lastMessage: state.lastMessage || "",
+    targetUrl: state.targetUrl || "",
+  };
+}
+
+function sendTikTokControlUpdate(uid, payload = {}) {
+  const ctrl = tiktokControlWindows.get(uid);
+  if (ctrl && !ctrl.isDestroyed()) {
+    const state = serializeTikTokState(getTikTokAutomationState(uid));
+    ctrl.webContents.send("tiktok-control-update", {
+      uid,
+      state,
+      ...payload,
+    });
+  }
+}
+
+function closeTikTokControlWindow(uid) {
+  const ctrl = tiktokControlWindows.get(uid);
+  if (ctrl && !ctrl.isDestroyed()) {
+    try {
+      ctrl.close();
+    } catch (err) {
+      console.warn("⚠️ Gagal menutup jendela kontrol TikTok:", err?.message || err);
+    }
+  }
+  tiktokControlWindows.delete(uid);
+}
+
+async function ensureTikTokControlWindow(uid, parentWindow, meta = {}) {
+  if (!uid) return null;
+  const existing = tiktokControlWindows.get(uid);
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) {
+      existing.restore();
+    }
+    existing.show();
+    existing.focus();
+    sendTikTokControlUpdate(uid, { message: "Kontrol TikTok siap." });
+    return existing;
+  }
+
+  const parentBounds = parentWindow?.getBounds?.() || {};
+  const ctrl = new BrowserWindow({
+    width: 400,
+    height: 580,
+    minWidth: 340,
+    minHeight: 480,
+    title: withBrandTitle("TikTok Control"),
+    autoHideMenuBar: true,
+    show: false,
+    backgroundColor: "#0b1220",
+    x:
+      Number.isFinite(parentBounds.x) && Number.isFinite(parentBounds.width)
+        ? Math.round(parentBounds.x + parentBounds.width + MONITOR_DIMENSIONS.screenGap)
+        : undefined,
+    y: Number.isFinite(parentBounds.y) ? Math.round(parentBounds.y) : undefined,
+    webPreferences: {
+      preload: path.join(app.getAppPath(), "tiktok-control-preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  ctrl.setMenuBarVisibility(false);
+
+  ctrl.on("closed", () => {
+    tiktokControlWindows.delete(uid);
+    teardownTikTokAutomation(uid, { keepState: true, closeWindow: false });
+  });
+
+  if (parentWindow && !parentWindow.isDestroyed()) {
+    parentWindow.once("closed", () => {
+      if (!ctrl.isDestroyed()) {
+        ctrl.close();
+      }
+    });
+  }
+
+  const htmlPath = path.join(__dirname, "tiktok-control.html");
+  const query = new URLSearchParams({
+    uid,
+    name: meta.deviceName || "TikTok Control",
+    url: meta.targetUrl || "tiktok.com",
+  });
+  await ctrl.loadURL(`file://${htmlPath}?${query.toString()}`);
+
+  ctrl.once("ready-to-show", () => {
+    if (ctrl.isDestroyed()) return;
+    ctrl.show();
+  });
+
+  tiktokControlWindows.set(uid, ctrl);
+  sendTikTokControlUpdate(uid, {
+    uid,
+    state: serializeTikTokState(getTikTokAutomationState(uid)),
+    message: "Kontrol TikTok siap.",
+  });
+  return ctrl;
+}
+
+function teardownTikTokAutomation(uid, options = {}) {
+  const state = getTikTokAutomationState(uid);
+  if (!state) return;
+
+  if (state.likeTimer) {
+    clearInterval(state.likeTimer);
+    state.likeTimer = null;
+  }
+  if (state.likeBurstTicker) {
+    clearInterval(state.likeBurstTicker);
+    state.likeBurstTicker = null;
+  }
+  if (state.likeRestTimer) {
+    clearTimeout(state.likeRestTimer);
+    state.likeRestTimer = null;
+  }
+  if (state.commentTimer) {
+    clearInterval(state.commentTimer);
+    state.commentTimer = null;
+  }
+
+  state.autoLike = false;
+  state.autoComment = false;
+  state.likeLock = false;
+  state.commentLock = false;
+
+  if (!options.keepState) {
+    state.lastLike = null;
+    state.lastComment = null;
+    state.lastMessage = "";
+  } else if (options.reason) {
+    state.lastMessage = options.reason;
+  }
+
+  if (options.closeWindow) {
+    closeTikTokControlWindow(uid);
+  } else {
+    sendTikTokControlUpdate(uid, {
+      state: serializeTikTokState(state),
+      message: options.reason || "Automation dihentikan.",
+    });
+  }
+}
+
+function shouldOpenTikTokControl(serviceKey, targetUrl = "") {
+  const normalized = (serviceKey || "").toLowerCase();
+  if (normalized === "tiktok") return true;
+  return isTikTokUrl(targetUrl);
+}
+
+function describeTikTokResult(feature, code) {
+  if (!code) return "";
+  const prefix = feature === "comment" ? "Komentar" : "Love";
+  switch (code) {
+    case "clicked":
+      return `${prefix} dikirim.`;
+    case "clicked-burst":
+      return "Love dikirim (mode burst).";
+    case "already-liked":
+      return "Sudah memberi love.";
+    case "key-like":
+      return "Love dikirim via keyboard (L).";
+    case "key-like-burst":
+      return "Love dikirim via keyboard (spam L).";
+    case "submitted-button":
+    case "submitted-enter":
+      return "Komentar terkirim.";
+    case "no-button":
+      return "Tombol love tidak ditemukan.";
+    case "no-input":
+      return "Kolom komentar tidak ditemukan.";
+    case "empty-comment":
+      return "Teks komentar kosong, isi terlebih dahulu.";
+    case "not-on-tiktok":
+      return "Bukan halaman tiktok.com.";
+    default:
+      return `${prefix} status: ${code}`;
+  }
+}
+
+function updateTikTokSettings(uid, payload = {}) {
+  const state = getTikTokAutomationState(uid);
+  if (!state) return { success: false, message: "UID tidak valid." };
+
+  if (payload.likeIntervalMs !== undefined) {
+    const ms = Math.max(2000, Number(payload.likeIntervalMs) || 0);
+    state.likeIntervalMs = ms;
+  }
+  if (payload.commentIntervalMs !== undefined) {
+    const ms = Math.max(5000, Number(payload.commentIntervalMs) || 0);
+    state.commentIntervalMs = ms;
+  }
+  if (payload.likeMode) {
+    const mode = String(payload.likeMode || "").toLowerCase();
+    if (["interval", "burst"].includes(mode)) {
+      state.likeMode = mode;
+    }
+  }
+  if (payload.burstDurationMs !== undefined) {
+    const ms = Math.max(5000, Number(payload.burstDurationMs) || 0);
+    state.burstDurationMs = ms;
+  }
+  if (payload.burstRestMs !== undefined) {
+    const ms = Math.max(5000, Number(payload.burstRestMs) || 0);
+    state.burstRestMs = ms;
+  }
+  if (payload.commentText !== undefined) {
+    const sanitized = sanitizeTikTokComment(payload.commentText);
+    state.commentText =
+      sanitized || state.commentText || DEFAULT_TIKTOK_AUTOMATION_STATE.commentText;
+  }
+  if (Array.isArray(payload.commentPool)) {
+    state.commentPool = payload.commentPool.filter((v) => sanitizeTikTokComment(v));
+    state.commentIndex = 0;
+    state.commentSentCount = 0;
+  }
+  if (payload.targetUrl) {
+    state.targetUrl = payload.targetUrl;
+  }
+
+  // Apply new interval immediately if automation already running
+  if (state.autoLike) {
+    startTikTokAutoLike(uid);
+  }
+  if (state.autoComment) {
+    startTikTokAutoComment(uid);
+  }
+
+  return { success: true, state: serializeTikTokState(state) };
+}
+
+function stopTikTokAutoLike(uid) {
+  const state = getTikTokAutomationState(uid);
+  if (!state) return;
+  if (state.likeTimer) {
+    clearInterval(state.likeTimer);
+    state.likeTimer = null;
+  }
+  if (state.likeBurstTicker) {
+    clearInterval(state.likeBurstTicker);
+    state.likeBurstTicker = null;
+  }
+  if (state.likeRestTimer) {
+    clearTimeout(state.likeRestTimer);
+    state.likeRestTimer = null;
+  }
+  state.autoLike = false;
+}
+
+function stopTikTokAutoComment(uid) {
+  const state = getTikTokAutomationState(uid);
+  if (!state) return;
+  if (state.commentTimer) {
+    clearInterval(state.commentTimer);
+    state.commentTimer = null;
+  }
+  state.autoComment = false;
+}
+
+function nextCommentText(state) {
+  if (!state) return "";
+  const pool = Array.isArray(state.commentPool) ? state.commentPool : [];
+  if (pool.length === 0) return state.commentText || "";
+  const idx = state.commentIndex || 0;
+  if (idx >= pool.length) return null; // selesai, jangan looping
+  const text = pool[idx];
+  state.commentIndex = idx + 1;
+  return text;
+}
+
+async function performTikTokAutoLike(uid) {
+  const state = getTikTokAutomationState(uid);
+  const win = deviceWindows[uid];
+  if (!state || !win || win.isDestroyed()) {
+    teardownTikTokAutomation(uid, {
+      closeWindow: false,
+      keepState: true,
+      reason: "Window TikTok tidak aktif.",
+    });
+    return;
+  }
+  if (state.likeLock) return;
+
+  state.likeLock = true;
+  try {
+    const result = await win.webContents.executeJavaScript(
+      `
+        (() => {
+          try {
+            const mode = ${JSON.stringify(
+              (getTikTokAutomationState(uid)?.likeMode || "").toLowerCase()
+            )};
+            if (!/tiktok\\.com/i.test(location.hostname)) return 'not-on-tiktok';
+          const selectors = [
+            'button[data-e2e="like-icon"]',
+            'button[data-e2e="like-icon-button"]',
+            'button[data-e2e="browse-like-icon"]',
+            'button[data-e2e="like"]',
+            'span[data-e2e="like-icon"]',
+            'button[aria-label*="Like"]',
+            'button[aria-label*="Suka"]'
+          ];
+          let btn = null;
+          for (const sel of selectors) {
+            const el = document.querySelector(sel);
+            if (el) {
+              btn = el.closest('button') || el;
+              break;
+            }
+          }
+          if (!btn) {
+            btn = Array.from(document.querySelectorAll('button,div,span')).find(el => {
+              const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+              return aria.includes('like') || aria.includes('suka');
+            }) || null;
+          }
+          if (!btn) {
+            // Fallback: tekan tombol "L" beberapa kali
+            const pressKey = (delay, last = false) => {
+              setTimeout(() => {
+                const keyDown = new KeyboardEvent('keydown', {
+                  key: 'l',
+                  code: 'KeyL',
+                  keyCode: 76,
+                  which: 76,
+                  bubbles: true,
+                  cancelable: true
+                });
+                document.dispatchEvent(keyDown);
+                const keyUp = new KeyboardEvent('keyup', {
+                  key: 'l',
+                  code: 'KeyL',
+                  keyCode: 76,
+                  which: 76,
+                  bubbles: true,
+                  cancelable: true
+                });
+                document.dispatchEvent(keyUp);
+              }, delay);
+            };
+            const times = mode === 'burst' ? 6 : 1;
+            for (let i = 0; i < times; i += 1) {
+              pressKey(i * 35);
+            }
+            return times > 1 ? 'key-like-burst' : 'key-like';
+          }
+          const pressed =
+            btn.getAttribute('aria-pressed') ||
+            btn.getAttribute('aria-checked') ||
+            btn.getAttribute('data-pressed');
+          if (pressed === 'true') return 'already-liked';
+          const clickOnce = () => {
+            btn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+            btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            btn.click();
+            btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+          };
+          if (mode === 'burst') {
+            for (let i = 0; i < 5; i += 1) {
+              clickOnce();
+              // Tambahkan spam key "L" super singkat agar mirip ketukan manual
+              const keyDown = new KeyboardEvent('keydown', {
+                key: 'l',
+                code: 'KeyL',
+                keyCode: 76,
+                which: 76,
+                bubbles: true,
+                cancelable: true
+              });
+              const keyUp = new KeyboardEvent('keyup', {
+                key: 'l',
+                code: 'KeyL',
+                keyCode: 76,
+                which: 76,
+                bubbles: true,
+                cancelable: true
+              });
+              btn.dispatchEvent(keyDown);
+              btn.dispatchEvent(keyUp);
+            }
+          } else {
+            clickOnce();
+          }
+          return mode === 'burst' ? 'clicked-burst' : 'clicked';
+        } catch (err) {
+          return '__error__:' + (err && err.message ? err.message : err);
+        }
+        })();
+      `,
+      true
+    );
+
+    let finalResult = result;
+    if (typeof result === "string" && result.startsWith("__error__:")) {
+      finalResult = "error";
+      state.lastMessage = `Auto love gagal: ${result.replace("__error__:", "")}`;
+    } else {
+      state.lastMessage = describeTikTokResult("like", result);
+    }
+    state.lastLike = { at: new Date().toISOString(), result: finalResult };
+    sendTikTokControlUpdate(uid, {
+      state: serializeTikTokState(state),
+      message: state.lastMessage,
+    });
+  } catch (err) {
+    state.lastLike = { at: new Date().toISOString(), result: "error" };
+    state.lastMessage = `Auto love gagal: ${err?.message || err}`;
+    sendTikTokControlUpdate(uid, {
+      state: serializeTikTokState(state),
+      message: state.lastMessage,
+    });
+  } finally {
+    state.likeLock = false;
+  }
+}
+
+async function performTikTokAutoComment(uid) {
+  const state = getTikTokAutomationState(uid);
+  const win = deviceWindows[uid];
+  if (!state || !win || win.isDestroyed()) {
+    teardownTikTokAutomation(uid, {
+      closeWindow: false,
+      keepState: true,
+      reason: "Window TikTok tidak aktif.",
+    });
+    return;
+  }
+  if (state.commentLock) return;
+
+  const text = sanitizeTikTokComment(nextCommentText(state));
+  if (!text) {
+    const finishedPool =
+      Array.isArray(state.commentPool) && state.commentPool.length > 0;
+    state.lastComment = { at: new Date().toISOString(), result: "empty-comment" };
+    state.lastMessage = finishedPool
+      ? "Semua komentar CSV sudah dieksekusi."
+      : "Isi teks komentar terlebih dahulu.";
+    sendTikTokControlUpdate(uid, {
+      state: serializeTikTokState(state),
+      message: state.lastMessage,
+    });
+    stopTikTokAutoComment(uid);
+    return;
+  }
+
+  state.commentLock = true;
+  try {
+    const result = await win.webContents.executeJavaScript(
+      `
+        (() => {
+          if (!/tiktok\\.com/i.test(location.hostname)) return 'not-on-tiktok';
+          const openComment = () => {
+            const btnSelectors = [
+              'button[data-e2e="comment-icon"]',
+              'button[data-e2e="comment-icon-button"]',
+              'button[data-e2e="browse-comment-icon"]',
+              'button[aria-label*="comment"]',
+              'button[aria-label*="Comment"]',
+              'button[aria-label*="Komentar"]',
+              'button[data-e2e="comment-input"]',
+              'button[data-e2e="comment-text"]'
+            ];
+            for (const sel of btnSelectors) {
+              const btn = document.querySelector(sel);
+              if (btn) {
+                btn.click();
+                return true;
+              }
+            }
+            // Try shortcut "c" to open comment (spam sedikit)
+            for (let i = 0; i < 3; i += 1) {
+              const evt = new KeyboardEvent('keydown', {
+                key: 'c',
+                code: 'KeyC',
+                keyCode: 67,
+                which: 67,
+                bubbles: true,
+                cancelable: true
+              });
+              document.dispatchEvent(evt);
+            }
+            return false;
+          };
+          openComment();
+          const findInput = () => {
+            const candidates = [
+              'div[contenteditable="true"][data-e2e="comment-text"]',
+              'div[contenteditable="true"][data-e2e="comment-input"]',
+              'div[contenteditable="true"][data-e2e*="chat"]',
+              'div[contenteditable="true"][role="textbox"]',
+              'div[contenteditable="true"][aria-label*="comment"]',
+              'div[contenteditable="true"][aria-label*="komentar"]',
+              'div[contenteditable="plaintext-only"]',
+              'div[contenteditable="plaintext-only"][placeholder]',
+              'div[contenteditable="plaintext-only"].css-113kwq0',
+              'textarea[data-e2e="comment-text"]',
+              'textarea[data-e2e="comment-input"]',
+              'textarea[aria-label*="comment"]',
+              'textarea[aria-label*="komentar"]',
+              'textarea[placeholder*="Type"]',
+            ];
+            for (const sel of candidates) {
+              const el = document.querySelector(sel);
+              if (el) return el;
+            }
+            return null;
+          };
+          let input = findInput();
+          if (!input) {
+            // coba scroll ke bawah lalu cari lagi
+            try { window.scrollBy(0, 400); } catch (_) {}
+            input = findInput();
+            if (!input) {
+              try { window.scrollBy(0, 800); } catch (_) {}
+              input = findInput();
+            }
+          }
+          if (!input) return 'no-input';
+          input.focus();
+          input.click();
+          const text = ${JSON.stringify(text)};
+          const applyValue = () => {
+            input.innerText = text;
+            input.textContent = text;
+            try { document.execCommand('selectAll', false, null); } catch (_) {}
+            try { document.execCommand('insertText', false, text); } catch (_) {}
+            const evt = new InputEvent('input', { bubbles: true, data: text });
+            input.dispatchEvent(evt);
+            const ev2 = new Event('change', { bubbles: true });
+            input.dispatchEvent(ev2);
+          };
+          input.focus();
+          applyValue();
+          const submit =
+            input.closest('form')?.querySelector('button[type="submit"]') ||
+            document.querySelector('button[data-e2e="comment-post"]') ||
+            document.querySelector('button[data-e2e*="live"]') ||
+            document.querySelector('button[aria-label*="Comment"]') ||
+            document.querySelector('button[aria-label*="Kirim"]') ||
+            document.querySelector('button[aria-label*="Send"]') ||
+            Array.from(document.querySelectorAll('button')).find(b => {
+              const label = (b.getAttribute('aria-label') || b.textContent || '').toLowerCase();
+              return label.includes('kirim') || label.includes('send') || label.includes('comment');
+            });
+          if (submit) {
+            submit.click();
+            return 'submitted-button';
+          }
+          const enter = new KeyboardEvent('keydown', {
+            key: 'Enter',
+            code: 'Enter',
+            keyCode: 13,
+            which: 13,
+            bubbles: true,
+            cancelable: true
+          });
+          input.dispatchEvent(enter);
+          return 'submitted-enter';
+        })();
+      `,
+      true
+    );
+
+    state.lastComment = { at: new Date().toISOString(), result };
+    state.lastMessage = describeTikTokResult("comment", result);
+    if (!["not-on-tiktok", "no-input", "empty-comment", "error"].includes(result)) {
+      state.commentSentCount = (state.commentSentCount || 0) + 1;
+      const poolSize = Array.isArray(state.commentPool) ? state.commentPool.length : 0;
+      if (poolSize > 0 && state.commentSentCount >= poolSize) {
+        state.lastMessage = `Semua ${poolSize} komentar CSV selesai dieksekusi.`;
+        stopTikTokAutoComment(uid);
+      }
+    }
+    sendTikTokControlUpdate(uid, {
+      state: serializeTikTokState(state),
+      message: state.lastMessage,
+    });
+  } catch (err) {
+    state.lastComment = { at: new Date().toISOString(), result: "error" };
+    state.lastMessage = `Auto comment gagal: ${err?.message || err}`;
+    sendTikTokControlUpdate(uid, {
+      state: serializeTikTokState(state),
+      message: state.lastMessage,
+    });
+  } finally {
+    state.commentLock = false;
+  }
+}
+
+function startTikTokAutoLike(uid) {
+  const state = getTikTokAutomationState(uid);
+  if (!state) return;
+  stopTikTokAutoLike(uid);
+  state.autoLike = true;
+
+  if (state.likeMode === "burst") {
+    const runBurst = () => {
+      if (!state.autoLike) return;
+      if (state.likeRestTimer) {
+        clearTimeout(state.likeRestTimer);
+        state.likeRestTimer = null;
+      }
+      if (state.likeBurstTicker) {
+        clearInterval(state.likeBurstTicker);
+        state.likeBurstTicker = null;
+      }
+
+      state.lastMessage =
+        "Auto love burst: spam 60 detik, lalu jeda 20 detik.";
+      sendTikTokControlUpdate(uid, {
+        state: serializeTikTokState(state),
+        message: state.lastMessage,
+      });
+
+      performTikTokAutoLike(uid);
+      state.likeBurstTicker = setInterval(
+        () => performTikTokAutoLike(uid),
+        TIKTOK_BURST_SPAM_INTERVAL_MS
+      );
+
+      const burstDuration = Math.max(
+        5000,
+        Number(state.burstDurationMs || DEFAULT_TIKTOK_AUTOMATION_STATE.burstDurationMs)
+      );
+      const burstRest = Math.max(
+        5000,
+        Number(state.burstRestMs || DEFAULT_TIKTOK_AUTOMATION_STATE.burstRestMs)
+      );
+
+      state.likeRestTimer = setTimeout(() => {
+        if (state.likeBurstTicker) {
+          clearInterval(state.likeBurstTicker);
+          state.likeBurstTicker = null;
+        }
+        state.lastMessage = `Auto love burst: jeda ${(burstRest / 1000).toFixed(0)} detik.`;
+        sendTikTokControlUpdate(uid, {
+          state: serializeTikTokState(state),
+          message: state.lastMessage,
+        });
+        state.likeRestTimer = setTimeout(() => {
+          runBurst();
+        }, burstRest);
+      }, burstDuration);
+    };
+
+    runBurst();
+    return;
+  }
+
+  const minInterval = 2000;
+  const interval = Math.max(minInterval, Number(state.likeIntervalMs) || 0);
+  const tick = () => performTikTokAutoLike(uid);
+  tick();
+  state.likeTimer = setInterval(tick, interval);
+  sendTikTokControlUpdate(uid, {
+    state: serializeTikTokState(state),
+    message: "Auto love berjalan.",
+  });
+}
+
+function startTikTokAutoComment(uid) {
+  const state = getTikTokAutomationState(uid);
+  if (!state) return;
+  stopTikTokAutoComment(uid);
+  state.autoComment = true;
+  const interval = Math.max(5000, Number(state.commentIntervalMs) || 0);
+  const tick = () => performTikTokAutoComment(uid);
+  tick();
+  state.commentTimer = setInterval(tick, interval);
+  sendTikTokControlUpdate(uid, {
+    state: serializeTikTokState(state),
+    message: "Auto comment berjalan.",
+  });
+}
 function createDeviceWindow(uid, service, options = {}) {
   const { autoShow = true } = options;
   const serviceKey = (service || "").toLowerCase();
@@ -5468,6 +6615,20 @@ function createDeviceWindow(uid, service, options = {}) {
     );
     pendingUrl = autoSenderEnabled ? config.pendingUrl || "" : "";
     customUrl = config.customUrl || "";
+  }
+
+  const targetUrlForService =
+    serviceKey === "other"
+      ? sanitizeCustomUrl(customUrl)
+      : selected.url || "";
+  const shouldAttachTikTok = shouldOpenTikTokControl(
+    serviceKey,
+    targetUrlForService
+  );
+  if (shouldAttachTikTok) {
+    updateTikTokSettings(uid, { targetUrl: targetUrlForService });
+  } else {
+    teardownTikTokAutomation(uid, { closeWindow: true });
   }
 
   const isMobile = mode?.startsWith("mobile");
@@ -5740,6 +6901,18 @@ function createDeviceWindow(uid, service, options = {}) {
   deviceWindows[uid] = win;
   updateDeviceStatus(uid, "active");
 
+  if (shouldAttachTikTok) {
+    ensureTikTokControlWindow(uid, win, {
+      deviceName,
+      targetUrl: targetUrlForService || selected.url || "tiktok.com",
+    }).catch((err) =>
+      console.warn(
+        "⚠️ Gagal membuka kontrol TikTok:",
+        err?.message || err
+      )
+    );
+  }
+
   if (autoSenderEnabled) {
     ensureMonitorWindow(uid, win).catch(() => {});
   }
@@ -5751,6 +6924,11 @@ function createDeviceWindow(uid, service, options = {}) {
 
   win.on("closed", () => {
     console.log(`[WIN] Window closed event untuk UID ${uid}`);
+    teardownTikTokAutomation(uid, {
+      closeWindow: true,
+      keepState: true,
+      reason: "Jendela utama ditutup.",
+    });
     const monitor = monitorWindows[uid];
     if (monitor && !monitor.isDestroyed()) {
       try {
@@ -5991,6 +7169,410 @@ ipcMain.handle("get-country-codes", async () => {
 
 ipcMain.handle("is-dev-build", () => IS_DEV_BUILD);
 
+ipcMain.handle("browse-iso-file", async () => {
+  try {
+    const result = await dialog.showOpenDialog({
+      title: "Pilih File ISO",
+      filters: [
+        { name: "ISO Files", extensions: ["iso", "img"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
+      properties: ["openFile"],
+    });
+    if (result.canceled || !result.filePaths?.length) {
+      return { success: false, canceled: true };
+    }
+    return { success: true, path: result.filePaths[0] };
+  } catch (err) {
+    console.error("❌ Error browsing ISO file:", err);
+    return { success: false, message: err?.message || "Gagal membuka file picker" };
+  }
+});
+
+ipcMain.handle("os-vm-list", async () => {
+  try {
+    const items = virtualOSStorage ? virtualOSStorage.list() : [];
+    return { success: true, items };
+  } catch (err) {
+    return { success: false, message: err?.message || "Gagal membaca VM list." };
+  }
+});
+
+ipcMain.handle("os-vm-upsert", async (_event, payload = {}) => {
+  try {
+    const record = virtualOSStorage
+      ? virtualOSStorage.upsert(payload)
+      : null;
+    return { success: true, record };
+  } catch (err) {
+    return { success: false, message: err?.message || "Gagal menyimpan VM." };
+  }
+});
+
+ipcMain.handle("os-vm-delete", async (_event, id) => {
+  try {
+    virtualOSStorage?.remove(id);
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: err?.message || "Gagal menghapus VM." };
+  }
+});
+
+ipcMain.handle("os-vm-start", async (_event, id) => {
+  try {
+    const vm = virtualOSStorage?.get(id);
+    if (!vm) throw new Error("VM tidak ditemukan.");
+
+    // Validate VM configuration
+    if (!vm.isoPath && !vm.diskPath) {
+      throw new Error("VM memerlukan ISO file atau disk image untuk boot.\n\nSilakan tambahkan ISO file terlebih dahulu.");
+    }
+
+    // Check if ISO file exists
+    if (vm.isoPath && !fs.existsSync(vm.isoPath)) {
+      throw new Error(`ISO file tidak ditemukan: ${vm.isoPath}\n\nPastikan file ISO sudah ada di lokasi tersebut.`);
+    }
+
+    // Check if disk file exists (if specified)
+    let diskPath = vm.diskPath;
+    if (!diskPath) {
+      const vmDir = path.join(userDataPath || app.getPath("userData"), "vm");
+      fs.mkdirSync(vmDir, { recursive: true });
+      diskPath = path.join(vmDir, `${id || Date.now()}.qcow2`);
+    }
+    if (!fs.existsSync(diskPath)) {
+      const sizeGb = Math.max(5, Math.min(2048, vm.storageGb || 20));
+      const imgResult = spawnSync("qemu-img", [
+        "create",
+        "-f",
+        "qcow2",
+        diskPath,
+        `${sizeGb}G`,
+      ]);
+      if (imgResult.error) {
+        console.warn("⚠️ qemu-img create error:", imgResult.error?.message || imgResult.error);
+      } else {
+        console.log("✅ Disk image created:", diskPath);
+      }
+    }
+
+    if (vmProcesses.has(id)) {
+      const wsPort = await ensureVncProxy(id, "127.0.0.1", vm.vncPort || 5901);
+      return {
+        success: true,
+        vm: { ...vm, status: "running" },
+        message: "VM sudah berjalan.",
+        wsPort,
+      };
+    }
+
+    const qemuBin = vm.qemuBinary || "qemu-system-x86_64";
+
+    // Check if QEMU is installed
+    try {
+      const checkQemu = spawnSync(qemuBin, ["--version"]);
+      if (checkQemu.error) {
+        throw new Error(
+          `QEMU tidak terinstall atau tidak ditemukan.\n\n` +
+          `Binary: ${qemuBin}\n\n` +
+          `Install QEMU:\n` +
+          `• macOS: brew install qemu\n` +
+          `• Ubuntu/Debian: sudo apt install qemu-system-x86\n` +
+          `• Windows: https://qemu.org/download`
+        );
+      }
+      console.log(`✅ QEMU found: ${qemuBin}`);
+    } catch (err) {
+      throw new Error(`Gagal memeriksa QEMU: ${err.message}`);
+    }
+
+    const args = [
+      "-m",
+      String(vm.memoryMb || 1024),
+      "-smp",
+      String(vm.cpu || 1),
+    ];
+
+    if (diskPath) {
+      args.push("-drive", `file=${diskPath},format=qcow2,if=ide`);
+    }
+    if (vm.isoPath) {
+      args.push("-cdrom", vm.isoPath);
+      if (vm.bootOrder) {
+        args.push("-boot", vm.bootOrder);
+      }
+    }
+    if (vm.osType === "windows") {
+      args.push("-machine", "type=pc,accel=tcg");
+    }
+
+    // Find available VNC port
+    const requestedPort = vm.vncPort || 5901;
+    const availablePort = await findAvailableVncPort(requestedPort);
+    const displayNumber = availablePort - 5900;
+
+    // Update VM with actual VNC port being used
+    if (availablePort !== requestedPort) {
+      console.log(`⚠️ VNC port ${requestedPort} tidak tersedia, menggunakan port ${availablePort}`);
+      virtualOSStorage?.upsert({ id, vncPort: availablePort });
+    }
+
+    // VNC with no password authentication for easier connection
+    args.push("-vnc", `127.0.0.1:${displayNumber},password=off`);
+
+    if (process.platform === "linux" && vm.enableKvm !== false) {
+      args.push("-enable-kvm");
+    }
+
+    console.log(`🚀 Starting QEMU for VM ${id}:`, qemuBin, args.join(" "));
+
+    const child = spawn(qemuBin, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true
+    });
+
+    // Capture QEMU output for debugging
+    child.stdout?.on("data", (data) => {
+      console.log(`[QEMU ${id}] ${data.toString().trim()}`);
+    });
+
+    child.stderr?.on("data", (data) => {
+      console.error(`[QEMU ${id} ERR] ${data.toString().trim()}`);
+    });
+
+    child.on("error", (err) => {
+      console.error(`❌ QEMU spawn error for VM ${id}:`, err);
+      vmProcesses.delete(id);
+      stopVncProxy(id);
+      virtualOSStorage?.stop(id);
+    });
+
+    child.on("exit", (code, signal) => {
+      console.log(`⚠️ QEMU exited for VM ${id}. Code: ${code}, Signal: ${signal}`);
+      vmProcesses.delete(id);
+      stopVncProxy(id);
+      virtualOSStorage?.stop(id);
+    });
+
+    vmProcesses.set(id, child);
+
+    // Wait for VNC to be ready and create proxy
+    const wsPort = await ensureVncProxy(id, "127.0.0.1", availablePort);
+
+    const updated = virtualOSStorage?.start(id);
+    console.log(`✅ VM ${id} started. PID: ${child.pid}, VNC WS: ${wsPort}`);
+
+    return { success: true, vm: updated, pid: child.pid, wsPort };
+  } catch (err) {
+    console.error(`❌ Failed to start VM ${id}:`, err);
+    return {
+      success: false,
+      message: err?.message || "Gagal menjalankan VM."
+    };
+  }
+});
+
+ipcMain.handle("os-vm-stop", async (_event, id) => {
+  try {
+    const proc = vmProcesses.get(id);
+    if (proc) {
+      try {
+        process.kill(-proc.pid);
+      } catch {
+        proc.kill("SIGTERM");
+      }
+      vmProcesses.delete(id);
+    }
+    stopVncProxy(id);
+    const vm = virtualOSStorage?.stop(id);
+    return { success: true, vm };
+  } catch (err) {
+    return { success: false, message: err?.message || "Gagal menghentikan VM." };
+  }
+});
+
+ipcMain.handle("os-vm-restart", async (_event, id) => {
+  try {
+    await ipcMain.emit("os-vm-stop", null, id);
+    const vm = virtualOSStorage?.restart(id);
+    if (vmProcesses.has(id)) {
+      const proc = vmProcesses.get(id);
+      try {
+        process.kill(-proc.pid);
+      } catch {
+        proc.kill("SIGTERM");
+      }
+      vmProcesses.delete(id);
+    }
+    stopVncProxy(id);
+    // Reuse start logic
+    return ipcMain.handle("os-vm-start", _event, id);
+  } catch (err) {
+    return { success: false, message: err?.message || "Gagal restart VM." };
+  }
+});
+
+ipcMain.handle("os-vm-snapshot", async (_event, id, name) => {
+  try {
+    const result = virtualOSStorage?.snapshot(id, name);
+    return { success: true, vm: result?.vm, snapshot: result?.snapshot };
+  } catch (err) {
+    return { success: false, message: err?.message || "Gagal membuat snapshot." };
+  }
+});
+
+// Helper function to check if a port is available
+async function isPortAvailable(port, host = '127.0.0.1') {
+  return new Promise((resolve) => {
+    const testServer = nodeNet.createServer();
+    testServer.once('error', () => {
+      resolve(false);
+    });
+    testServer.once('listening', () => {
+      testServer.close();
+      resolve(true);
+    });
+    testServer.listen(port, host);
+  });
+}
+
+// Helper function to find next available VNC port
+async function findAvailableVncPort(startPort = 5901, maxAttempts = 10) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const port = startPort + i;
+    const available = await isPortAvailable(port);
+    if (available) {
+      return port;
+    }
+  }
+  throw new Error(`Tidak dapat menemukan VNC port yang tersedia setelah ${maxAttempts} percobaan mulai dari port ${startPort}`);
+}
+
+// Helper function to wait for VNC port to be ready
+async function waitForVncPort(host, port, maxRetries = 30, delayMs = 500) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      await new Promise((resolve, reject) => {
+        const testSocket = nodeNet.createConnection({ host, port }, () => {
+          testSocket.end();
+          resolve();
+        });
+        testSocket.on("error", reject);
+        testSocket.setTimeout(1000, () => {
+          testSocket.destroy();
+          reject(new Error("timeout"));
+        });
+      });
+      return true;
+    } catch (err) {
+      if (i < maxRetries - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  throw new Error(`VNC port ${host}:${port} tidak ready setelah ${maxRetries} percobaan`);
+}
+
+async function ensureVncProxy(id, host, port) {
+  if (vmVncProxies.has(id)) {
+    return vmVncProxies.get(id).port;
+  }
+
+  // Wait for VNC server to be ready before creating proxy
+  await waitForVncPort(host, port);
+
+  return new Promise((resolve, reject) => {
+    const wss = new WebSocket.Server({ port: 0 }, () => {
+      const wsPort = wss.address().port;
+      vmVncProxies.set(id, { wss, port: wsPort });
+      console.log(`✅ VNC proxy created for VM ${id}: ws://localhost:${wsPort} -> vnc://${host}:${port}`);
+      resolve(wsPort);
+    });
+    wss.on("connection", (ws) => {
+      console.log(`🔌 Client connected to VNC proxy for VM ${id}`);
+
+      // Retry connection to VNC server with exponential backoff
+      let retryCount = 0;
+      const maxRetries = 5;
+
+      function connectToVnc() {
+        const socket = nodeNet.createConnection({ host, port }, () => {
+          console.log(`✅ VNC proxy connected to QEMU VNC server ${host}:${port}`);
+
+          ws.on("message", (data) => {
+            if (socket.writable) {
+              socket.write(data);
+            }
+          });
+          ws.on("close", () => {
+            if (!socket.destroyed) {
+              socket.end();
+            }
+          });
+          ws.on("error", (err) => {
+            console.error(`❌ WebSocket error for VM ${id}:`, err.message);
+            if (!socket.destroyed) {
+              socket.destroy();
+            }
+          });
+
+          socket.on("data", (chunk) => {
+            if (ws.readyState === 1) {
+              ws.send(chunk);
+            }
+          });
+          socket.on("close", () => {
+            if (ws.readyState === 1) {
+              ws.close();
+            }
+          });
+          socket.on("error", (err) => {
+            console.error(`❌ VNC socket error for VM ${id}:`, err.message);
+            if (ws.readyState === 1) {
+              ws.close();
+            }
+          });
+        });
+
+        socket.on("error", (err) => {
+          console.error(`❌ Failed to connect to VNC server (attempt ${retryCount + 1}/${maxRetries}):`, err.message);
+
+          if (retryCount < maxRetries) {
+            retryCount++;
+            const delay = Math.min(1000 * Math.pow(2, retryCount), 5000);
+            console.log(`🔄 Retrying VNC connection in ${delay}ms...`);
+            setTimeout(connectToVnc, delay);
+          } else {
+            console.error(`❌ Max retries reached for VNC connection to VM ${id}`);
+            if (ws.readyState === 1) {
+              ws.close(1011, "VNC server unavailable after retries");
+            }
+          }
+        });
+      }
+
+      connectToVnc();
+    });
+    wss.on("error", (err) => {
+      console.error(`❌ VNC WebSocket server error for VM ${id}:`, err.message);
+      reject(err);
+    });
+  });
+}
+
+function stopVncProxy(id) {
+  const proxy = vmVncProxies.get(id);
+  if (proxy?.wss) {
+    try {
+      proxy.wss.clients.forEach((c) => c.terminate());
+      proxy.wss.close();
+    } catch {
+      // ignore
+    }
+  }
+  vmVncProxies.delete(id);
+}
+
 ipcMain.handle("check-latest-version", async (_event, channel = "stable") => {
   try {
     const info = await fetchLatestVersionInfo(channel);
@@ -6006,6 +7588,168 @@ ipcMain.handle("check-latest-version", async (_event, channel = "stable") => {
       success: false,
       message: err?.message || "Gagal memeriksa versi terbaru.",
     };
+  }
+});
+
+function safeSend(window, channel, payload = {}) {
+  if (!window || typeof window.isDestroyed !== "function") return;
+  if (window.isDestroyed()) return;
+  try {
+    window.send(channel, payload);
+  } catch (err) {
+    console.warn(`⚠️ Gagal mengirim IPC ${channel}:`, err?.message || err);
+  }
+}
+
+function downloadFileWithProgress(url, destPath, sender) {
+  return new Promise((resolve) => {
+    const tempPath = `${destPath}.download`;
+    let received = 0;
+    let total = 0;
+    let finished = false;
+
+    const request = https.get(url, (response) => {
+      total = parseInt(response.headers["content-length"] || "0", 10) || 0;
+      const fileStream = fs.createWriteStream(tempPath);
+
+      response.on("data", (chunk) => {
+        received += chunk.length;
+        fileStream.write(chunk);
+        const progress = total > 0 ? Math.round((received / total) * 100) : null;
+        safeSend(sender, "version-download-progress", {
+          state: "downloading",
+          receivedBytes: received,
+          totalBytes: total,
+          progress,
+        });
+      });
+
+      response.on("end", () => {
+        if (finished) return;
+        finished = true;
+        fileStream.end(() => {
+          try {
+            fs.renameSync(tempPath, destPath);
+          } catch (err) {
+            safeSend(sender, "version-download-progress", {
+              state: "error",
+              message: err?.message || "Gagal menyimpan file unduhan.",
+            });
+            resolve({
+              success: false,
+              message: err?.message || "Gagal menyimpan file unduhan.",
+            });
+            return;
+          }
+          safeSend(sender, "version-download-progress", {
+            state: "downloaded",
+            receivedBytes: received,
+            totalBytes: total,
+            progress: 100,
+            path: destPath,
+          });
+          resolve({ success: true, path: destPath });
+        });
+      });
+
+      response.on("error", (err) => {
+        if (finished) return;
+        finished = true;
+        fileStream.destroy();
+        fs.rmSync(tempPath, { force: true });
+        safeSend(sender, "version-download-progress", {
+          state: "error",
+          message: err?.message || "Gagal mengunduh file.",
+        });
+        resolve({
+          success: false,
+          message: err?.message || "Gagal mengunduh file.",
+        });
+      });
+    });
+
+    request.on("error", (err) => {
+      if (finished) return;
+      finished = true;
+      fs.rmSync(tempPath, { force: true });
+      safeSend(sender, "version-download-progress", {
+        state: "error",
+        message: err?.message || "Gagal mengunduh file.",
+      });
+      resolve({ success: false, message: err?.message || "Gagal mengunduh file." });
+    });
+
+    request.end();
+  });
+}
+
+ipcMain.handle("download-version", async (event, payload = {}) => {
+  const sender = event?.sender;
+  try {
+    const url = (payload.url || "").trim();
+    if (!url) {
+      throw new Error("URL unduhan tidak valid.");
+    }
+    const platformKey = (payload.platform || process.platform || "")
+      .toString()
+      .toLowerCase();
+    const downloadsDir = app.getPath("downloads");
+    await fs.promises.mkdir(downloadsDir, { recursive: true });
+    const fallbackName = `starbox-${Date.now()}`;
+    const urlPath = url.split("?")[0];
+    const baseName = path.basename(urlPath) || fallbackName;
+    const rawFilename =
+      (payload.filename || "").trim().replace(/[/\\]/g, "") || baseName;
+    const urlExt = path.extname(urlPath);
+    const filenameExt = path.extname(rawFilename);
+    let finalExt = filenameExt || urlExt;
+    if (!finalExt && platformKey.startsWith("win")) {
+      finalExt = ".exe"; // pastikan di Windows tersimpan sebagai installer
+    }
+    const finalFilename =
+      finalExt && !rawFilename.toLowerCase().endsWith(finalExt.toLowerCase())
+        ? `${rawFilename}${finalExt}`
+        : rawFilename;
+    const targetPath = path.join(downloadsDir, finalFilename);
+
+    safeSend(sender, "version-download-progress", {
+      state: "downloading",
+      progress: 0,
+      message: "Mulai mengunduh...",
+    });
+
+    const result = await downloadFileWithProgress(url, targetPath, sender);
+    if (!result.success) {
+      return result;
+    }
+
+    let opened = false;
+    if (payload.autoInstall) {
+      const openResult = await shell.openPath(targetPath);
+      opened = !openResult;
+      if (!opened && openResult) {
+        safeSend(sender, "version-download-progress", {
+          state: "error",
+          message: openResult,
+        });
+        return { success: false, message: openResult, path: targetPath, opened };
+      }
+    }
+
+    safeSend(sender, "version-download-progress", {
+      state: "downloaded",
+      progress: 100,
+      path: targetPath,
+      opened,
+    });
+
+    return { success: true, path: targetPath, opened };
+  } catch (err) {
+    safeSend(sender, "version-download-progress", {
+      state: "error",
+      message: err?.message || err,
+    });
+    return { success: false, message: err?.message || "Gagal mengunduh versi." };
   }
 });
 
@@ -6266,6 +8010,12 @@ ipcMain.on("run-device", async (event, uid, service) => {
 
 function stopDevice(uid) {
   return new Promise((resolve) => {
+    teardownTikTokAutomation(uid, {
+      closeWindow: true,
+      keepState: true,
+      reason: "Device dihentikan.",
+    });
+
     const chromeSession = chromeSessions[uid];
     if (chromeSession) {
       console.log(`🛑 Menutup Chrome native untuk device ${uid}`);
@@ -6529,6 +8279,132 @@ ipcMain.on("monitor-control-automation", (_event, uid, state) => {
       win.webContents.send("control-automation", uid, state);
     }
   });
+});
+
+ipcMain.handle("tiktok-control-init", (_event, uid) => {
+  if (!uid) {
+    return { success: false, message: "UID tidak valid." };
+  }
+  const state = serializeTikTokState(getTikTokAutomationState(uid));
+  const device = getDeviceConfig(uid) || {};
+  return {
+    success: true,
+    state,
+    message: "Kontrol TikTok siap.",
+    deviceName: device.name || "TikTok",
+  };
+});
+
+ipcMain.handle(
+  "tiktok-control-toggle",
+  (_event, uid, feature, enabled, payload = {}) => {
+    if (!uid || !feature) {
+      return { success: false, message: "Parameter tidak lengkap." };
+    }
+    updateTikTokSettings(uid, payload || {});
+    const normalized = (feature || "").toLowerCase();
+    if (normalized === "like") {
+      if (enabled) startTikTokAutoLike(uid);
+      else stopTikTokAutoLike(uid);
+    } else if (normalized === "comment") {
+      if (enabled) startTikTokAutoComment(uid);
+      else stopTikTokAutoComment(uid);
+    }
+    const state = serializeTikTokState(getTikTokAutomationState(uid));
+    sendTikTokControlUpdate(uid, { state });
+    return { success: true, state };
+  }
+);
+
+ipcMain.handle("tiktok-control-settings", (_event, uid, payload = {}) => {
+  const result = updateTikTokSettings(uid, payload || {});
+  const state = serializeTikTokState(getTikTokAutomationState(uid));
+  sendTikTokControlUpdate(uid, {
+    state,
+    message: result.success ? "Pengaturan TikTok diperbarui." : result.message,
+  });
+  return { ...result, state };
+});
+
+ipcMain.handle("tiktok-control-import-csv", async (_event, uid) => {
+  if (!uid) {
+    return { success: false, message: "UID tidak valid." };
+  }
+  try {
+    const result = await dialog.showOpenDialog({
+      title: "Pilih file CSV/TXT berisi komentar",
+      filters: [
+        { name: "CSV", extensions: ["csv"] },
+        { name: "Text", extensions: ["txt"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
+      properties: ["openFile"],
+    });
+    if (result.canceled || !result.filePaths?.length) {
+      return { success: false, canceled: true };
+    }
+    const filePath = result.filePaths[0];
+    const raw = fs.readFileSync(filePath, "utf8");
+    const lines = raw.split(/\r?\n/);
+    const items = [];
+    for (const line of lines) {
+      if (!line || !line.trim()) continue;
+      // Ambil kolom pertama jika dipisah koma
+      const firstCol = line.split(",")[0];
+      const clean = sanitizeTikTokComment(firstCol);
+      if (clean) items.push(clean);
+    }
+    if (!items.length) {
+      return { success: false, message: "File kosong atau tidak ada komentar valid." };
+    }
+    const state = getTikTokAutomationState(uid);
+    state.commentPool = items.slice(0, 500); // batasi 500
+    state.commentIndex = 0;
+    state.commentText = state.commentPool[0] || state.commentText;
+    const serialized = serializeTikTokState(state);
+    sendTikTokControlUpdate(uid, {
+      state: serialized,
+      message: `Import ${items.length} komentar dari CSV.`,
+    });
+    return { success: true, state: serialized, imported: items.length };
+  } catch (err) {
+    return {
+      success: false,
+      message: err?.message || "Gagal membaca file CSV.",
+    };
+  }
+});
+
+const TIKTOK_SAMPLE_CSV = `comment
+Mantap videonya! 👍
+Keren banget, sukses terus ya!
+Semoga makin viral 😍
+Kontenmu selalu inspiratif!
+Gaskeun bikin konten lagi! 🚀
+Seru banget, lanjutin terus!
+Suka banget sama vibe-nya!
+Mantap, ditunggu video berikutnya!
+Kocak parah, ngakak! 😂
+Idenya unik, mantap.`;
+
+ipcMain.handle("tiktok-control-save-sample", async () => {
+  try {
+    const result = await dialog.showSaveDialog({
+      title: "Simpan sample komentar TikTok",
+      defaultPath: "tiktok-comments-sample.csv",
+      filters: [{ name: "CSV", extensions: ["csv"] }],
+    });
+    if (result.canceled || !result.filePath) {
+      return { success: false, canceled: true };
+    }
+    fs.writeFileSync(result.filePath, TIKTOK_SAMPLE_CSV, "utf8");
+    return { success: true, path: result.filePath };
+  } catch (err) {
+    return {
+      success: false,
+      message: err?.message || "Gagal menyimpan sample CSV.",
+    };
+  }
 });
 
 ipcMain.handle("set-input-guard-state", (_event, uid, enabled) => {
@@ -6912,7 +8788,10 @@ ipcMain.handle("android-connect-manual-adb", async (event, options = {}) => {
     if (oldAdbId && oldAdbId !== deviceId) {
       try {
         logDev(`🔌 Disconnecting old device ${oldAdbId}...`);
-        await manager.runAdbCommand(['disconnect', oldAdbId], { timeout: 5000, silent: true });
+        await manager.runAdbCommand(["disconnect", oldAdbId], {
+          timeout: 5000,
+          silent: true,
+        });
       } catch (err) {
         console.warn(`⚠️ Could not disconnect old device:`, err.message);
       }
@@ -6920,14 +8799,19 @@ ipcMain.handle("android-connect-manual-adb", async (event, options = {}) => {
 
     // Try to connect
     logDev(`🔌 Connecting to ${deviceId}...`);
-    const connectResult = await manager.runAdbCommand(['connect', deviceId], { timeout: 10000 });
+    const connectResult = await manager.runAdbCommand(["connect", deviceId], {
+      timeout: 10000,
+    });
 
-    if (connectResult.includes('connected') || connectResult.includes('already connected')) {
+    if (
+      connectResult.includes("connected") ||
+      connectResult.includes("already connected")
+    ) {
       logDev(`✅ Successfully connected to ${deviceId}`);
 
       // Get device info
       const devices = await manager.listConnectedDevices();
-      const device = devices.find(d => d.adbId === deviceId);
+      const device = devices.find((d) => d.adbId === deviceId);
 
       return {
         success: true,
@@ -7231,8 +9115,15 @@ ipcMain.handle("scrcpy-check", () => {
   }
 });
 
-ipcMain.handle("scrcpy-install", async () => {
+ipcMain.handle("scrcpy-install", async (event) => {
   try {
+    const sendProgress = (payload) => {
+      try {
+        event?.sender?.send("scrcpy-install-progress", payload);
+      } catch (_) {
+        // ignore
+      }
+    };
     if (isScrcpyInstalled()) {
       return {
         success: true,
@@ -7241,9 +9132,10 @@ ipcMain.handle("scrcpy-install", async () => {
         message: "scrcpy sudah terpasang.",
       };
     }
-    await installScrcpyAutomatically();
+    await installScrcpyAutomatically(sendProgress);
     const installed = isScrcpyInstalled();
     if (installed) {
+      sendProgress({ percent: 100, message: "scrcpy berhasil dipasang." });
       return {
         success: true,
         installed: true,
@@ -7562,6 +9454,24 @@ ipcMain.handle("android-download", async (event, uid) => {
     });
     console.error("❌ android-download gagal:", err);
     throw err;
+  }
+});
+
+ipcMain.handle("android-fix-issues", async (event, uid) => {
+  const manager = ensureAndroidManagerReady();
+  const sender = event.sender;
+  const relayProgress = (payload = {}) =>
+    sendAndroidProgress(sender, "android-fix-progress", uid, payload);
+  try {
+    await manager.fixEmulatorIssues(relayProgress);
+    return { success: true };
+  } catch (err) {
+    relayProgress({
+      phase: "error",
+      message: err?.message || "Gagal memperbaiki emulator",
+    });
+    console.error("❌ android-fix-issues gagal:", err);
+    return { success: false, message: err?.message || "Gagal memperbaiki emulator" };
   }
 });
 

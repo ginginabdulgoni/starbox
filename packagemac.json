@@ -1,0 +1,113 @@
+{
+  "asar": true,
+  "asarUnpack": [
+    "package.json",
+    "node_modules/node-window-manager/**",
+    "node_modules/libsignal/**"
+  ],
+  "extraResources": [
+    {
+      "from": "assets/",
+      "to": "assets/",
+      "filter": [
+        "**/*"
+      ]
+    },
+    {
+      "from": "node_modules/eventemitter3",
+      "to": "app.asar.unpacked/node_modules/eventemitter3"
+    },
+    {
+      "from": "node_modules/p-timeout",
+      "to": "app.asar.unpacked/node_modules/p-timeout"
+    }
+  ],
+  "appId": "com.weagate.StarBox",
+  "productName": "StarBox",
+  "executableName": "StarBox",
+  "copyright": "© 2025 Gingin Abdul Goni",
+  "directories": {
+    "output": "dist"
+  },
+  "files": [
+    "**/*",
+    "!dist/**/*",
+    "!sessions/**/*",
+    "!repo/**/*",
+    "!start/**/*",
+    "!node_modules/extract-file-icon/**",
+    "!node_modules/extract-file-icon/build/node_gyp_bins/**",
+    "!.DS_Store"
+  ],
+  "mac": {
+    "target": [
+      {
+        "target": "dmg",
+        "arch": [
+          "universal"
+        ]
+      },
+      {
+        "target": "zip",
+        "arch": [
+          "universal"
+        ]
+      }
+    ],
+    "icon": "assets/starbox.icns",
+    "category": "public.app-category.productivity",
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "./build/entitlements.mac.plist",
+    "entitlementsInherit": "./build/entitlements.mac.inherit.plist",
+    "identity": null,
+    "asar": true,
+    "mergeASARs": true
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "assets/starbox.ico"
+  },
+  "linux": {
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": [
+          "x64"
+        ]
+      },
+      {
+        "target": "deb",
+        "arch": [
+          "x64"
+        ]
+      },
+      {
+        "target": "tar.gz",
+        "arch": [
+          "x64",
+          "arm64"
+        ]
+      }
+    ],
+    "icon": "assets/starbox.png",
+    "category": "Utility",
+    "maintainer": "Gingin Abdul Goni <ginginabdulgoni@gmail.com>",
+    "synopsis": "Starbox Emulator untuk multi-service",
+    "description": "Starbox adalah emulator desktop ringan untuk menjalankan WhatsApp, Telegram, dan layanan lainnya dalam sesi yang terisolasi."
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "perMachine": true,
+    "createDesktopShortcut": true,
+    "shortcutName": "StarBox"
+  }
+}

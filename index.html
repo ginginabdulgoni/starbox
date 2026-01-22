@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StarBox v1.3.251115 – MultiService Emulator</title>
+    <title>StarBox v1.3.251205 – MultiService Emulator</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
@@ -242,16 +242,16 @@
             </p>
           </div>
           <div class="version-alert-actions">
-            <a
+            <button
               id="versionAlertDownload"
+              type="button"
               class="version-alert-button"
-              href="#"
-              target="_blank"
-              rel="noopener"
               style="display: none"
+              onclick="window.startVersionDownload && window.startVersionDownload()"
             >
-              <i class="bi bi-download"></i> Download
-            </a>
+              <i class="bi bi-download"></i>
+              <span id="versionDownloadLabel">Download & Install</span>
+            </button>
             <button
               type="button"
               class="secondary"
@@ -266,6 +266,43 @@
             >
               Tutup
             </button>
+          </div>
+          <div
+            id="versionDownloadStatus"
+            style="
+              display: none;
+              margin-top: 8px;
+              background: rgba(255, 255, 255, 0.05);
+              border: 1px solid rgba(255, 255, 255, 0.1);
+              border-radius: 10px;
+              padding: 10px 12px;
+            "
+          >
+            <div
+              id="versionDownloadText"
+              style="font-size: 13px; color: #e2e8f0; margin-bottom: 6px"
+            >
+              Menyiapkan unduhan...
+            </div>
+            <div
+              style="
+                width: 100%;
+                height: 8px;
+                background: rgba(255, 255, 255, 0.08);
+                border-radius: 999px;
+                overflow: hidden;
+              "
+            >
+              <div
+                id="versionDownloadBar"
+                style="
+                  width: 0%;
+                  height: 100%;
+                  background: linear-gradient(90deg, #34d399, #10b981);
+                  transition: width 0.3s ease;
+                "
+              ></div>
+            </div>
           </div>
         </div>
 
@@ -523,16 +560,13 @@
             <h2>OS Virtual</h2>
             <p>Kelola mesin virtual Windows dan Linux seperti VirtualBox</p>
           </div>
-          <div class="content-placeholder">
-            <i
-              class="bi bi-display"
-              style="font-size: 4rem; color: var(--color-light-purple)"
-            ></i>
-            <h3>Virtual Machine Management</h3>
-            <p>
-              Fitur untuk mengelola Windows dan Linux virtual machine akan
-              segera tersedia di sini.
-            </p>
+          <div class="toolbar">
+            <button onclick="openVmModal()">
+              <i class="bi bi-plus-circle"></i> Tambah OS
+            </button>
+          </div>
+          <div id="vm-list" class="device-list" style="min-height: 200px">
+            Loading VM...
           </div>
         </main>
       </div>
@@ -1010,8 +1044,8 @@
               <span>Gunakan Chrome asli (profil terpisah)</span>
             </label>
             <p class="small-text" style="margin: 4px 0 0">
-              Setiap device membuka Chrome dengan user data dir unik agar login Google
-              tetap aman.
+              Setiap device membuka Chrome dengan user data dir unik agar login
+              Google tetap aman.
             </p>
           </div>
 
@@ -1225,7 +1259,9 @@
             </optgroup>
             <optgroup label="💻 Desktop">
               <option value="desktop">🖥️ Desktop Standard (1000x700)</option>
-              <option value="desktop-mini" selected>💻 Desktop Mini (800x600)</option>
+              <option value="desktop-mini" selected>
+                💻 Desktop Mini (800x600)
+              </option>
               <option value="desktop-hd">🖥️ Desktop HD (1366x768)</option>
               <option value="desktop-full-hd">🖥️ Full HD (1920x1080)</option>
               <option value="desktop-2k">🖥️ 2K Display (2560x1440)</option>
@@ -1768,7 +1804,10 @@
             >Pilih Perangkat ADB</label
           >
           <div class="adb-select-row">
-            <select id="androidAdbDeviceSelect" class="adb-device-select"></select>
+            <select
+              id="androidAdbDeviceSelect"
+              class="adb-device-select"
+            ></select>
             <button
               type="button"
               class="ghost"
@@ -1781,105 +1820,286 @@
           </div>
 
           <!-- Progress Bar untuk Scanning -->
-          <div id="adbScanProgress" style="display:none; margin-top: 8px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-              <span id="adbScanStatus" style="font-size: 12px; color: #666;">Scanning...</span>
-              <span id="adbScanPercent" style="font-size: 12px; font-weight: 600; color: #3ddc84;">0%</span>
+          <div id="adbScanProgress" style="display: none; margin-top: 8px">
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 4px;
+              "
+            >
+              <span id="adbScanStatus" style="font-size: 12px; color: #666"
+                >Scanning...</span
+              >
+              <span
+                id="adbScanPercent"
+                style="font-size: 12px; font-weight: 600; color: #3ddc84"
+                >0%</span
+              >
             </div>
-            <div style="width: 100%; height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden;">
-              <div id="adbScanProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3ddc84, #2ecc71); transition: width 0.3s ease;"></div>
+            <div
+              style="
+                width: 100%;
+                height: 8px;
+                background: #e0e0e0;
+                border-radius: 4px;
+                overflow: hidden;
+              "
+            >
+              <div
+                id="adbScanProgressBar"
+                style="
+                  width: 0%;
+                  height: 100%;
+                  background: linear-gradient(90deg, #3ddc84, #2ecc71);
+                  transition: width 0.3s ease;
+                "
+              ></div>
             </div>
           </div>
 
           <!-- Mode Selection: Scan vs Manual Input -->
-          <div style="margin-top: 12px; padding: 10px; background: rgba(61, 220, 132, 0.05); border: 1px solid rgba(61, 220, 132, 0.2); border-radius: 6px;">
-            <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #333;">
+          <div
+            style="
+              margin-top: 12px;
+              padding: 10px;
+              background: rgba(61, 220, 132, 0.05);
+              border: 1px solid rgba(61, 220, 132, 0.2);
+              border-radius: 6px;
+            "
+          >
+            <div
+              style="
+                font-size: 12px;
+                font-weight: 600;
+                margin-bottom: 8px;
+                color: #333;
+              "
+            >
               Pilih Metode:
             </div>
 
             <!-- Mode Toggle -->
-            <div style="display: flex; gap: 12px; margin-bottom: 12px;">
-              <label style="display: flex; align-items: center; cursor: pointer; user-select: none;">
-                <input type="radio" name="adbInputMode" id="adbModeScan" value="scan" checked onchange="toggleAdbInputMode()" style="margin-right: 6px; cursor: pointer;">
-                <span style="font-size: 12px; font-weight: 600;">🔍 Scan Otomatis</span>
+            <div style="display: flex; gap: 12px; margin-bottom: 12px">
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  cursor: pointer;
+                  user-select: none;
+                "
+              >
+                <input
+                  type="radio"
+                  name="adbInputMode"
+                  id="adbModeScan"
+                  value="scan"
+                  checked
+                  onchange="toggleAdbInputMode()"
+                  style="margin-right: 6px; cursor: pointer"
+                />
+                <span style="font-size: 12px; font-weight: 600"
+                  >🔍 Scan Otomatis</span
+                >
               </label>
-              <label style="display: flex; align-items: center; cursor: pointer; user-select: none;">
-                <input type="radio" name="adbInputMode" id="adbModeManual" value="manual" onchange="toggleAdbInputMode()" style="margin-right: 6px; cursor: pointer;">
-                <span style="font-size: 12px; font-weight: 600;">✏️ Input Manual</span>
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  cursor: pointer;
+                  user-select: none;
+                "
+              >
+                <input
+                  type="radio"
+                  name="adbInputMode"
+                  id="adbModeManual"
+                  value="manual"
+                  onchange="toggleAdbInputMode()"
+                  style="margin-right: 6px; cursor: pointer"
+                />
+                <span style="font-size: 12px; font-weight: 600"
+                  >✏️ Input Manual</span
+                >
               </label>
             </div>
 
             <!-- Scan Options (shown when Scan mode selected) -->
             <div id="adbScanOptionsSection">
-              <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #333;">
+              <div
+                style="
+                  font-size: 12px;
+                  font-weight: 600;
+                  margin-bottom: 8px;
+                  color: #333;
+                "
+              >
                 Pilih Mode Scan:
               </div>
 
               <!-- USB Scan Option -->
-              <label style="display: flex; align-items: center; cursor: pointer; user-select: none; margin-bottom: 6px;">
-                <input type="checkbox" id="adbScanUsb" checked style="margin-right: 8px; cursor: pointer;">
-                <span style="font-size: 12px;">
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  cursor: pointer;
+                  user-select: none;
+                  margin-bottom: 6px;
+                "
+              >
+                <input
+                  type="checkbox"
+                  id="adbScanUsb"
+                  checked
+                  style="margin-right: 8px; cursor: pointer"
+                />
+                <span style="font-size: 12px">
                   <strong>USB/Kabel</strong>
-                  <span style="color: #666; font-weight: normal;">(&lt;1 detik)</span>
+                  <span style="color: #666; font-weight: normal"
+                    >(&lt;1 detik)</span
+                  >
                 </span>
               </label>
 
               <!-- WiFi Quick Scan -->
-              <label style="display: flex; align-items: center; cursor: pointer; user-select: none; margin-bottom: 6px;">
-                <input type="checkbox" id="adbScanWifiQuick" style="margin-right: 8px; cursor: pointer;">
-                <span style="font-size: 12px;">
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  cursor: pointer;
+                  user-select: none;
+                  margin-bottom: 6px;
+                "
+              >
+                <input
+                  type="checkbox"
+                  id="adbScanWifiQuick"
+                  style="margin-right: 8px; cursor: pointer"
+                />
+                <span style="font-size: 12px">
                   <strong>WiFi Quick</strong>
-                  <span style="color: #666; font-weight: normal;">(30+ port umum, ~30-60 detik)</span>
+                  <span style="color: #666; font-weight: normal"
+                    >(30+ port umum, ~30-60 detik)</span
+                  >
                 </span>
               </label>
 
               <!-- WiFi Deep Scan -->
-              <label style="display: flex; align-items: center; cursor: pointer; user-select: none;">
-                <input type="checkbox" id="adbScanWifiDeep" style="margin-right: 8px; cursor: pointer;">
-                <span style="font-size: 12px;">
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  cursor: pointer;
+                  user-select: none;
+                "
+              >
+                <input
+                  type="checkbox"
+                  id="adbScanWifiDeep"
+                  style="margin-right: 8px; cursor: pointer"
+                />
+                <span style="font-size: 12px">
                   <strong>WiFi Deep</strong>
-                  <span style="color: #666; font-weight: normal;">(port 30000-49999, ~2-5 menit)</span>
+                  <span style="color: #666; font-weight: normal"
+                    >(port 30000-49999, ~2-5 menit)</span
+                  >
                 </span>
               </label>
 
-              <p style="font-size: 10px; color: #999; margin: 8px 0 0 0; line-height: 1.3;">
-                💡 Tip: Pilih USB saja untuk scan cepat, atau tambahkan WiFi jika device tidak terdeteksi.
+              <p
+                style="
+                  font-size: 10px;
+                  color: #999;
+                  margin: 8px 0 0 0;
+                  line-height: 1.3;
+                "
+              >
+                💡 Tip: Pilih USB saja untuk scan cepat, atau tambahkan WiFi
+                jika device tidak terdeteksi.
               </p>
             </div>
 
             <!-- Manual Input Section (hidden by default) -->
-            <div id="adbManualInputSection" style="display: none;">
-              <div style="margin-bottom: 8px;">
-                <label for="adbManualIp" style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">
+            <div id="adbManualInputSection" style="display: none">
+              <div style="margin-bottom: 8px">
+                <label
+                  for="adbManualIp"
+                  style="
+                    font-size: 12px;
+                    font-weight: 600;
+                    display: block;
+                    margin-bottom: 4px;
+                  "
+                >
                   IP Address:
                 </label>
                 <input
                   type="text"
                   id="adbManualIp"
                   placeholder="Misal: 192.168.100.21"
-                  style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px;"
+                  style="
+                    width: 100%;
+                    padding: 6px 8px;
+                    font-size: 12px;
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                  "
                 />
               </div>
               <div>
-                <label for="adbManualPort" style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">
+                <label
+                  for="adbManualPort"
+                  style="
+                    font-size: 12px;
+                    font-weight: 600;
+                    display: block;
+                    margin-bottom: 4px;
+                  "
+                >
                   Port:
                 </label>
                 <input
                   type="text"
                   id="adbManualPort"
                   placeholder="Misal: 43393"
-                  style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px;"
+                  style="
+                    width: 100%;
+                    padding: 6px 8px;
+                    font-size: 12px;
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                  "
                 />
               </div>
               <button
                 type="button"
                 onclick="connectManualAdbDevice()"
-                style="margin-top: 8px; width: 100%; padding: 8px; background: #3ddc84; color: white; border: none; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;"
+                style="
+                  margin-top: 8px;
+                  width: 100%;
+                  padding: 8px;
+                  background: #3ddc84;
+                  color: white;
+                  border: none;
+                  border-radius: 4px;
+                  font-size: 12px;
+                  font-weight: 600;
+                  cursor: pointer;
+                "
               >
                 <i class="bi bi-plug"></i> Connect Device
               </button>
-              <p style="font-size: 10px; color: #999; margin: 8px 0 0 0; line-height: 1.3;">
-                💡 Tip: Pastikan ADB wireless debugging sudah aktif di HP. IP dan port bisa dilihat di Settings > Developer Options > Wireless debugging.
+              <p
+                style="
+                  font-size: 10px;
+                  color: #999;
+                  margin: 8px 0 0 0;
+                  line-height: 1.3;
+                "
+              >
+                💡 Tip: Pastikan ADB wireless debugging sudah aktif di HP. IP
+                dan port bisa dilihat di Settings > Developer Options > Wireless
+                debugging.
               </p>
             </div>
           </div>
@@ -1892,11 +2112,13 @@
           <label for="androidRemoteServiceSelect" style="margin-top: 12px"
             >Jenis Layanan</label
           >
-          <select id="androidRemoteServiceSelect" onchange="toggleAddWhatsAppFields()">
+          <select
+            id="androidRemoteServiceSelect"
+            onchange="toggleAddWhatsAppFields()"
+          >
             <option value="" disabled selected>-- Pilih Layanan --</option>
             <option value="android-general">General (SCRCPY)</option>
             <option value="android-whatsapp">WhatsApp Automation</option>
-            <option value="android-shopee">Shopee Automation</option>
           </select>
           <p class="small-text" style="margin-top: 4px">
             Tentukan layanan utama yang akan dijalankan di perangkat fisik
@@ -1904,8 +2126,25 @@
           </p>
 
           <!-- WhatsApp Automation Fields (conditional) -->
-          <div id="addWhatsAppAutomationFields" style="display: none; margin-top: 16px; padding: 12px; background: rgba(37, 211, 102, 0.05); border: 1px solid rgba(37, 211, 102, 0.2); border-radius: 8px;">
-            <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px; color: #25D366;">
+          <div
+            id="addWhatsAppAutomationFields"
+            style="
+              display: none;
+              margin-top: 16px;
+              padding: 12px;
+              background: rgba(37, 211, 102, 0.05);
+              border: 1px solid rgba(37, 211, 102, 0.2);
+              border-radius: 8px;
+            "
+          >
+            <div
+              style="
+                font-size: 13px;
+                font-weight: 600;
+                margin-bottom: 12px;
+                color: #25d366;
+              "
+            >
               <i class="bi bi-whatsapp"></i> WhatsApp Automation Settings
             </div>
 
@@ -1914,21 +2153,25 @@
               type="url"
               id="addWhatsAppBaseUrl"
               placeholder="https://yourapi.com/api/messages"
-              style="font-family: monospace; font-size: 12px;"
+              style="font-family: monospace; font-size: 12px"
             />
-            <p class="small-text" style="margin: 4px 0 12px 0; color: #666;">
-              POST ke URL ini dengan <code>{ uid: "device-uid" }</code> untuk mendapatkan pending messages
+            <p class="small-text" style="margin: 4px 0 12px 0; color: #666">
+              POST ke URL ini dengan <code>{ uid: "device-uid" }</code> untuk
+              mendapatkan pending messages
             </p>
 
-            <label for="addWhatsAppCallbackUrl">Callback URL (Status Update)</label>
+            <label for="addWhatsAppCallbackUrl"
+              >Callback URL (Status Update)</label
+            >
             <input
               type="url"
               id="addWhatsAppCallbackUrl"
               placeholder="https://yourapi.com/api/callback"
-              style="font-family: monospace; font-size: 12px;"
+              style="font-family: monospace; font-size: 12px"
             />
-            <p class="small-text" style="margin: 4px 0 0 0; color: #666;">
-              POST ke URL ini dengan <code>{ id, status: "done" }</code> setelah message terkirim
+            <p class="small-text" style="margin: 4px 0 0 0; color: #666">
+              POST ke URL ini dengan <code>{ id, status: "done" }</code> setelah
+              message terkirim
             </p>
           </div>
 
@@ -1941,6 +2184,104 @@
             </button>
             <button onclick="closeModalAndroid()" class="ghost">Batal</button>
           </div>
+        </div>
+      </div>
+
+      <!-- Modal: OS Virtual (VM) -->
+      <div id="vmModal" class="modal">
+        <div class="modal-content" style="max-width: 560px">
+          <span class="close" onclick="closeVmModal()">&times;</span>
+          <h3><i class="bi bi-display"></i> Tambah OS Virtual</h3>
+
+          <input type="hidden" id="vmId" />
+
+          <label for="vmName">Nama VM</label>
+          <input type="text" id="vmName" placeholder="Contoh: Ubuntu Desktop" />
+
+          <label for="vmOsType" style="margin-top: 10px">Jenis OS</label>
+          <select id="vmOsType">
+            <option value="linux">Linux</option>
+            <option value="windows">Windows</option>
+            <option value="other">Other</option>
+          </select>
+
+          <div class="grid-2" style="gap: 12px; margin-top: 10px">
+            <div>
+              <label for="vmCpu">CPU (cores)</label>
+              <input type="number" id="vmCpu" min="1" max="16" value="2" />
+            </div>
+            <div>
+              <label for="vmMemory">RAM (MB)</label>
+              <input
+                type="number"
+                id="vmMemory"
+                min="512"
+                max="32768"
+                value="2048"
+              />
+            </div>
+          </div>
+
+          <div class="grid-2" style="gap: 12px; margin-top: 10px">
+            <div>
+              <label for="vmStorage">Storage (GB)</label>
+              <input type="number" id="vmStorage" min="5" max="2048" value="20" />
+            </div>
+            <div>
+              <label for="vmVncPort">VNC Port</label>
+              <input type="number" id="vmVncPort" min="5900" max="65535" value="5901" />
+            </div>
+          </div>
+
+          <label for="vmIso" style="margin-top: 10px">ISO Path</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input
+              type="text"
+              id="vmIso"
+              placeholder="Path ke file ISO..."
+              style="flex: 1; height: 46px;"
+            />
+            <button
+              type="button"
+              onclick="browseVmIsoFile()"
+              class="ghost"
+              title="Browse ISO file"
+              style="height: 46px; display: inline-flex; align-items: center; justify-content: center; padding: 0 14px;"
+            >
+              <i class="bi bi-folder2-open"></i>
+            </button>
+          </div>
+          <p class="small-text" style="margin-top: 4px">
+            Pilih ISO lokal atau gunakan opsi download OS ringan di bawah.
+          </p>
+
+          <label for="vmQuickIso" style="margin-top: 10px">Download OS Ringan</label>
+          <div style="display:flex; gap:8px; align-items: center;">
+            <select id="vmQuickIso" style="flex:1; height: 46px;">
+              <option value="">-- Pilih OS ringan --</option>
+              <option value="https://tinycorelinux.net/14.x/x86/release/Core-current.iso">TinyCore (very small)</option>
+              <option value="https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-standard-3.19.1-x86_64.iso">Alpine 3.19</option>
+              <option value="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.5.0-amd64-netinst.iso">Debian Netinst</option>
+            </select>
+            <button
+              type="button"
+              class="ghost"
+              onclick="applyQuickIso()"
+              style="height: 46px; display: inline-flex; align-items: center; justify-content: center; padding: 0 14px;"
+            >
+              <i class="bi bi-download"></i>
+            </button>
+          </div>
+
+          <label for="vmDisk" style="margin-top: 10px">Disk Path (opsional)</label>
+          <input type="text" id="vmDisk" placeholder="Path untuk disk virtual (akan dibuat otomatis)" />
+
+         <div class="modal-buttons" style="margin-top: 1rem; text-align: right">
+           <button onclick="saveVm()">
+             <i class="bi bi-check-circle"></i> Simpan
+           </button>
+           <button onclick="closeVmModal()" class="ghost">Batal</button>
+         </div>
         </div>
       </div>
 
@@ -1984,7 +2325,10 @@
                 "
               >
                 <li>Buka Settings → About Phone.</li>
-                <li>Ketuk <strong>Build Number</strong> 7x sampai muncul pesan pengembang aktif.</li>
+                <li>
+                  Ketuk <strong>Build Number</strong> 7x sampai muncul pesan
+                  pengembang aktif.
+                </li>
                 <li>Masukkan PIN jika diminta.</li>
               </ol>
             </section>
@@ -2008,8 +2352,13 @@
                   line-height: 1.6;
                 "
               >
-                <li>Buka Settings → Developer Options (kadang di Sistem → Lanjutan).</li>
-                <li>Nyalakan <strong>USB Debugging</strong> dan konfirmasi OK.</li>
+                <li>
+                  Buka Settings → Developer Options (kadang di Sistem →
+                  Lanjutan).
+                </li>
+                <li>
+                  Nyalakan <strong>USB Debugging</strong> dan konfirmasi OK.
+                </li>
               </ol>
               <p class="small-text" style="margin: 8px 0 0; color: #94a3b8">
                 Setelah aktif, sambungkan HP via kabel lalu klik Refresh ADB di
@@ -2038,7 +2387,9 @@
               >
                 <li>Nyalakan <strong>Wireless Debugging</strong>.</li>
                 <li>Pastikan HP dan PC di WiFi yang sama.</li>
-                <li>Pilih <em>Pair device with pairing code</em> lalu jalankan:</li>
+                <li>
+                  Pilih <em>Pair device with pairing code</em> lalu jalankan:
+                </li>
               </ol>
               <pre
                 style="
@@ -2083,9 +2434,9 @@ adb connect ip:port</code></pre>
               </li>
             </ul>
             <p class="small-text" style="margin: 10px 0 0; color: #94a3b8">
-              Jika Wireless Debugging belum terdeteksi (terutama di Mac), pastikan
-              firewall mati atau izinkan <code>adb</code> melewati firewall, lalu
-              ulangi pair/connect.
+              Jika Wireless Debugging belum terdeteksi (terutama di Mac),
+              pastikan firewall mati atau izinkan <code>adb</code> melewati
+              firewall, lalu ulangi pair/connect.
             </p>
           </section>
         </div>
@@ -2131,91 +2482,194 @@ adb connect ip:port</code></pre>
       <!-- Modal: Edit Android Remote (ADB) Device -->
       <div id="editModalAndroidRemote" class="modal">
         <div class="modal-content" style="max-width: 550px">
-          <span class="close" onclick="closeEditAndroidRemoteModal()">&times;</span>
+          <span class="close" onclick="closeEditAndroidRemoteModal()"
+            >&times;</span
+          >
           <h3><i class="bi bi-phone-fill"></i> Edit Android Remote Device</h3>
 
           <input type="hidden" id="editAndroidRemoteUid" />
 
           <label for="editAndroidRemoteName">Nama Device</label>
-          <input type="text" id="editAndroidRemoteName" placeholder="Nama device" />
+          <input
+            type="text"
+            id="editAndroidRemoteName"
+            placeholder="Nama device"
+          />
 
-          <label for="editAndroidRemoteService" style="margin-top: 12px">Jenis Layanan</label>
+          <label for="editAndroidRemoteService" style="margin-top: 12px"
+            >Jenis Layanan</label
+          >
           <select id="editAndroidRemoteService">
             <option value="android-general">General (SCRCPY)</option>
             <option value="android-whatsapp">WhatsApp Automation</option>
-            <option value="android-shopee">Shopee Automation</option>
           </select>
 
           <!-- Connection Mode Toggle -->
-          <div style="margin-top: 16px; padding: 12px; background: rgba(61, 220, 132, 0.05); border: 1px solid rgba(61, 220, 132, 0.2); border-radius: 8px;">
-            <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px; color: #333;">
+          <div
+            style="
+              margin-top: 16px;
+              padding: 12px;
+              background: rgba(61, 220, 132, 0.05);
+              border: 1px solid rgba(61, 220, 132, 0.2);
+              border-radius: 8px;
+            "
+          >
+            <div
+              style="
+                font-size: 13px;
+                font-weight: 600;
+                margin-bottom: 12px;
+                color: #333;
+              "
+            >
               Pilih Mode Koneksi:
             </div>
 
             <!-- Mode Toggle -->
-            <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-              <label style="display: flex; align-items: center; cursor: pointer; user-select: none;">
-                <input type="radio" name="editConnectionMode" id="editModeWifi" value="wifi" checked onchange="toggleEditConnectionMode()" style="margin-right: 6px; cursor: pointer;">
-                <span style="font-size: 12px; font-weight: 600;"><i class="bi bi-wifi"></i> WiFi</span>
+            <div style="display: flex; gap: 12px; margin-bottom: 16px">
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  cursor: pointer;
+                  user-select: none;
+                "
+              >
+                <input
+                  type="radio"
+                  name="editConnectionMode"
+                  id="editModeWifi"
+                  value="wifi"
+                  checked
+                  onchange="toggleEditConnectionMode()"
+                  style="margin-right: 6px; cursor: pointer"
+                />
+                <span style="font-size: 12px; font-weight: 600"
+                  ><i class="bi bi-wifi"></i> WiFi</span
+                >
               </label>
-              <label style="display: flex; align-items: center; cursor: pointer; user-select: none;">
-                <input type="radio" name="editConnectionMode" id="editModeCable" value="cable" onchange="toggleEditConnectionMode()" style="margin-right: 6px; cursor: pointer;">
-                <span style="font-size: 12px; font-weight: 600;"><i class="bi bi-usb-symbol"></i> Kabel/USB</span>
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  cursor: pointer;
+                  user-select: none;
+                "
+              >
+                <input
+                  type="radio"
+                  name="editConnectionMode"
+                  id="editModeCable"
+                  value="cable"
+                  onchange="toggleEditConnectionMode()"
+                  style="margin-right: 6px; cursor: pointer"
+                />
+                <span style="font-size: 12px; font-weight: 600"
+                  ><i class="bi bi-usb-symbol"></i> Kabel/USB</span
+                >
               </label>
             </div>
 
             <!-- WiFi Connection Section -->
             <div id="editWifiConnectionSection">
-              <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px; color: #3ddc84;">
+              <div
+                style="
+                  font-size: 13px;
+                  font-weight: 600;
+                  margin-bottom: 12px;
+                  color: #3ddc84;
+                "
+              >
                 <i class="bi bi-wifi"></i> Koneksi WiFi ADB
               </div>
-              <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+              <div
+                style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px"
+              >
                 <div>
-                  <label for="editAndroidRemoteIp" style="font-size: 12px;">IP Address</label>
+                  <label for="editAndroidRemoteIp" style="font-size: 12px"
+                    >IP Address</label
+                  >
                   <input
                     type="text"
                     id="editAndroidRemoteIp"
                     placeholder="Misal: 192.168.100.21"
-                    style="font-family: monospace; font-size: 12px;"
+                    style="font-family: monospace; font-size: 12px"
                   />
                 </div>
                 <div>
-                  <label for="editAndroidRemotePort" style="font-size: 12px;">Port</label>
+                  <label for="editAndroidRemotePort" style="font-size: 12px"
+                    >Port</label
+                  >
                   <input
                     type="text"
                     id="editAndroidRemotePort"
                     placeholder="43393"
-                    style="font-family: monospace; font-size: 12px;"
+                    style="font-family: monospace; font-size: 12px"
                   />
                 </div>
               </div>
               <button
                 type="button"
                 onclick="reconnectAndroidRemoteDevice()"
-                style="margin-top: 8px; width: 100%; padding: 6px; background: #3ddc84; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer;"
+                style="
+                  margin-top: 8px;
+                  width: 100%;
+                  padding: 6px;
+                  background: #3ddc84;
+                  color: white;
+                  border: none;
+                  border-radius: 4px;
+                  font-size: 12px;
+                  cursor: pointer;
+                "
               >
                 <i class="bi bi-arrow-repeat"></i> Reconnect dengan IP:Port Baru
               </button>
-              <p class="small-text" style="margin: 8px 0 0 0; color: #666; font-size: 10px;">
-                💡 Port WiFi ADB sering berubah. Update IP:Port lalu klik Reconnect jika device tidak terhubung.
+              <p
+                class="small-text"
+                style="margin: 8px 0 0 0; color: #666; font-size: 10px"
+              >
+                💡 Port WiFi ADB sering berubah. Update IP:Port lalu klik
+                Reconnect jika device tidak terhubung.
               </p>
             </div>
 
             <!-- Cable Connection Section -->
-            <div id="editCableConnectionSection" style="display: none;">
-              <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px; color: #3ddc84;">
+            <div id="editCableConnectionSection" style="display: none">
+              <div
+                style="
+                  font-size: 13px;
+                  font-weight: 600;
+                  margin-bottom: 12px;
+                  color: #3ddc84;
+                "
+              >
                 <i class="bi bi-usb-symbol"></i> Koneksi Kabel/USB
               </div>
 
-              <label for="editAdbDeviceSelect" style="font-size: 12px; margin-bottom: 8px; display: block;">
+              <label
+                for="editAdbDeviceSelect"
+                style="font-size: 12px; margin-bottom: 8px; display: block"
+              >
                 Pilih Perangkat ADB:
               </label>
-              <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-                <select id="editAdbDeviceSelect" class="adb-device-select"></select>
+              <div style="display: flex; gap: 8px; margin-bottom: 12px">
+                <select
+                  id="editAdbDeviceSelect"
+                  class="adb-device-select"
+                ></select>
                 <button
                   type="button"
                   onclick="scanEditAdbDevices()"
-                  style="padding: 6px 12px; background: #3ddc84; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer;"
+                  style="
+                    padding: 6px 12px;
+                    background: #3ddc84;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    cursor: pointer;
+                  "
                   title="Scan perangkat ADB"
                 >
                   <i class="bi bi-arrow-repeat"></i> Scan
@@ -2223,33 +2677,97 @@ adb connect ip:port</code></pre>
               </div>
 
               <!-- Progress Bar untuk Scanning -->
-              <div id="editAdbScanProgress" style="display:none; margin-bottom: 12px;">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                  <span id="editAdbScanStatus" style="font-size: 12px; color: #666;">Scanning...</span>
-                  <span id="editAdbScanPercent" style="font-size: 12px; font-weight: 600; color: #3ddc84;">0%</span>
+              <div
+                id="editAdbScanProgress"
+                style="display: none; margin-bottom: 12px"
+              >
+                <div
+                  style="
+                    display: flex;
+                    justify-content: space-between;
+                    margin-bottom: 4px;
+                  "
+                >
+                  <span
+                    id="editAdbScanStatus"
+                    style="font-size: 12px; color: #666"
+                    >Scanning...</span
+                  >
+                  <span
+                    id="editAdbScanPercent"
+                    style="font-size: 12px; font-weight: 600; color: #3ddc84"
+                    >0%</span
+                  >
                 </div>
-                <div style="width: 100%; height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden;">
-                  <div id="editAdbScanProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3ddc84, #2ecc71); transition: width 0.3s ease;"></div>
+                <div
+                  style="
+                    width: 100%;
+                    height: 8px;
+                    background: #e0e0e0;
+                    border-radius: 4px;
+                    overflow: hidden;
+                  "
+                >
+                  <div
+                    id="editAdbScanProgressBar"
+                    style="
+                      width: 0%;
+                      height: 100%;
+                      background: linear-gradient(90deg, #3ddc84, #2ecc71);
+                      transition: width 0.3s ease;
+                    "
+                  ></div>
                 </div>
               </div>
 
               <button
                 type="button"
                 onclick="connectEditAdbDevice()"
-                style="width: 100%; padding: 8px; background: #3ddc84; color: white; border: none; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;"
+                style="
+                  width: 100%;
+                  padding: 8px;
+                  background: #3ddc84;
+                  color: white;
+                  border: none;
+                  border-radius: 4px;
+                  font-size: 12px;
+                  font-weight: 600;
+                  cursor: pointer;
+                "
               >
                 <i class="bi bi-plug"></i> Connect Perangkat Terpilih
               </button>
 
-              <p class="small-text" style="margin: 8px 0 0 0; color: #666; font-size: 10px;">
-                💡 Tip: Pastikan HP sudah terhubung via kabel USB dan USB Debugging aktif. Klik Scan untuk mendeteksi perangkat.
+              <p
+                class="small-text"
+                style="margin: 8px 0 0 0; color: #666; font-size: 10px"
+              >
+                💡 Tip: Pastikan HP sudah terhubung via kabel USB dan USB
+                Debugging aktif. Klik Scan untuk mendeteksi perangkat.
               </p>
             </div>
           </div>
 
           <!-- WhatsApp Automation Fields (conditional) -->
-          <div id="editWhatsAppAutomationFields" style="display: none; margin-top: 16px; padding: 12px; background: rgba(37, 211, 102, 0.05); border: 1px solid rgba(37, 211, 102, 0.2); border-radius: 8px;">
-            <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px; color: #25D366;">
+          <div
+            id="editWhatsAppAutomationFields"
+            style="
+              display: none;
+              margin-top: 16px;
+              padding: 12px;
+              background: rgba(37, 211, 102, 0.05);
+              border: 1px solid rgba(37, 211, 102, 0.2);
+              border-radius: 8px;
+            "
+          >
+            <div
+              style="
+                font-size: 13px;
+                font-weight: 600;
+                margin-bottom: 12px;
+                color: #25d366;
+              "
+            >
               <i class="bi bi-whatsapp"></i> WhatsApp Automation Settings
             </div>
 
@@ -2258,25 +2776,32 @@ adb connect ip:port</code></pre>
               type="url"
               id="editWhatsAppBaseUrl"
               placeholder="https://yourapi.com/api/messages"
-              style="font-family: monospace; font-size: 12px;"
+              style="font-family: monospace; font-size: 12px"
             />
-            <p class="small-text" style="margin: 4px 0 12px 0; color: #666;">
-              POST ke URL ini dengan <code>{ uid: "device-uid" }</code> untuk mendapatkan pending messages
+            <p class="small-text" style="margin: 4px 0 12px 0; color: #666">
+              POST ke URL ini dengan <code>{ uid: "device-uid" }</code> untuk
+              mendapatkan pending messages
             </p>
 
-            <label for="editWhatsAppCallbackUrl">Callback URL (Status Update)</label>
+            <label for="editWhatsAppCallbackUrl"
+              >Callback URL (Status Update)</label
+            >
             <input
               type="url"
               id="editWhatsAppCallbackUrl"
               placeholder="https://yourapi.com/api/callback"
-              style="font-family: monospace; font-size: 12px;"
+              style="font-family: monospace; font-size: 12px"
             />
-            <p class="small-text" style="margin: 4px 0 0 0; color: #666;">
-              POST ke URL ini dengan <code>{ id, status: "done" }</code> setelah message terkirim
+            <p class="small-text" style="margin: 4px 0 0 0; color: #666">
+              POST ke URL ini dengan <code>{ id, status: "done" }</code> setelah
+              message terkirim
             </p>
           </div>
 
-          <div class="modal-buttons" style="margin-top: 1.5rem; text-align: right">
+          <div
+            class="modal-buttons"
+            style="margin-top: 1.5rem; text-align: right"
+          >
             <button onclick="saveEditAndroidRemoteDevice()">
               <i class="bi bi-save"></i> Simpan
             </button>
@@ -2474,24 +2999,28 @@ adb connect ip:port</code></pre>
           <div class="settings-tabs">
             <button
               class="settings-tab active"
+              data-tab="auto-reply"
               onclick="switchWASettingsTab('auto-reply', event)"
             >
               <i class="bi bi-chat-left-text"></i> Auto Reply
             </button>
             <button
               class="settings-tab"
+              data-tab="schedule"
               onclick="switchWASettingsTab('schedule', event)"
             >
               <i class="bi bi-clock"></i> Schedule
             </button>
             <button
               class="settings-tab"
+              data-tab="broadcast"
               onclick="switchWASettingsTab('broadcast', event)"
             >
               <i class="bi bi-send"></i> Campaign
             </button>
             <button
               class="settings-tab"
+              data-tab="logs"
               onclick="switchWASettingsTab('logs', event)"
             >
               <i class="bi bi-journal-text"></i> Logs
@@ -2836,7 +3365,9 @@ adb connect ip:port</code></pre>
               if (autoRunEl) autoRunEl.checked = false;
               if (autoSenderEl) autoSenderEl.checked = false;
               if (pendingEl) pendingEl.value = "";
-              const chromeNativeEl = document.getElementById("deviceUseChromeNative");
+              const chromeNativeEl = document.getElementById(
+                "deviceUseChromeNative"
+              );
               if (chromeNativeEl) chromeNativeEl.checked = false;
               window.refreshAddAutoSenderUI();
             }
@@ -2899,7 +3430,9 @@ adb connect ip:port</code></pre>
             serviceSelect.value = "wa";
             serviceSelect.dispatchEvent(new Event("change", { bubbles: true }));
           }
-          const chromeNativeEl = document.getElementById("deviceUseChromeNative");
+          const chromeNativeEl = document.getElementById(
+            "deviceUseChromeNative"
+          );
           if (chromeNativeEl) chromeNativeEl.checked = false;
         }
 
@@ -3919,7 +4452,9 @@ adb connect ip:port</code></pre>
               );
             }
           }
-          const chromeNativeEditEl = document.getElementById("editUseChromeNative");
+          const chromeNativeEditEl = document.getElementById(
+            "editUseChromeNative"
+          );
           if (chromeNativeEditEl) chromeNativeEditEl.checked = false;
           window.refreshEditAutoSenderUI();
           if (customEl) customEl.value = "";
@@ -3958,7 +4493,6 @@ adb connect ip:port</code></pre>
           const pendingEl = document.getElementById("editPendingUrl");
           const customEl = document.getElementById("editCustomServiceUrl");
           const chromeNativeEl = document.getElementById("editUseChromeNative");
-
 
           if (!name || !window.currentEditUID) return;
 
@@ -4090,7 +4624,7 @@ adb connect ip:port</code></pre>
       </script>
       <footer class="app-footer">
         <span class="footer-left"
-          >StarBox v1.3.251115 &copy; 2025 Gingin Abdul Goni —
+          >StarBox v1.3.251205 &copy; 2025 Gingin Abdul Goni —
           <a
             href="https://1112-project.com"
             target="_blank"
@@ -4555,10 +5089,89 @@ adb connect ip:port</code></pre>
               </button>`
                 : ""
             }
-            <button onclick="openWASettingsModal('${
+            <div class="wa-actions-dropdown" style="position: relative">
+              <button
+                type="button"
+                class="btn-secondary"
+                onclick="toggleWAActionsMenu('${device.id}')"
+                data-wa-actions="${device.id}"
+              >
+                <i class="bi bi-list"></i> Actions
+              </button>
+              <div
+                id="waActionsMenu-${device.id}"
+                class="wa-actions-menu"
+                style="
+                  display: none;
+                  position: absolute;
+                  right: 0;
+                  top: 110%;
+                  background: #0f172a;
+                  border: 1px solid rgba(255, 255, 255, 0.08);
+                  border-radius: 8px;
+                  min-width: 180px;
+                  z-index: 10;
+                  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+                  overflow: hidden;
+                "
+              >
+                <button
+                  type="button"
+                  class="wa-actions-menu-item"
+                  style="
+                    display: block;
+                    width: 100%;
+                    text-align: left;
+                    padding: 10px 12px;
+                    background: transparent;
+                    border: none;
+                    color: #e2e8f0;
+                    cursor: pointer;
+                  "
+                  onclick="handleWAAction('${device.id}', 'auto-reply')"
+                >
+                  <i class="bi bi-chat-left-text"></i> Auto Reply
+                </button>
+                <button
+                  type="button"
+                  class="wa-actions-menu-item"
+                  style="
+                    display: block;
+                    width: 100%;
+                    text-align: left;
+                    padding: 10px 12px;
+                    background: transparent;
+                    border: none;
+                    color: #e2e8f0;
+                    cursor: pointer;
+                  "
+                  onclick="handleWAAction('${device.id}', 'broadcast')"
+                >
+                  <i class="bi bi-megaphone"></i> Campaign
+                </button>
+                <button
+                  type="button"
+                  class="wa-actions-menu-item"
+                  style="
+                    display: block;
+                    width: 100%;
+                    text-align: left;
+                    padding: 10px 12px;
+                    background: transparent;
+                    border: none;
+                    color: #e2e8f0;
+                    cursor: pointer;
+                  "
+                  onclick="handleWAAction('${device.id}', 'logs')"
+                >
+                  <i class="bi bi-journal-text"></i> Logs
+                </button>
+              </div>
+            </div>
+            <button onclick="quickClearWALogs('${
               device.id
             }')" class="btn-secondary">
-              <i class="bi bi-gear"></i> Settings
+              <i class="bi bi-trash"></i> Clear Logs
             </button>
             <button onclick="deleteWADevice('${
               device.id
@@ -4573,6 +5186,88 @@ adb connect ip:port</code></pre>
         `;
 
         return card;
+      }
+
+      let openWAActionsMenuId = null;
+
+      function closeWAActionsMenu() {
+        if (!openWAActionsMenuId) return;
+        const menu = document.getElementById(
+          `waActionsMenu-${openWAActionsMenuId}`
+        );
+        if (menu) {
+          menu.style.display = "none";
+        }
+        openWAActionsMenuId = null;
+        document.removeEventListener("click", handleOutsideWAActionsMenu, true);
+      }
+
+      function handleOutsideWAActionsMenu(event) {
+        if (!openWAActionsMenuId) return;
+        const menu = document.getElementById(
+          `waActionsMenu-${openWAActionsMenuId}`
+        );
+        const trigger = document.querySelector(
+          `[data-wa-actions="${openWAActionsMenuId}"]`
+        );
+        if (
+          (menu && menu.contains(event.target)) ||
+          (trigger && trigger.contains(event.target))
+        ) {
+          return;
+        }
+        closeWAActionsMenu();
+      }
+
+      function toggleWAActionsMenu(deviceId) {
+        const menu = document.getElementById(`waActionsMenu-${deviceId}`);
+        if (!menu) return;
+        const isOpen = openWAActionsMenuId === deviceId;
+        closeWAActionsMenu();
+        if (!isOpen) {
+          menu.style.display = "block";
+          openWAActionsMenuId = deviceId;
+          document.addEventListener("click", handleOutsideWAActionsMenu, true);
+        }
+      }
+
+      async function handleWAAction(deviceId, action) {
+        toggleWAActionsMenu(deviceId);
+        if (!deviceId || !action) return;
+        currentWADeviceId = deviceId;
+        if (action === "auto-reply") {
+          await openWASettingsModal(deviceId, "auto-reply");
+        } else if (action === "broadcast") {
+          await openWASettingsModal(deviceId, "broadcast");
+        } else if (action === "logs") {
+          await openWASettingsModal(deviceId, "logs");
+        }
+      }
+
+      async function quickClearWALogs(deviceId) {
+        currentWADeviceId = deviceId;
+        const input = document.getElementById("logRetentionDays");
+        const defaultDays =
+          parseInt(input?.value, 10) && parseInt(input.value, 10) > 0
+            ? parseInt(input.value, 10)
+            : 7;
+        const result = await Swal.fire({
+          title: "Clear Logs",
+          input: "number",
+          inputLabel: "Hapus log yang lebih lama dari (hari)",
+          inputValue: defaultDays,
+          inputAttributes: { min: "1", step: "1" },
+          showCancelButton: true,
+          confirmButtonText: "Hapus",
+          cancelButtonText: "Batal",
+          icon: "warning",
+        });
+        if (!result.isConfirmed) return;
+        const days = Number(result.value);
+        if (Number.isFinite(days) && input) {
+          input.value = days;
+        }
+        await submitLogRetention();
       }
 
       // Open add device modal
@@ -5304,7 +5999,7 @@ adb connect ip:port</code></pre>
       }
 
       // Open WA settings modal
-      async function openWASettingsModal(deviceId) {
+      async function openWASettingsModal(deviceId, defaultTab = "auto-reply") {
         currentWADeviceId = deviceId;
         const modal = document.getElementById("waSettingsModal");
         if (!modal) return;
@@ -5312,6 +6007,7 @@ adb connect ip:port</code></pre>
         modal.style.display = "flex";
 
         // Load data
+        switchWASettingsTab(defaultTab);
         await loadAutoReplies(deviceId);
         await loadSchedules(deviceId);
         await loadMessageLogs(deviceId);
@@ -5431,21 +6127,22 @@ adb connect ip:port</code></pre>
 
       // Switch settings tab
       function switchWASettingsTab(tabName, event) {
-        // Update tab buttons
+        const targetTab = tabName || "auto-reply";
         document.querySelectorAll(".settings-tab").forEach((btn) => {
-          btn.classList.remove("active");
+          const isTarget =
+            (event && event.target && btn.contains(event.target)) ||
+            btn.dataset.tab === targetTab;
+          btn.classList.toggle("active", isTarget);
         });
-        if (event && event.target) {
-          event.target.closest(".settings-tab").classList.add("active");
-        }
 
-        // Update tab content
         document
           .querySelectorAll(".settings-tab-content")
           .forEach((content) => {
-            content.classList.remove("active");
+            content.classList.toggle(
+              "active",
+              content.id === `tab-${targetTab}`
+            );
           });
-        document.getElementById(`tab-${tabName}`).classList.add("active");
       }
 
       // Load auto-replies

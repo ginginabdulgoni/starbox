@@ -116,6 +116,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () =>
         ipcRenderer.removeListener('adb-wifi-scan-progress', listener);
     },
+    onScrcpyInstallProgress: (callback) => {
+      if (typeof callback !== 'function') return;
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on('scrcpy-install-progress', listener);
+      return () =>
+        ipcRenderer.removeListener('scrcpy-install-progress', listener);
+    },
   },
 
   // iOS Simulator APIs
@@ -203,6 +210,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
   platform: () => process.platform,
   checkLatestVersion: (channel = 'stable') =>
     ipcRenderer.invoke('check-latest-version', channel),
+  downloadVersion: (payload = {}) =>
+    ipcRenderer.invoke('download-version', payload),
+  onVersionDownloadProgress: (callback) => {
+    if (typeof callback !== 'function') return;
+    ipcRenderer.on('version-download-progress', (_event, data) =>
+      callback(data)
+    );
+  },
+
+  virtualOS: {
+    list: () => ipcRenderer.invoke('os-vm-list'),
+    save: (payload) => ipcRenderer.invoke('os-vm-upsert', payload),
+    delete: (id) => ipcRenderer.invoke('os-vm-delete', id),
+    start: (id) => ipcRenderer.invoke('os-vm-start', id),
+    stop: (id) => ipcRenderer.invoke('os-vm-stop', id),
+    restart: (id) => ipcRenderer.invoke('os-vm-restart', id),
+    snapshot: (id, name) => ipcRenderer.invoke('os-vm-snapshot', id, name),
+    browseIsoFile: () => ipcRenderer.invoke('browse-iso-file'),
+  },
 
   // Logs API
   logs: {
@@ -210,3 +236,58 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clear: () => ipcRenderer.invoke('clear-logs')
   }
 });
+
+// Guard MediaSession action handler for browsers that do not support PIP actions.
+// WhatsApp Web registers "enterpictureinpicture" which throws on older Chromium/Electron.
+try {
+  const injectMediaSessionShim = () => {
+    const shim = `
+      (() => {
+        try {
+          const ms = navigator.mediaSession;
+          if (!ms || typeof ms.setActionHandler !== 'function') return;
+          const original = ms.setActionHandler.bind(ms);
+          const unsupported = new Set(['enterpictureinpicture', 'leavepictureinpicture']);
+          ms.setActionHandler = function(action, handler) {
+            const normalized = typeof action === 'string' ? action.toLowerCase() : action;
+            if (unsupported.has(normalized)) {
+              console.debug('[Starbox] Ignoring unsupported MediaSession action:', normalized);
+              return;
+            }
+            try {
+              return original(action, handler);
+            } catch (err) {
+              const msg = err && err.message;
+              if (msg && msg.includes('setActionHandler')) {
+                console.debug('[Starbox] Swallowed MediaSession error for action', normalized, '-', msg);
+                return;
+              }
+              throw err;
+            }
+          };
+        } catch (err) {
+          console.debug('[Starbox] MediaSession shim failed:', err?.message || err);
+        }
+      })();
+    `;
+    const blob = new Blob([shim], { type: 'application/javascript' });
+    const url = URL.createObjectURL(blob);
+    const el = document.createElement('script');
+    el.src = url;
+    (document.documentElement || document.head || document.body).appendChild(el);
+    el.onload = () => {
+      el.remove();
+      URL.revokeObjectURL(url);
+    };
+  };
+
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', injectMediaSessionShim, { once: true });
+    } else {
+      injectMediaSessionShim();
+    }
+  }
+} catch (err) {
+  console.debug('[Starbox] Failed to install MediaSession shim:', err?.message || err);
+}

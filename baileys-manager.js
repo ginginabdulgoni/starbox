@@ -178,6 +178,29 @@ function getBaileysEntryPath() {
 
   const candidatePaths = [];
   if (isPackaged) {
+    // Universal build: asar terpisah per arsitektur
+    candidatePaths.push(
+      path.join(
+        resources,
+        "app-arm64.asar.unpacked",
+        "node_modules",
+        "@whiskeysockets",
+        "baileys",
+        "lib",
+        "index.js"
+      )
+    );
+    candidatePaths.push(
+      path.join(
+        resources,
+        "app-x64.asar.unpacked",
+        "node_modules",
+        "@whiskeysockets",
+        "baileys",
+        "lib",
+        "index.js"
+      )
+    );
     candidatePaths.push(
       path.join(
         resources,
@@ -213,7 +236,11 @@ function getBaileysEntryPath() {
     );
   }
 
-  candidatePaths.push(require.resolve("@whiskeysockets/baileys/lib/index.js"));
+  try {
+    candidatePaths.push(require.resolve("@whiskeysockets/baileys/lib/index.js"));
+  } catch (err) {
+    console.warn("⚠️ Tidak bisa resolve Baileys via require.resolve:", err?.message);
+  }
 
   const found = candidatePaths.find((candidate) => fs.existsSync(candidate));
   if (!found) {

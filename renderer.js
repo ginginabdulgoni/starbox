@@ -643,8 +643,17 @@ const DEFAULT_SERVICE_LIBRARY = [
     keywords: ["android", "emulator"],
   },
   {
+    id: "android-general",
+    label: "General (SCRCPY)",
+    color: "#3DDC84",
+    url: null,
+    category: "Android Remote",
+    description: "Kontrol umum perangkat Android via ADB + scrcpy.",
+    keywords: ["android", "scrcpy", "remote"],
+  },
+  {
     id: "android-whatsapp",
-    label: "Android • WhatsApp",
+    label: "WhatsApp Automation",
     color: "#25D366",
     url: null,
     category: "Android Remote",
@@ -714,12 +723,8 @@ let SERVICE_LIBRARY = DEFAULT_SERVICE_LIBRARY.map(cloneServiceEntry);
 let serviceConfig = {};
 const SERVICE_LIBRARY_MAP = new Map();
 const ANDROID_REMOTE_SERVICE_IDS = [
+  "android-general",
   "android-whatsapp",
-  "android-tiktok",
-  "android-youtube",
-  "android-instagram",
-  "android-browser",
-  "android-full-remote",
 ];
 
 rebuildServiceLookups();
@@ -733,7 +738,10 @@ const scrcpyStatusState = {
   installed: false,
   checking: false,
   installing: false,
+  progressPercent: null,
+  progressMessage: "",
 };
+let vmListCache = [];
 
 function buildServiceConfig(list = []) {
   return list.reduce(
@@ -1114,7 +1122,8 @@ let automationMessages = [];
 let automationTimer = null;
 let automationFetchTimer = null;
 let automationFetchRunning = false;
-const AUTOMATION_FETCH_INTERVAL_MS = 60000;
+const AUTOMATION_FETCH_INTERVAL_MS = 60000; // interval fetch saat antrean kosong
+const AUTOMATION_IDLE_FETCH_INTERVAL_MS = 60000; // 60 detik saat antrean kosong
 const automationMonitorMeta = {
   lastFetch: null,
   error: null,
@@ -1516,6 +1525,12 @@ let latestVersionInfo = null;
 let versionCheckInProgress = false;
 let hasShownVersionDialog = false;
 const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
+let versionDownloadState = {
+  state: "idle", // idle | downloading | downloaded | installing | error
+  progress: 0,
+  message: "",
+  path: "",
+};
 let packageCountdownTimer = null;
 let systemPlatform =
   typeof navigator !== "undefined" ? navigator.userAgent : null;
@@ -1597,9 +1612,7 @@ function shouldDisplayAds() {
 function formatAdsPrice(price) {
   const numeric = parsePriceValue(price);
   if (numeric === null) {
-    return typeof price === "string" && price.trim()
-      ? price
-      : "Rp -";
+    return typeof price === "string" && price.trim() ? price : "Rp -";
   }
   return `Rp ${numeric.toLocaleString("id-ID")}`;
 }
@@ -1625,10 +1638,9 @@ async function getApiBase() {
     isDev = false;
   }
   isDevBuildCached = isDev;
-  cachedApiBase = ((isDev ? ADS_API_BASE.dev : ADS_API_BASE.prod) || "").replace(
-    /\/$/,
-    ""
-  );
+  cachedApiBase = (
+    (isDev ? ADS_API_BASE.dev : ADS_API_BASE.prod) || ""
+  ).replace(/\/$/, "");
   return cachedApiBase;
 }
 
@@ -1646,8 +1658,12 @@ function ensureAdsSection(pageKey = "web-emulator") {
   if (container) {
     return {
       container,
-      horizontal: document.getElementById(buildAdsId("adsTrackHorizontal", pageKey)),
-      vertical: document.getElementById(buildAdsId("adsTrackVertical", pageKey)),
+      horizontal: document.getElementById(
+        buildAdsId("adsTrackHorizontal", pageKey)
+      ),
+      vertical: document.getElementById(
+        buildAdsId("adsTrackVertical", pageKey)
+      ),
     };
   }
 
@@ -1732,15 +1748,14 @@ function setAdsMessage(message, pageKey = "web-emulator") {
 function createAdsCardElement(item = {}) {
   const link = document.createElement("a");
   link.className = "ads-card";
-  const targetUrl = item.short_url || item.product_url || item.productUrl || "#";
+  const targetUrl =
+    item.short_url || item.product_url || item.productUrl || "#";
   link.href = targetUrl || "#";
   link.target = "_blank";
   link.rel = "noopener noreferrer";
 
   const imageUrl =
-    item.image ||
-    (Array.isArray(item.images) && item.images[0]?.url) ||
-    "";
+    item.image || (Array.isArray(item.images) && item.images[0]?.url) || "";
   const image = document.createElement("img");
   image.alt = item.name || "Produk rekomendasi";
   image.src = imageUrl;
@@ -1764,7 +1779,8 @@ function createAdsCardElement(item = {}) {
 
   const shortLink = document.createElement("p");
   shortLink.className = "ads-short-url";
-  const shortValue = item.short_url || item.product_url || item.productUrl || "";
+  const shortValue =
+    item.short_url || item.product_url || item.productUrl || "";
   shortLink.textContent = shortValue || "";
 
   const priceEl = document.createElement("div");
@@ -1914,7 +1930,8 @@ function startAdsAutoRefresh() {
       adsState.refreshTimer = setInterval(() => {
         if (!shouldDisplayAds()) return;
         adsState.lastRefreshAt = Date.now();
-        adsState.nextRefreshAt = adsState.lastRefreshAt + ADS_REFRESH_INTERVAL_MS;
+        adsState.nextRefreshAt =
+          adsState.lastRefreshAt + ADS_REFRESH_INTERVAL_MS;
         syncAllAdsShowcases({ forceRefresh: true });
       }, ADS_REFRESH_INTERVAL_MS);
     })
@@ -2045,7 +2062,10 @@ function updateAdsCountdownDisplays() {
     return;
   }
   const remaining = (adsState.nextRefreshAt || 0) - Date.now();
-  const text = remaining > 0 ? `Auto refresh: ${formatCountdown(remaining)}` : "Refresh...";
+  const text =
+    remaining > 0
+      ? `Auto refresh: ${formatCountdown(remaining)}`
+      : "Refresh...";
   ADS_PAGE_KEYS.forEach((key) => {
     const el = document.getElementById(buildAdsId("adsCountdown", key));
     if (el) {
@@ -2717,11 +2737,7 @@ async function connectManualAdbDevice() {
     const result = await api.connectManualAdb({ ip, port });
 
     if (result?.success) {
-      showToast(
-        `✅ Berhasil connect ke ${ip}:${port}!`,
-        3000,
-        "success"
-      );
+      showToast(`✅ Berhasil connect ke ${ip}:${port}!`, 3000, "success");
 
       // Add to dropdown
       if (select && result.deviceId) {
@@ -2743,19 +2759,11 @@ async function connectManualAdbDevice() {
         toggleAdbInputMode();
       }
     } else {
-      showToast(
-        result?.message || "Gagal connect ke device!",
-        4000,
-        "error"
-      );
+      showToast(result?.message || "Gagal connect ke device!", 4000, "error");
     }
   } catch (err) {
     console.error("❌ Error connecting manual ADB:", err);
-    showToast(
-      err?.message || "Gagal connect ke device!",
-      4000,
-      "error"
-    );
+    showToast(err?.message || "Gagal connect ke device!", 4000, "error");
   }
 }
 
@@ -3521,11 +3529,16 @@ function renderVersionBanner(info) {
   if (downloadBtn) {
     const preferred = getPreferredDownload(info);
     if (preferred?.url) {
-      downloadBtn.href = preferred.url;
       downloadBtn.style.display = "inline-flex";
-      downloadBtn.innerHTML = `<i class="bi bi-download"></i> Download ${
-        preferred.platform ? preferred.platform.toUpperCase() : ""
-      }`;
+      const label = preferred.platform
+        ? `Download ${preferred.platform.toUpperCase()}`
+        : "Download & Install";
+      const labelNode = document.getElementById("versionDownloadLabel");
+      if (labelNode) {
+        labelNode.textContent = label;
+      } else {
+        downloadBtn.innerHTML = `<i class="bi bi-download"></i> ${label}`;
+      }
     } else {
       downloadBtn.style.display = "none";
     }
@@ -3614,6 +3627,134 @@ function showVersionInfoDialog(info) {
   });
 }
 
+function resetVersionDownloadState() {
+  versionDownloadState = {
+    state: "idle",
+    progress: 0,
+    message: "",
+    path: "",
+  };
+}
+
+function updateVersionDownloadUI() {
+  const statusBox = document.getElementById("versionDownloadStatus");
+  const textEl = document.getElementById("versionDownloadText");
+  const bar = document.getElementById("versionDownloadBar");
+  const downloadBtn = document.getElementById("versionAlertDownload");
+
+  if (!statusBox || !textEl || !bar) return;
+
+  if (versionDownloadState.state === "idle") {
+    statusBox.style.display = "none";
+    bar.style.width = "0%";
+    if (downloadBtn) downloadBtn.disabled = false;
+    return;
+  }
+
+  statusBox.style.display = "block";
+  const pct =
+    versionDownloadState.progress &&
+    Number.isFinite(versionDownloadState.progress)
+      ? Math.min(100, Math.max(0, versionDownloadState.progress))
+      : 0;
+  bar.style.width = `${pct}%`;
+
+  const human = versionDownloadState.message || "";
+  const label =
+    versionDownloadState.state === "downloading"
+      ? `Mengunduh pembaruan... ${pct}%`
+      : versionDownloadState.state === "installing"
+      ? "Membuka installer..."
+      : versionDownloadState.state === "downloaded"
+      ? "Unduhan selesai. Membuka installer..."
+      : versionDownloadState.state === "error"
+      ? `Gagal: ${human || "Terjadi kesalahan"}`
+      : human || "Menyiapkan unduhan...";
+
+  textEl.textContent = label;
+  if (downloadBtn) {
+    downloadBtn.disabled = versionDownloadState.state === "downloading";
+  }
+}
+
+async function startVersionDownload() {
+  if (!latestVersionInfo) {
+    showToast("Belum ada info versi terbaru.", 3000, "warning");
+    return;
+  }
+  if (!window.electronAPI?.downloadVersion) {
+    showToast("Fitur download belum siap di environment ini.", 3000, "error");
+    return;
+  }
+  const preferred = getPreferredDownload(latestVersionInfo);
+  if (!preferred?.url) {
+    showToast(
+      "URL unduhan tidak tersedia untuk platform ini.",
+      3000,
+      "warning"
+    );
+    return;
+  }
+
+  resetVersionDownloadState();
+  versionDownloadState.state = "downloading";
+  versionDownloadState.progress = 0;
+  updateVersionDownloadUI();
+  showToast("Mengunduh pembaruan StarBox...", 2000, "info");
+
+  try {
+    const result = await window.electronAPI.downloadVersion({
+      url: preferred.url,
+      filename:
+        preferred.filename ||
+        `starbox-${preferred.platform || "update"}-${
+          latestVersionInfo.version
+        }`,
+      platform:
+        preferred.platform ||
+        (typeof window.electronAPI?.platform === "function"
+          ? window.electronAPI.platform()
+          : process.platform),
+      autoInstall: true,
+      channel: latestVersionInfo.channel || "stable",
+      version: latestVersionInfo.version,
+    });
+    if (!result?.success) {
+      versionDownloadState.state = "error";
+      versionDownloadState.message = result?.message || "Gagal mengunduh.";
+      updateVersionDownloadUI();
+      showToast(versionDownloadState.message, 4000, "error");
+      return;
+    }
+    versionDownloadState.state = "downloaded";
+    versionDownloadState.progress = 100;
+    versionDownloadState.path = result.path;
+    versionDownloadState.message =
+      result.opened === true
+        ? "Installer dibuka. Lanjutkan proses instalasi."
+        : "Unduhan selesai.";
+    updateVersionDownloadUI();
+    if (result.opened) {
+      showToast(
+        "Installer sudah dibuka. Ikuti wizard instalasi.",
+        4000,
+        "success"
+      );
+    } else {
+      showToast(
+        "Unduhan selesai. Buka installer untuk memperbarui.",
+        4000,
+        "success"
+      );
+    }
+  } catch (err) {
+    versionDownloadState.state = "error";
+    versionDownloadState.message = err?.message || "Gagal mengunduh.";
+    updateVersionDownloadUI();
+    showToast(versionDownloadState.message, 4000, "error");
+  }
+}
+
 async function checkLatestVersion(options = {}) {
   if (!window.electronAPI?.checkLatestVersion) return;
   if (versionCheckInProgress) {
@@ -3648,6 +3789,8 @@ async function checkLatestVersion(options = {}) {
     const isNewer =
       compareVersions(info.version, currentAppVersion || "0.0.0") > 0;
     updateVersionIndicator(isNewer);
+    resetVersionDownloadState();
+    updateVersionDownloadUI();
     if (isNewer) {
       renderVersionBanner(info);
       if (!hasShownVersionDialog || options.showAlways) {
@@ -3656,6 +3799,7 @@ async function checkLatestVersion(options = {}) {
       }
     } else {
       renderVersionBanner(null);
+      updateVersionDownloadUI();
       if (options.showAlways) {
         showToast(
           `Anda sudah menggunakan versi terbaru (${currentAppVersion}).`,
@@ -3923,14 +4067,28 @@ function normalizeAutomationPriority(value) {
   return 9999;
 }
 
+function getNextFetchIntervalMs(session = getActiveSession()) {
+  if (!session) return AUTOMATION_IDLE_FETCH_INTERVAL_MS;
+  const pendingCount = pendingAutomationCount(session);
+  if (pendingCount > 0) {
+    return null; // hentikan fetch saat masih ada antrian pending
+  }
+  return AUTOMATION_FETCH_INTERVAL_MS;
+}
+
 function scheduleNextAutomationFetch(
   baseTimeMs = Date.now(),
-  session = getActiveSession()
+  session = getActiveSession(),
+  intervalMs = null
 ) {
   if (!session) return;
-  const nextAtIso = new Date(
-    baseTimeMs + AUTOMATION_FETCH_INTERVAL_MS
-  ).toISOString();
+  const delay =
+    intervalMs != null ? intervalMs : getNextFetchIntervalMs(session);
+  if (delay == null) {
+    clearNextAutomationFetch(session);
+    return;
+  }
+  const nextAtIso = new Date(baseTimeMs + delay).toISOString();
   updateSessionMonitorMeta(session, { nextFetchAt: nextAtIso });
   broadcastAutomationMonitor(session, { nextFetchAt: nextAtIso });
 }
@@ -4490,7 +4648,11 @@ async function refreshAutomationMessagesForSession(session, options = {}) {
     session.fetchToastMessage = null;
 
     // Schedule countdown berikutnya setelah fetch berhasil
-    scheduleNextAutomationFetch(Date.now(), session);
+    scheduleNextAutomationFetch(
+      Date.now(),
+      session,
+      getNextFetchIntervalMs(session)
+    );
 
     broadcastAutomationMonitor(session, {
       lastFetch: timestamp,
@@ -4510,7 +4672,11 @@ async function refreshAutomationMessagesForSession(session, options = {}) {
     session.fetchToastMessage = message;
 
     // Schedule countdown berikutnya meski fetch gagal (retry otomatis)
-    scheduleNextAutomationFetch(Date.now(), session);
+    scheduleNextAutomationFetch(
+      Date.now(),
+      session,
+      getNextFetchIntervalMs(session)
+    );
 
     broadcastAutomationMonitor(session, {
       error: message,
@@ -5252,6 +5418,7 @@ async function sendAutomationQueueForSession(session, options = {}) {
     });
   } finally {
     session.isSending = false;
+    rescheduleDeviceFetchTimer(session);
     broadcastAutomationMonitor(session, { typing: false, activeId: null });
     loadAllDevices();
     if (isSessionActive(session)) {
@@ -5268,10 +5435,36 @@ async function sendAutomationQueue(options = {}) {
 // Stop fetch timer untuk device tertentu
 function stopDeviceFetchTimer(session) {
   if (session && session.fetchTimer) {
-    clearInterval(session.fetchTimer);
+    clearTimeout(session.fetchTimer);
     session.fetchTimer = null;
     console.log(`⏹️ Fetch timer stopped for device ${session.uid}`);
   }
+  if (session) {
+    session.fetchRunner = null;
+  }
+}
+
+function rescheduleDeviceFetchTimer(session) {
+  if (!session || !session.pendingUrl || typeof session.fetchRunner !== "function") {
+    return;
+  }
+  clearTimeout(session.fetchTimer);
+  const delay = getNextFetchIntervalMs(session);
+  if (delay == null) {
+    clearNextAutomationFetch(session);
+    session.fetchTimer = null;
+    console.log(
+      `⏸️ Fetch ditahan untuk ${session.uid} karena antrean masih pending`
+    );
+    return;
+  }
+  scheduleNextAutomationFetch(Date.now(), session, delay);
+  session.fetchTimer = setTimeout(session.fetchRunner, delay);
+  console.log(
+    `🔁 Fetch timer diatur ulang untuk ${session.uid} (${Math.round(
+      delay / 1000
+    )}s)`
+  );
 }
 
 // Start fetch timer untuk device tertentu (interval independen per device)
@@ -5281,26 +5474,40 @@ function startDeviceFetchTimer(session) {
   // Stop timer lama jika ada
   stopDeviceFetchTimer(session);
 
-  // Set countdown awal sebelum fetch pertama
-  scheduleNextAutomationFetch(Date.now(), session);
+  const runFetchLoop = async () => {
+    session.fetchTimer = null;
+    if (pendingAutomationCount(session) > 0) {
+      clearNextAutomationFetch(session);
+      console.log(
+        `⏸️ Skip fetch untuk ${session.uid} karena antrean masih pending`
+      );
+      return;
+    }
+    try {
+      await refreshAutomationMessagesForSession(session, { silent: true });
+    } catch (err) {
+      console.error(`Fetch error for ${session.uid}:`, err);
+    } finally {
+      const delay = getNextFetchIntervalMs(session);
+      if (delay == null) {
+        clearNextAutomationFetch(session);
+        session.fetchTimer = null;
+        console.log(
+          `⏸️ Fetch ditahan untuk ${session.uid} karena antrean belum kosong`
+        );
+        return;
+      }
+      scheduleNextAutomationFetch(Date.now(), session, delay);
+      session.fetchTimer = setTimeout(runFetchLoop, delay);
+      console.log(
+        `▶️ Fetch timer set for ${session.uid} (${Math.round(delay / 1000)}s)`
+      );
+    }
+  };
 
-  // Jalankan fetch pertama kali langsung
-  refreshAutomationMessagesForSession(session, { silent: true }).catch((err) =>
-    console.error(`Initial fetch error for ${session.uid}:`, err)
-  );
-
-  // Set timer untuk fetch berikutnya (akan berulang otomatis)
-  session.fetchTimer = setInterval(() => {
-    refreshAutomationMessagesForSession(session, { silent: true }).catch(
-      (err) => console.error(`Fetch error for ${session.uid}:`, err)
-    );
-  }, AUTOMATION_FETCH_INTERVAL_MS);
-
-  console.log(
-    `▶️ Fetch timer started for device ${session.uid} (interval: ${
-      AUTOMATION_FETCH_INTERVAL_MS / 1000
-    }s)`
-  );
+  session.fetchRunner = runFetchLoop;
+  // Jalankan segera lalu lanjut sesuai interval dinamis
+  runFetchLoop();
 }
 
 function stopAutomationLoop() {
@@ -5325,9 +5532,8 @@ function stopAutomationLoop() {
   clearNextAutomationFetch();
 }
 
-async function runAutomationTickForSession(session, options = {}) {
+async function runAutomationTickForSession(session) {
   if (!session) return false;
-  const { limit = Infinity } = options;
 
   if (session.isSending) return false;
   if (!session.pendingUrl) return false;
@@ -5356,7 +5562,7 @@ async function runAutomationTickForSession(session, options = {}) {
     silent: true,
     silentIfEmpty: true,
     skipRefresh: true,
-    limit,
+    limit: pendingMessages.length || Infinity,
   });
 
   return true;
@@ -5383,9 +5589,7 @@ async function runAutomationSendRound() {
       .filter(Boolean);
 
     const results = await Promise.all(
-      sessions.map((session) =>
-        runAutomationTickForSession(session, { limit: 1 })
-      )
+      sessions.map((session) => runAutomationTickForSession(session))
     );
 
     automationSendRoundIndex = (startIndex + 1) % orderLength;
@@ -5415,7 +5619,13 @@ async function runAutomationFetchRound() {
       const session = automationSessions.get(uid);
       if (!session) return;
 
-      scheduleNextAutomationFetch(Date.now(), session);
+      const delay = getNextFetchIntervalMs(session);
+      if (delay == null) {
+        clearNextAutomationFetch(session);
+        return;
+      }
+
+      scheduleNextAutomationFetch(Date.now(), session, delay);
       try {
         await refreshAutomationMessagesForSession(session, { silent: true });
       } catch (err) {
@@ -5816,7 +6026,7 @@ async function reconnectAndroidRemoteDevice() {
 
     // Get current device to get old adbId
     const devicesResult = await api.getDevices();
-    const currentDevice = devicesResult?.devices?.find(d => d.uid === uid);
+    const currentDevice = devicesResult?.devices?.find((d) => d.uid === uid);
     const oldAdbId = currentDevice?.adbId || null;
 
     const newAdbId = `${ip}:${port}`;
@@ -5825,7 +6035,7 @@ async function reconnectAndroidRemoteDevice() {
     const result = await api.connectManualAdb({
       ip,
       port,
-      oldAdbId: oldAdbId
+      oldAdbId: oldAdbId,
     });
 
     if (result?.success) {
@@ -5970,7 +6180,8 @@ async function scanEditAdbDevices() {
       });
       showToast(`Ditemukan ${list.length} perangkat`, 3000, "success");
     } else {
-      select.innerHTML = '<option value="">Tidak ada perangkat ditemukan</option>';
+      select.innerHTML =
+        '<option value="">Tidak ada perangkat ditemukan</option>';
       showToast("Tidak ada perangkat ADB terdeteksi", 3000, "warning");
     }
   } catch (err) {
@@ -6020,7 +6231,11 @@ async function connectEditAdbDevice() {
       await loadAllDevicesAndroid();
       closeEditAndroidRemoteModal();
     } else {
-      showToast(updateResult?.message || "Gagal connect ke device!", 4000, "error");
+      showToast(
+        updateResult?.message || "Gagal connect ke device!",
+        4000,
+        "error"
+      );
     }
   } catch (err) {
     console.error("❌ Error connecting ADB device:", err);
@@ -6226,9 +6441,17 @@ function updateScrcpyNoticeUI(customMessage = "") {
     textEl.textContent = customMessage;
   } else if (scrcpyStatusState.checking) {
     textEl.textContent = "Sedang memeriksa instalasi scrcpy...";
+  } else if (scrcpyStatusState.installing) {
+    const percentText =
+      scrcpyStatusState.progressPercent != null
+        ? ` (${scrcpyStatusState.progressPercent}%)`
+        : "";
+    textEl.textContent = `${
+      scrcpyStatusState.progressMessage || "Menginstal scrcpy..."
+    }${percentText}`;
   } else {
     textEl.textContent =
-      "scrcpy belum terpasang. Dibutuhkan untuk menampilkan layar HP secara langsung.";
+      "scrcpy belum terpasang. Dibutuhkan untuk menampilkan layar HP secara langsung. Klik install otomatis (macOS: butuh Homebrew, Windows: Chocolatey/winget) atau pasang manual: brew install scrcpy / choco install scrcpy / winget install Genymobile.scrcpy.";
   }
   button.disabled = scrcpyStatusState.installing || scrcpyStatusState.checking;
   button.textContent = scrcpyStatusState.installing
@@ -6279,6 +6502,8 @@ function requestScrcpyInstallation() {
   }
   if (scrcpyStatusState.installing) return;
   scrcpyStatusState.installing = true;
+  scrcpyStatusState.progressPercent = 0;
+  scrcpyStatusState.progressMessage = "Menyiapkan instalasi scrcpy...";
   updateScrcpyNoticeUI();
   showToast("Menjalankan instalasi scrcpy...", 3500, "info");
   api
@@ -6309,6 +6534,8 @@ function requestScrcpyInstallation() {
     })
     .finally(() => {
       scrcpyStatusState.installing = false;
+      scrcpyStatusState.progressPercent = null;
+      scrcpyStatusState.progressMessage = "";
       refreshScrcpyStatusIndicator();
     });
 }
@@ -6317,6 +6544,22 @@ function setupScrcpyHelperCard() {
   const installBtn = document.getElementById("installScrcpyButton");
   if (installBtn) {
     installBtn.addEventListener("click", () => requestScrcpyInstallation());
+  }
+  const api = window.electronAPI?.androidRemote;
+  if (api?.onScrcpyInstallProgress) {
+    api.onScrcpyInstallProgress((payload = {}) => {
+      if (!scrcpyStatusState.installing) return;
+      if (payload.percent != null) {
+        scrcpyStatusState.progressPercent = Math.min(
+          100,
+          Math.max(0, Math.round(payload.percent))
+        );
+      }
+      if (payload.message) {
+        scrcpyStatusState.progressMessage = payload.message;
+      }
+      updateScrcpyNoticeUI();
+    });
   }
   refreshScrcpyStatusIndicator();
 }
@@ -6559,6 +6802,10 @@ async function submitDevice() {
   const service = document.getElementById("deviceService").value;
   const mode = document.getElementById("deviceMode").value;
   const autoRun = document.getElementById("deviceAutoRun").checked;
+  const chromeNativeCheckbox = document.getElementById("deviceUseChromeNative");
+  const useChromeNative =
+    service !== "android" &&
+    !!(chromeNativeCheckbox && chromeNativeCheckbox.checked);
   const autoSenderCheckbox = document.getElementById("deviceAutoSender");
   const pendingUrlInput = document.getElementById("devicePendingUrl");
   const customUrlInput = document.getElementById("customServiceUrl");
@@ -6574,10 +6821,6 @@ async function submitDevice() {
   const callbackUrl = autoSenderEnabled
     ? (callbackInput?.value || "").trim()
     : "";
-  const chromeNativeCheckbox = document.getElementById("deviceUseChromeNative");
-  const useChromeNative =
-    service !== "android" &&
-    !!(chromeNativeCheckbox && chromeNativeCheckbox.checked);
   const androidSpecSelect = document.getElementById("androidSpecPreset");
   const selectedAndroidSpecId =
     service === "android"
@@ -6756,6 +6999,25 @@ window.addEventListener("DOMContentLoaded", () => {
       syncPhoneCodeSearchValue(true)
     );
   }
+  if (window.electronAPI?.onVersionDownloadProgress) {
+    window.electronAPI.onVersionDownloadProgress((payload = {}) => {
+      if (payload.state) {
+        versionDownloadState.state = payload.state;
+      }
+      if (Number.isFinite(payload.progress)) {
+        versionDownloadState.progress = payload.progress;
+      }
+      if (payload.message) {
+        versionDownloadState.message = payload.message;
+      } else if (payload.state === "downloaded") {
+        versionDownloadState.message = "Unduhan selesai.";
+      }
+      if (payload.path) {
+        versionDownloadState.path = payload.path;
+      }
+      updateVersionDownloadUI();
+    });
+  }
   checkLatestVersion({ silent: true });
   const deviceSearchInput = document.getElementById("deviceSearchInput");
   if (deviceSearchInput) {
@@ -6773,6 +7035,7 @@ window.addEventListener("DOMContentLoaded", () => {
       renderDevices(cachedDevices);
     });
   }
+  loadVmList();
   syncThemeSelector();
   syncServiceAvailability();
 
@@ -6849,6 +7112,272 @@ window.triggerVersionCheck =
   function () {
     checkLatestVersion({ showAlways: true });
   };
+
+window.startVersionDownload =
+  window.startVersionDownload ||
+  function () {
+    startVersionDownload();
+  };
+
+window.openVmModal = function (vm = null) {
+  const modal = document.getElementById("vmModal");
+  if (!modal) return;
+  modal.style.display = "flex";
+
+  const vmId = document.getElementById("vmId");
+  const vmName = document.getElementById("vmName");
+  const vmOsType = document.getElementById("vmOsType");
+  const vmCpu = document.getElementById("vmCpu");
+  const vmMemory = document.getElementById("vmMemory");
+  const vmStorage = document.getElementById("vmStorage");
+  const vmNetwork = document.getElementById("vmNetwork");
+  const vmBridge = document.getElementById("vmBridge");
+  const vmMac = document.getElementById("vmMac");
+  const vmIso = document.getElementById("vmIso");
+  const vmDisk = document.getElementById("vmDisk");
+  const vmAutostart = document.getElementById("vmAutostart");
+  const vmVncPort = document.getElementById("vmVncPort");
+  const vmQemuBin = document.getElementById("vmQemuBin");
+  const vmBootOrder = document.getElementById("vmBootOrder");
+  const vmNotes = document.getElementById("vmNotes");
+
+  if (vmId) vmId.value = vm?.id || "";
+  if (vmName) vmName.value = vm?.name || "";
+  if (vmOsType) vmOsType.value = vm?.osType || "linux";
+  if (vmCpu) vmCpu.value = vm?.cpu || 2;
+  if (vmMemory) vmMemory.value = vm?.memoryMb || 2048;
+  if (vmStorage) vmStorage.value = vm?.storageGb || 20;
+  if (vmNetwork) vmNetwork.value = vm?.networkMode || "nat";
+  if (vmBridge) vmBridge.value = vm?.bridgeInterface || "";
+  if (vmMac) vmMac.value = vm?.macAddress || "";
+  if (vmIso) vmIso.value = vm?.isoPath || "";
+  if (vmDisk) vmDisk.value = vm?.diskPath || "";
+  if (vmAutostart) vmAutostart.checked = !!vm?.autostart;
+  if (vmVncPort) vmVncPort.value = vm?.vncPort || 5901;
+  if (vmQemuBin) vmQemuBin.value = vm?.qemuBinary || "qemu-system-x86_64";
+  if (vmBootOrder) vmBootOrder.value = vm?.bootOrder || "cd";
+  if (vmNotes) vmNotes.value = vm?.notes || "";
+};
+
+window.closeVmModal = function () {
+  const modal = document.getElementById("vmModal");
+  if (modal) modal.style.display = "none";
+};
+
+window.saveVm = async function () {
+  try {
+    const vmId = document.getElementById("vmId");
+    const vmName = document.getElementById("vmName");
+    const vmOsType = document.getElementById("vmOsType");
+    const vmCpu = document.getElementById("vmCpu");
+    const vmMemory = document.getElementById("vmMemory");
+    const vmStorage = document.getElementById("vmStorage");
+    const vmNetwork = document.getElementById("vmNetwork");
+    const vmBridge = document.getElementById("vmBridge");
+    const vmMac = document.getElementById("vmMac");
+    const vmIso = document.getElementById("vmIso");
+    const vmDisk = document.getElementById("vmDisk");
+    const vmAutostart = document.getElementById("vmAutostart");
+    const vmVncPort = document.getElementById("vmVncPort");
+    const vmQemuBin = document.getElementById("vmQemuBin");
+    const vmBootOrder = document.getElementById("vmBootOrder");
+    const vmNotes = document.getElementById("vmNotes");
+
+    const payload = {
+      id: vmId?.value || null,
+      name: vmName?.value?.trim() || "",
+      osType: vmOsType?.value || "linux",
+      cpu: parseInt(vmCpu?.value, 10) || 2,
+      memoryMb: parseInt(vmMemory?.value, 10) || 2048,
+      storageGb: parseInt(vmStorage?.value, 10) || 20,
+      networkMode: vmNetwork?.value || "nat",
+      bridgeInterface: vmBridge?.value?.trim() || "",
+      macAddress: vmMac?.value?.trim() || "",
+      isoPath: vmIso?.value?.trim() || "",
+      diskPath: vmDisk?.value?.trim() || "",
+      autostart: vmAutostart?.checked || false,
+      vncPort: parseInt(vmVncPort?.value, 10) || 5901,
+      qemuBinary: vmQemuBin?.value?.trim() || "qemu-system-x86_64",
+      bootOrder: vmBootOrder?.value?.trim() || "cd",
+      notes: vmNotes?.value?.trim() || "",
+    };
+    const result = await window.electronAPI.virtualOS.save(payload);
+    if (!result?.success) {
+      showToast(result?.message || "Gagal menyimpan VM.", 3500, "error");
+      return;
+    }
+    closeVmModal();
+    await loadVmList();
+    showToast("OS Virtual tersimpan.", 2500, "success");
+  } catch (err) {
+    showToast(err?.message || "Gagal menyimpan VM.", 3500, "error");
+  }
+};
+
+async function deleteVm(id) {
+  if (!id) return;
+  const confirm = await Swal.fire({
+    title: "Hapus OS?",
+    text: "Data konfigurasi OS virtual akan dihapus.",
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonText: "Ya, hapus",
+    cancelButtonText: "Batal",
+  });
+  if (!confirm.isConfirmed) return;
+  const result = await window.electronAPI.virtualOS.delete(id);
+  if (!result?.success) {
+    showToast(result?.message || "Gagal menghapus VM.", 3500, "error");
+    return;
+  }
+  await loadVmList();
+  showToast("OS Virtual dihapus.", 2500, "success");
+}
+
+async function loadVmList() {
+  const container = document.getElementById("vm-list");
+  if (!container) return;
+  container.innerHTML = "Loading...";
+  try {
+    const result = await window.electronAPI.virtualOS.list();
+    if (!result?.success) {
+      container.innerHTML = `<p style="color:#ef4444;">${
+        result?.message || "Gagal memuat VM"
+      }</p>`;
+      return;
+    }
+    const items = Array.isArray(result.items) ? result.items : [];
+    vmListCache = items;
+    if (!items.length) {
+      container.innerHTML =
+        '<div class="wa-empty-state"><p>Belum ada OS Virtual. Klik "Tambah OS".</p></div>';
+      return;
+    }
+    container.innerHTML = items
+      .map(
+        (vm) => `
+      <div class="device-card">
+        <div class="device-header">
+          <h4>${vm.name || "Tanpa nama"}</h4>
+          <span class="chip">${(vm.osType || "OS").toUpperCase()}</span>
+        </div>
+        <div class="device-body">
+          <p><strong>CPU:</strong> ${vm.cpu || 1} core • <strong>RAM:</strong> ${
+        vm.memoryMb || 0
+      } MB • <strong>Storage:</strong> ${vm.storageGb || 0} GB</p>
+          <p><strong>Network:</strong> ${vm.networkMode || "nat"}</p>
+          <p><strong>VNC:</strong> 127.0.0.1:${vm.vncPort || 5901}</p>
+          ${
+            vm.autostart
+              ? '<span class="chip success">Autostart</span>'
+              : '<span class="chip">Manual</span>'
+          }
+            ${vm.notes ? `<p style="color:#cbd5e1;">${vm.notes}</p>` : ""}
+          </div>
+          <div class="device-actions">
+            <button class="btn-outline" onclick=\"openVmModalById('${vm.id}')\"><i class=\"bi bi-pencil\"></i> Edit</button>
+            <button class="btn-success" onclick="startVm('${vm.id}')"><i class="bi bi-play-fill"></i> Start</button>
+            <button class="btn-warning" onclick="restartVm('${vm.id}')"><i class="bi bi-arrow-repeat"></i> Restart</button>
+            <button class="btn-danger" onclick="stopVm('${vm.id}')"><i class="bi bi-stop-fill"></i> Stop</button>
+            <button class="btn-secondary" onclick="snapshotVm('${vm.id}')"><i class="bi bi-camera"></i> Snapshot</button>
+            <button class="btn-danger" onclick="deleteVm('${vm.id}')"><i class="bi bi-trash"></i> Hapus</button>
+          </div>
+        </div>
+      `
+      )
+      .join("");
+  } catch (err) {
+    container.innerHTML = `<p style="color:#ef4444;">${err?.message || "Gagal memuat VM"}</p>`;
+  }
+}
+
+async function startVm(id) {
+  const result = await window.electronAPI.virtualOS.start(id);
+  if (!result?.success) {
+    showToast(result?.message || "Gagal start VM.", 3500, "error");
+    return;
+  }
+  showToast("VM dijalankan (QEMU).", 2000, "info");
+  if (result.wsPort) {
+    openVncViewer(result.wsPort);
+  }
+  await loadVmList();
+}
+
+async function stopVm(id) {
+  const result = await window.electronAPI.virtualOS.stop(id);
+  if (!result?.success) {
+    showToast(result?.message || "Gagal stop VM.", 3500, "error");
+    return;
+  }
+  showToast("VM dihentikan.", 2000, "info");
+  await loadVmList();
+}
+
+async function restartVm(id) {
+  const result = await window.electronAPI.virtualOS.restart(id);
+  if (!result?.success) {
+    showToast(result?.message || "Gagal restart VM.", 3500, "error");
+    return;
+  }
+  showToast("VM direstart.", 2000, "info");
+  await loadVmList();
+}
+
+async function snapshotVm(id) {
+  const input = await Swal.fire({
+    title: "Snapshot",
+    input: "text",
+    inputLabel: "Nama snapshot",
+    inputPlaceholder: "Misal: sebelum update",
+    showCancelButton: true,
+    confirmButtonText: "Simpan",
+    cancelButtonText: "Batal",
+  });
+  if (!input.isConfirmed) return;
+  const result = await window.electronAPI.virtualOS.snapshot(
+    id,
+    input.value || "Snapshot"
+  );
+  if (!result?.success) {
+    showToast(result?.message || "Gagal snapshot.", 3500, "error");
+    return;
+  }
+  await loadVmList();
+  showToast("Snapshot dibuat.", 2000, "success");
+}
+
+function openVncViewer(port) {
+  if (!port) return;
+  const url = `vnc-viewer.html?host=127.0.0.1&port=${port}`;
+  window.open(url, "_blank", "width=1024,height=768");
+}
+
+async function browseVmIsoFile() {
+  try {
+    const isoInput = document.getElementById("vmIso");
+    const result = await window.electronAPI.virtualOS.browseIsoFile();
+    if (result?.success && result.path) {
+      isoInput.value = result.path;
+    } else if (!result?.canceled && result?.message) {
+      showToast(result.message, 3000, "warning");
+    }
+  } catch (err) {
+    console.warn("⚠️ Gagal membuka dialog ISO:", err?.message || err);
+  }
+}
+
+function applyQuickIso() {
+  const select = document.getElementById("vmQuickIso");
+  const isoInput = document.getElementById("vmIso");
+  const url = select?.value || "";
+  if (!url) {
+    showToast("Pilih OS ringan terlebih dahulu.", 2500, "info");
+    return;
+  }
+  isoInput.value = url;
+  showToast("URL ISO diisi. Download manual atau salin ke disk lokal.", 3000, "info");
+}
 
 window.openVersionInfoDialog =
   window.openVersionInfoDialog ||
@@ -7123,8 +7652,10 @@ window.submitAndroidDevice = async function () {
 
   // Add WhatsApp automation URLs if service is android-whatsapp
   if (service === "android-whatsapp") {
-    const baseUrl = document.getElementById("addWhatsAppBaseUrl")?.value.trim() || "";
-    const callbackUrl = document.getElementById("addWhatsAppCallbackUrl")?.value.trim() || "";
+    const baseUrl =
+      document.getElementById("addWhatsAppBaseUrl")?.value.trim() || "";
+    const callbackUrl =
+      document.getElementById("addWhatsAppCallbackUrl")?.value.trim() || "";
 
     deviceData.whatsappBaseUrl = baseUrl;
     deviceData.whatsappCallbackUrl = callbackUrl;
@@ -7149,9 +7680,10 @@ window.submitAndroidDevice = async function () {
       const needUpgrade =
         authState.allowsAndroidEmulator !== true &&
         (authState.isLoggedIn ? !isFreePackageTier() : true);
-      const reason = !authState.isLoggedIn || isFreePackageTier()
-        ? "Mode tamu/paket gratis dibatasi 1 device ADB Remote."
-        : "Paket Anda belum mendukung Android Emulator/ADB tanpa batas.";
+      const reason =
+        !authState.isLoggedIn || isFreePackageTier()
+          ? "Mode tamu/paket gratis dibatasi 1 device ADB Remote."
+          : "Paket Anda belum mendukung Android Emulator/ADB tanpa batas.";
       const action = needUpgrade
         ? "Silakan login atau upgrade paket yang mendukung Android Emulator."
         : "Silakan hapus device lama sebelum menambah yang baru.";
@@ -7183,6 +7715,203 @@ window.submitAndroidDevice = async function () {
     }
   } catch (err) {
     console.error("Error adding Android device:", err);
+    showToast("Error: " + err.message, 4000, "error");
+  }
+};
+
+// ==================== OS Virtual Modal Functions ====================
+
+window.openModalOSVirtual = function () {
+  const modal = document.getElementById("addModalOSVirtual");
+  if (!modal) return;
+
+  // Reset form
+  const nameInput = document.getElementById("osVirtualName");
+  if (nameInput) nameInput.value = "";
+
+  const downloadSelect = document.getElementById("osDownloadSelect");
+  if (downloadSelect) downloadSelect.selectedIndex = 0;
+
+  const isoFile = document.getElementById("osISOFile");
+  if (isoFile) isoFile.value = "";
+
+  // Reset to download method
+  const downloadRadio = document.getElementById("osMethodDownload");
+  if (downloadRadio) downloadRadio.checked = true;
+
+  // Reset sections visibility
+  const downloadSection = document.getElementById("osDownloadSection");
+  const isoSection = document.getElementById("osISOSection");
+  if (downloadSection) downloadSection.style.display = "block";
+  if (isoSection) isoSection.style.display = "none";
+
+  // Reset VM specs to default
+  const ramSelect = document.getElementById("osVMRam");
+  const coresSelect = document.getElementById("osVMCores");
+  const diskSelect = document.getElementById("osVMDisk");
+  const resolutionSelect = document.getElementById("osVMResolution");
+
+  if (ramSelect) ramSelect.value = "2048";
+  if (coresSelect) coresSelect.value = "2";
+  if (diskSelect) diskSelect.value = "40";
+  if (resolutionSelect) resolutionSelect.value = "1920x1080";
+
+  modal.style.display = "flex";
+};
+
+window.closeModalOSVirtual = function () {
+  const modal = document.getElementById("addModalOSVirtual");
+  if (!modal) return;
+  modal.style.display = "none";
+};
+
+window.toggleOSInstallMethod = function () {
+  const downloadRadio = document.getElementById("osMethodDownload");
+  const isoRadio = document.getElementById("osMethodISO");
+  const downloadSection = document.getElementById("osDownloadSection");
+  const isoSection = document.getElementById("osISOSection");
+
+  if (!downloadSection || !isoSection) return;
+
+  if (downloadRadio && downloadRadio.checked) {
+    downloadSection.style.display = "block";
+    isoSection.style.display = "none";
+  } else if (isoRadio && isoRadio.checked) {
+    downloadSection.style.display = "none";
+    isoSection.style.display = "block";
+  }
+};
+
+window.browseISOFile = async function () {
+  try {
+    const result = await window.electronAPI.virtualOS.browseIsoFile();
+
+    if (result.success && result.path) {
+      const isoPathInput = document.getElementById("osISOPath");
+      if (isoPathInput) {
+        isoPathInput.value = result.path;
+      }
+      console.log("📁 ISO file selected:", result.path);
+    } else if (!result.canceled) {
+      showToast(result.message || "Gagal memilih file ISO", 3000, "error");
+    }
+  } catch (err) {
+    console.error("❌ Error browsing ISO file:", err);
+    showToast("Error: " + err.message, 3000, "error");
+  }
+};
+
+window.browseVmIsoFile = async function () {
+  try {
+    const result = await window.electronAPI.virtualOS.browseIsoFile();
+
+    if (result.success && result.path) {
+      const isoInput = document.getElementById("vmIso");
+      if (isoInput) {
+        isoInput.value = result.path;
+      }
+      console.log("📁 ISO file selected for VM:", result.path);
+    } else if (!result.canceled) {
+      showToast(result.message || "Gagal memilih file ISO", 3000, "error");
+    }
+  } catch (err) {
+    console.error("❌ Error browsing ISO file:", err);
+    showToast("Error: " + err.message, 3000, "error");
+  }
+};
+
+window.submitOSVirtual = async function () {
+  const name = document.getElementById("osVirtualName")?.value.trim() || "";
+  const downloadRadio = document.getElementById("osMethodDownload");
+  const isoRadio = document.getElementById("osMethodISO");
+
+  // Validation
+  if (!name) {
+    showToast("Nama device wajib diisi.", 3000, "warning");
+    return;
+  }
+
+  const installMethod = downloadRadio?.checked ? "download" : "iso";
+  let osSource = "";
+  let isoPath = "";
+
+  if (installMethod === "download") {
+    const downloadSelect = document.getElementById("osDownloadSelect");
+    osSource = downloadSelect?.value || "";
+    if (!osSource) {
+      showToast("Pilih OS yang akan didownload.", 3000, "warning");
+      return;
+    }
+  } else {
+    const isoPathInput = document.getElementById("osISOPath");
+    isoPath = isoPathInput?.value.trim() || "";
+    if (!isoPath) {
+      showToast("Pilih file ISO terlebih dahulu.", 3000, "warning");
+      return;
+    }
+  }
+
+  // Get VM specifications
+  const ramMb = parseInt(document.getElementById("osVMRam")?.value || "2048");
+  const cores = parseInt(document.getElementById("osVMCores")?.value || "2");
+  const diskGb = parseInt(document.getElementById("osVMDisk")?.value || "40");
+  const resolution = document.getElementById("osVMResolution")?.value || "1920x1080";
+
+  // Prepare device data
+  const vmData = {
+    name,
+    service: "os-virtual",
+    installMethod,
+    osSource: installMethod === "download" ? osSource : "",
+    isoPath: installMethod === "iso" ? isoPath : "",
+    vmSpec: {
+      ramMb,
+      cores,
+      diskGb,
+      resolution,
+    },
+  };
+
+  try {
+    // TODO: Implement backend handler for OS Virtual
+    // For now, show a message that the feature is in development
+    console.log("VM Data to be saved:", vmData);
+
+    showToast(
+      "✅ Virtual Machine akan segera dibuat. Fitur ini sedang dalam pengembangan.",
+      4000,
+      "info"
+    );
+
+    // TODO: Call backend API to create VM
+    // const result = await window.electronAPI.osVirtual.createVM(vmData);
+
+    closeModalOSVirtual();
+
+    // Show detailed info
+    Swal.fire({
+      title: "OS Virtual - Coming Soon",
+      html: `
+        <div style="text-align: left; font-size: 14px;">
+          <p><strong>Nama:</strong> ${name}</p>
+          <p><strong>Metode:</strong> ${installMethod === "download" ? "Download OS" : "Upload ISO"}</p>
+          ${installMethod === "download" ? `<p><strong>OS:</strong> ${osSource}</p>` : `<p><strong>ISO Path:</strong> ${isoPath}</p>`}
+          <p><strong>RAM:</strong> ${ramMb} MB</p>
+          <p><strong>CPU:</strong> ${cores} Cores</p>
+          <p><strong>Disk:</strong> ${diskGb} GB</p>
+          <p><strong>Resolution:</strong> ${resolution}</p>
+        </div>
+        <hr style="margin: 16px 0;">
+        <p style="font-size: 13px; color: #666;">
+          Fitur OS Virtual akan menggunakan QEMU atau VirtualBox untuk menjalankan VM.
+          Backend sedang dalam pengembangan.
+        </p>
+      `,
+      icon: "info",
+      confirmButtonText: "OK",
+    });
+  } catch (err) {
+    console.error("Error creating OS Virtual:", err);
     showToast("Error: " + err.message, 4000, "error");
   }
 };
@@ -7373,6 +8102,8 @@ window.switchPage = async function (page) {
     } else {
       console.warn("loadWAGatewayPage is not defined.");
     }
+  } else if (page === "os-virtual") {
+    await loadVmList();
   }
 
   // Refresh iklan per halaman (hit ulang per menu)

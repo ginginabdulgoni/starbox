@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TikTok Control</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: radial-gradient(circle at 12% 20%, rgba(58, 70, 88, 0.65), transparent 35%),
+          radial-gradient(circle at 80% 10%, rgba(99, 102, 241, 0.3), transparent 30%),
+          #0b1220;
+        color: #e2e8f0;
+        min-height: 100vh;
+      }
+
+      header {
+        padding: 16px 18px 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+        background: linear-gradient(90deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.9));
+        position: sticky;
+        top: 0;
+        backdrop-filter: blur(8px);
+      }
+
+      .eyebrow {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 11px;
+        color: #94a3b8;
+      }
+
+      .title {
+        margin: 2px 0 4px;
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .meta {
+        font-size: 12px;
+        color: #a5b4fc;
+        word-break: break-all;
+        opacity: 0.9;
+      }
+
+      main {
+        padding: 14px 16px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .card {
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 14px;
+        padding: 14px;
+        background: rgba(15, 23, 42, 0.7);
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+      }
+
+      .card h3 {
+        margin: 0 0 10px;
+        font-size: 14px;
+        color: #cbd5e1;
+        letter-spacing: 0.01em;
+      }
+
+      .toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(30, 41, 59, 0.6);
+        border: 1px solid rgba(148, 163, 184, 0.3);
+      }
+
+      .toggle label {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .toggle label span {
+        font-weight: 600;
+      }
+
+      .pill {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.16);
+        color: #cbd5e1;
+        border: 1px solid rgba(148, 163, 184, 0.24);
+      }
+
+      .switch {
+        position: relative;
+        width: 46px;
+        height: 26px;
+        display: inline-block;
+      }
+
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #1f2937;
+        transition: 0.2s;
+        border-radius: 34px;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+      }
+
+      .slider:before {
+        position: absolute;
+        content: "";
+        height: 18px;
+        width: 18px;
+        left: 4px;
+        bottom: 3px;
+        background-color: white;
+        transition: 0.2s;
+        border-radius: 50%;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+      }
+
+      .switch input:checked + .slider {
+        background: linear-gradient(120deg, #08f7fe, #fe53bb);
+        border-color: #a5b4fc;
+      }
+
+      .switch input:checked + .slider:before {
+        transform: translateX(18px);
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 10px;
+      }
+
+      .field label {
+        color: #cbd5e1;
+        font-size: 12px;
+        letter-spacing: 0.01em;
+      }
+
+      input[type="number"],
+      select,
+      textarea {
+        width: 100%;
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        border-radius: 10px;
+        color: #e2e8f0;
+        padding: 10px 12px;
+        font-size: 14px;
+        resize: vertical;
+        min-height: 38px;
+      }
+
+      textarea {
+        min-height: 72px;
+        max-height: 160px;
+      }
+
+      .status-line {
+        font-size: 12px;
+        color: #94a3b8;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+        background: #f97316;
+        box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.15);
+      }
+
+      .dot.success {
+        background: #22c55e;
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+      }
+
+      .dot.idle {
+        background: #475569;
+        box-shadow: none;
+      }
+
+      .log {
+        border-radius: 12px;
+        padding: 12px;
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px dashed rgba(148, 163, 184, 0.35);
+        min-height: 70px;
+        font-size: 13px;
+        color: #cbd5e1;
+        line-height: 1.5;
+        white-space: pre-wrap;
+      }
+
+      .footer {
+        font-size: 11px;
+        color: #64748b;
+        text-align: right;
+        margin-top: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <div class="eyebrow">TikTok Automation</div>
+        <div class="title" id="deviceName">TikTok Control</div>
+        <div class="meta" id="targetUrl">tiktok.com</div>
+      </div>
+      <div class="dot idle" id="statusDot"></div>
+    </header>
+
+    <main>
+      <div class="card">
+        <div class="toggle">
+          <label>
+            <span>Auto Love</span>
+            <span class="pill" id="likeStatus">Mati</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="autoLikeToggle" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="field">
+          <label for="likeInterval">Interval Like (detik)</label>
+          <input id="likeInterval" type="number" min="2" step="1" value="5" />
+        </div>
+        <div class="field">
+          <label for="likeMode">Mode Love</label>
+          <select id="likeMode">
+            <option value="interval">Interval (tiap detik)</option>
+            <option value="burst">Tap cepat seperti robot</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="burstDuration">Durasi spam (detik) untuk mode burst</label>
+          <input id="burstDuration" type="number" min="5" step="1" value="30" />
+        </div>
+        <div class="field">
+          <label for="burstRest">Jeda setelah spam (detik)</label>
+          <input id="burstRest" type="number" min="5" step="1" value="20" />
+        </div>
+        <div class="status-line" id="lastLike">Menunggu...</div>
+      </div>
+
+      <div class="card">
+        <div class="toggle">
+          <label>
+            <span>Auto Comment</span>
+            <span class="pill" id="commentStatus">Mati</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="autoCommentToggle" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="field">
+          <label for="commentText">Teks Komentar</label>
+          <textarea
+            id="commentText"
+            maxlength="180"
+            placeholder="Contoh: Mantap videonya! 👍"
+          ></textarea>
+        </div>
+        <div class="field" style="gap: 10px">
+          <label for="commentCsv">Import daftar komentar (CSV/TXT, kolom pertama)</label>
+          <div style="display: flex; gap: 8px; align-items: center">
+            <button
+              id="commentCsv"
+              type="button"
+              style="
+                flex: 0 0 auto;
+                padding: 10px 12px;
+                border-radius: 10px;
+                border: 1px solid rgba(148, 163, 184, 0.35);
+                background: rgba(99, 102, 241, 0.15);
+                color: #e2e8f0;
+                cursor: pointer;
+              "
+            >
+              Import CSV
+            </button>
+            <button
+              id="commentCsvSample"
+              type="button"
+              style="
+                flex: 0 0 auto;
+                padding: 10px 12px;
+                border-radius: 10px;
+                border: 1px solid rgba(148, 163, 184, 0.35);
+                background: rgba(52, 211, 153, 0.18);
+                color: #e2e8f0;
+                cursor: pointer;
+              "
+            >
+              Download Sample
+            </button>
+            <div
+              id="commentCsvInfo"
+              class="pill"
+              style="flex: 1; text-align: center; background: rgba(148, 163, 184, 0.14)"
+            >
+              Belum ada daftar
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label for="commentInterval">Interval Komentar (detik)</label>
+          <input
+            id="commentInterval"
+            type="number"
+            min="5"
+            step="1"
+            value="60"
+          />
+        </div>
+        <div class="status-line" id="lastComment">Menunggu...</div>
+      </div>
+
+      <div class="card">
+        <h3>Log Terbaru</h3>
+        <div class="log" id="logArea">Menunggu instruksi...</div>
+        <div class="footer">Automation hanya aktif di domain tiktok.com</div>
+      </div>
+    </main>
+
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const uid = params.get("uid") || "";
+      const deviceName =
+        decodeURIComponent(params.get("name") || "") || "TikTok Control";
+      const targetUrl = decodeURIComponent(params.get("url") || "") || "tiktok.com";
+
+      const els = {
+        deviceName: document.getElementById("deviceName"),
+        targetUrl: document.getElementById("targetUrl"),
+        statusDot: document.getElementById("statusDot"),
+        log: document.getElementById("logArea"),
+        likeToggle: document.getElementById("autoLikeToggle"),
+        likeMode: document.getElementById("likeMode"),
+        burstDuration: document.getElementById("burstDuration"),
+        burstRest: document.getElementById("burstRest"),
+        commentToggle: document.getElementById("autoCommentToggle"),
+        likeStatus: document.getElementById("likeStatus"),
+        commentStatus: document.getElementById("commentStatus"),
+        likeInterval: document.getElementById("likeInterval"),
+        commentInterval: document.getElementById("commentInterval"),
+        commentText: document.getElementById("commentText"),
+        commentCsvButton: document.getElementById("commentCsv"),
+        commentCsvSample: document.getElementById("commentCsvSample"),
+        commentCsvInfo: document.getElementById("commentCsvInfo"),
+        lastLike: document.getElementById("lastLike"),
+        lastComment: document.getElementById("lastComment"),
+      };
+
+      els.deviceName.textContent = deviceName;
+      els.targetUrl.textContent = targetUrl;
+
+      let updatingUI = false;
+      let cleanup = null;
+
+      function formatStatus(label, time) {
+        if (!label) return "Menunggu...";
+        const ts = time ? new Date(time) : null;
+        const clock = ts ? ts.toLocaleTimeString() : "";
+        return clock ? `${label} • ${clock}` : label;
+      }
+
+      function appendLog(message) {
+        if (!message) return;
+        const now = new Date().toLocaleTimeString();
+        const previous = els.log.textContent.trim();
+        const combined = [`[${now}] ${message}`, previous].filter(Boolean).join("\n");
+        const lines = combined.split("\n").slice(0, 30); // batasi 30 baris, terbaru di atas
+        els.log.textContent = lines.join("\n");
+      }
+
+      function applyState(state = {}, meta = {}) {
+        updatingUI = true;
+        els.likeToggle.checked = !!state.autoLike;
+        els.commentToggle.checked = !!state.autoComment;
+        els.likeInterval.value = Math.max(
+          2,
+          Math.round((state.likeIntervalMs || 5000) / 1000)
+        );
+        els.commentInterval.value = Math.max(
+          5,
+          Math.round((state.commentIntervalMs || 12000) / 1000)
+        );
+        if (els.likeMode && state.likeMode) {
+          els.likeMode.value = state.likeMode;
+        }
+        if (state.commentText !== undefined) {
+          els.commentText.value = state.commentText || "";
+        }
+        if (els.burstDuration && state.burstDurationMs) {
+          els.burstDuration.value = Math.max(
+            5,
+            Math.round((state.burstDurationMs || 60000) / 1000)
+          );
+        }
+        if (els.burstRest && state.burstRestMs) {
+          els.burstRest.value = Math.max(
+            5,
+            Math.round((state.burstRestMs || 20000) / 1000)
+          );
+        }
+        els.likeStatus.textContent = state.autoLike ? "Aktif" : "Mati";
+        els.commentStatus.textContent = state.autoComment ? "Aktif" : "Mati";
+        els.statusDot.className = state.autoLike || state.autoComment ? "dot success" : "dot idle";
+        els.lastLike.textContent = formatStatus(
+          state.lastLike?.result || meta.lastLike || "",
+          state.lastLike?.at
+        );
+        els.lastComment.textContent = formatStatus(
+          state.lastComment?.result || meta.lastComment || "",
+          state.lastComment?.at
+        );
+        if (els.commentCsvInfo) {
+          const count = state.commentPoolSize || 0;
+          els.commentCsvInfo.textContent =
+            count > 0 ? `${count} komentar siap dipakai` : "Belum ada daftar";
+        }
+        if (meta.message) {
+          appendLog(meta.message);
+        } else if (state.lastMessage) {
+          appendLog(state.lastMessage);
+        }
+        updatingUI = false;
+      }
+
+      function collectSettings() {
+        return {
+          commentText: els.commentText.value || "",
+          likeIntervalMs: Math.max(
+            2000,
+            Number(els.likeInterval.value || 5) * 1000
+          ),
+          commentIntervalMs: Math.max(
+            5000,
+            Number(els.commentInterval.value || 12) * 1000
+          ),
+          likeMode: els.likeMode ? els.likeMode.value : "interval",
+          burstDurationMs: Math.max(
+            5000,
+            Number(els.burstDuration?.value || 60) * 1000
+          ),
+          burstRestMs: Math.max(
+            5000,
+            Number(els.burstRest?.value || 20) * 1000
+          ),
+        };
+      }
+
+      function debounce(fn, delay = 400) {
+        let t = null;
+        return (...args) => {
+          clearTimeout(t);
+          t = setTimeout(() => fn(...args), delay);
+        };
+      }
+
+      function bindEvents() {
+        els.likeToggle.addEventListener("change", () => {
+          if (updatingUI) return;
+          window.tiktokControl
+            .toggle(uid, "like", els.likeToggle.checked, collectSettings())
+            .catch(() => {});
+        });
+
+        els.commentToggle.addEventListener("change", () => {
+          if (updatingUI) return;
+          window.tiktokControl
+            .toggle(uid, "comment", els.commentToggle.checked, collectSettings())
+            .catch(() => {});
+        });
+
+        const sendSettings = debounce(() => {
+          if (updatingUI) return;
+          window.tiktokControl
+            .updateSettings(uid, collectSettings())
+            .catch(() => {});
+        }, 350);
+
+        ["likeInterval", "commentInterval", "commentText", "likeMode", "burstDuration", "burstRest"].forEach((id) => {
+          const el = els[id];
+          if (!el) return;
+          ["input", "change", "blur"].forEach((evt) => {
+            el.addEventListener(evt, sendSettings);
+          });
+        });
+
+        if (els.commentCsvButton) {
+          els.commentCsvButton.addEventListener("click", async () => {
+            const res = await window.tiktokControl.importCsv(uid);
+            if (res?.success && res.imported) {
+              appendLog(`Import ${res.imported} komentar dari CSV.`);
+              if (res.state) {
+                applyState(res.state, { message: res.message });
+              }
+            } else if (res?.message) {
+              appendLog(res.message);
+            }
+          });
+        }
+        if (els.commentCsvSample) {
+          els.commentCsvSample.addEventListener("click", async () => {
+            const res = await window.tiktokControl.saveSampleCsv();
+            if (res?.success) {
+              appendLog(`Sample disimpan di ${res.path}`);
+            } else if (res?.message) {
+              appendLog(res.message);
+            }
+          });
+        }
+      }
+
+      async function init() {
+        try {
+          const response = await window.tiktokControl.init(uid);
+          if (response?.state) {
+            applyState(response.state, { message: response.message });
+          }
+          if (!cleanup) {
+            cleanup = window.tiktokControl.onUpdate((data = {}) => {
+              if (data.uid && data.uid !== uid) return;
+              if (data.state) applyState(data.state, data);
+              if (data.message) appendLog(data.message);
+            });
+          }
+        } catch (err) {
+          appendLog(err?.message || "Gagal memuat kontrol TikTok");
+        }
+      }
+
+      bindEvents();
+      init();
+    </script>
+  </body>
+</html>

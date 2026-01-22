@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StarBox VNC Viewer</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #0b1220;
+        color: #e2e8f0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      #status {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        padding: 8px 12px;
+        background: rgba(0, 0, 0, 0.7);
+        border-radius: 8px;
+        font-size: 12px;
+        z-index: 10;
+        color: #fbbf24;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      }
+      #vncScreen {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #vncScreen canvas {
+        max-width: 100%;
+        max-height: 100%;
+      }
+    </style>
+    <script type="module">
+      // Import noVNC RFB module
+      import RFB from 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.4.0/core/rfb.js';
+
+      function getParams() {
+        const url = new URL(window.location.href);
+        return {
+          host: url.searchParams.get("host") || "127.0.0.1",
+          port: url.searchParams.get("port") || "6080",
+        };
+      }
+
+      const params = getParams();
+      console.log("VNC Viewer params:", params);
+
+      const statusEl = document.getElementById("status");
+      const screen = document.getElementById("vncScreen");
+
+      // Update status
+      function updateStatus(text, color = "#fbbf24") {
+        statusEl.textContent = text;
+        statusEl.style.color = color;
+      }
+
+      updateStatus(`Connecting to ws://${params.host}:${params.port}...`);
+
+      try {
+        const rfb = new RFB(screen, `ws://${params.host}:${params.port}`, {
+          credentials: { password: '' }
+        });
+
+        rfb.viewOnly = false;
+        rfb.scaleViewport = true;
+        rfb.resizeSession = false;
+
+        rfb.addEventListener("connect", () => {
+          console.log("✅ VNC Connected");
+          updateStatus("✅ Connected", "#10b981");
+          setTimeout(() => {
+            statusEl.style.display = "none";
+          }, 2000);
+        });
+
+        rfb.addEventListener("disconnect", (e) => {
+          console.log("❌ VNC Disconnected:", e.detail);
+          const reason = e.detail?.clean ? "Connection closed" : "Connection error";
+          updateStatus(`❌ Disconnected: ${reason}`, "#ef4444");
+          statusEl.style.display = "block";
+        });
+
+        rfb.addEventListener("credentialsrequired", () => {
+          console.log("🔑 VNC credentials required");
+          updateStatus("🔑 Authentication required", "#f59e0b");
+        });
+
+        rfb.addEventListener("securityfailure", (e) => {
+          console.error("❌ VNC security failure:", e.detail);
+          updateStatus(`❌ Security failure: ${e.detail?.status || 'unknown'}`, "#ef4444");
+        });
+
+        // Debug logging
+        console.log("🎬 VNC RFB initialized");
+        console.log("📍 Target:", `ws://${params.host}:${params.port}`);
+
+      } catch (err) {
+        console.error("❌ Failed to initialize VNC viewer:", err);
+        updateStatus(`❌ Error: ${err.message}`, "#ef4444");
+      }
+    </script>
+  </head>
+  <body>
+    <div id="status">Initializing...</div>
+    <div id="vncScreen"></div>
+  </body>
+</html>

@@ -503,6 +503,24 @@
       </div>
       <div class="header-actions" style="display: flex; gap: 8px;">
         <button
+          id="resetCountdownButton"
+          class="header-action control-btn"
+          type="button"
+          title="Reset hitung mundur fetch otomatis (1 menit)"
+          style="display: none"
+        >
+          🔄 Timer
+        </button>
+        <button
+          id="manualFetchButton"
+          class="header-action control-btn"
+          type="button"
+          title="Ambil pending message sekarang"
+          style="display: none"
+        >
+          ⚡ Get
+        </button>
+        <button
           id="guardToggleButton"
           class="header-action control-btn"
           type="button"
@@ -623,6 +641,8 @@
       const playPauseButton = document.getElementById("playPauseButton");
       const stopButton = document.getElementById("stopButton");
       const guardToggleButton = document.getElementById("guardToggleButton");
+      const resetCountdownButton = document.getElementById("resetCountdownButton");
+      const manualFetchButton = document.getElementById("manualFetchButton");
       const automationStatusLabel = document.getElementById("automationStatus");
       const statusIndicator = document.querySelector(".status-indicator");
 
@@ -647,6 +667,8 @@
         responsePreview: "",
         endpoint: "",
       };
+
+      const FETCH_INTERVAL_MS = 60_000; // 1 menit
 
       const monitorState = {
         queue: [],
@@ -695,6 +717,10 @@
         }
       }
 
+      function setNextFetchCountdown(ms = FETCH_INTERVAL_MS) {
+        monitorState.nextFetchAt = new Date(Date.now() + ms).toISOString();
+      }
+
       function updateCountdownLabel() {
         if (!nextFetchLabel) return;
 
@@ -707,6 +733,10 @@
           return;
         }
 
+        if (!monitorState.nextFetchAt && monitorState.autoSender !== false) {
+          setNextFetchCountdown();
+        }
+
         // Cek apakah countdown sudah selesai
         if (monitorState.nextFetchAt && Date.now() >= new Date(monitorState.nextFetchAt).getTime()) {
           // Trigger fetch pending hanya jika automation running
@@ -714,8 +744,8 @@
             console.log("⏰ Countdown selesai, trigger fetch pending untuk UID:", monitorState.uid);
             window.monitorAPI.triggerFetchPending(monitorState.uid);
           }
-          // Reset nextFetchAt agar tidak trigger berulang
-          monitorState.nextFetchAt = null;
+          // Jadwalkan ulang otomatis tiap 1 menit
+          setNextFetchCountdown();
         }
 
         const text = formatFetchCountdown(monitorState.nextFetchAt);
@@ -897,6 +927,19 @@
           ? "Izinkan mouse & keyboard sementara (mode manual)."
           : "Aktifkan kembali blokir mouse & keyboard agar automation stabil.";
         guardToggleButton.disabled = false;
+      }
+
+      function updateFetchButtons() {
+        const hasUid = Boolean(monitorState.uid);
+        const enabled = hasUid && monitorState.autoSender !== false;
+        if (resetCountdownButton) {
+          resetCountdownButton.style.display = enabled ? "inline-flex" : "none";
+          resetCountdownButton.disabled = !enabled;
+        }
+        if (manualFetchButton) {
+          manualFetchButton.style.display = enabled ? "inline-flex" : "none";
+          manualFetchButton.disabled = !enabled;
+        }
       }
 
       function updateMeta() {
@@ -1096,7 +1139,14 @@
         }
 
         if ("nextFetchAt" in payload) {
-          monitorState.nextFetchAt = payload.nextFetchAt || null;
+          if (payload.nextFetchAt) {
+            const parsedNext = new Date(payload.nextFetchAt);
+            monitorState.nextFetchAt = Number.isNaN(parsedNext.getTime())
+              ? payload.nextFetchAt
+              : parsedNext.toISOString();
+          } else {
+            monitorState.nextFetchAt = null;
+          }
         }
 
         if ("connection" in payload) {
@@ -1143,6 +1193,7 @@
             : "none";
         updateMeta();
         renderQueue();
+        updateFetchButtons();
       }
 
       if (copyTokenButton) {
@@ -1215,6 +1266,10 @@
           statusIndicator.dataset.status = newState;
           if (newState === "running") {
             automationStatusLabel.textContent = "RUNNING";
+            if (!monitorState.nextFetchAt) {
+              setNextFetchCountdown();
+              updateCountdownLabel();
+            }
           } else if (newState === "paused") {
             automationStatusLabel.textContent = "PAUSED";
           } else if (newState === "stopped") {
@@ -1278,6 +1333,26 @@
         });
       }
 
+      if (resetCountdownButton) {
+        resetCountdownButton.addEventListener("click", () => {
+          if (!monitorState.uid) return;
+          setNextFetchCountdown();
+          updateCountdownLabel();
+          console.log("🔄 Countdown di-reset manual oleh pengguna.");
+        });
+      }
+
+      if (manualFetchButton) {
+        manualFetchButton.addEventListener("click", () => {
+          if (!monitorState.uid || !window.monitorAPI?.triggerFetchPending) return;
+          console.log("⚡ Fetch pending manual untuk UID:", monitorState.uid);
+          window.monitorAPI.triggerFetchPending(monitorState.uid);
+          setNextFetchCountdown();
+          updateCountdownLabel();
+        });
+      }
+
+      updateFetchButtons();
       updateCountdownLabel();
       if (nextFetchLabel) {
         setInterval(updateCountdownLabel, 1000);
@@ -1289,8 +1364,7 @@
         // Set countdown 1 menit pertama kali saat monitor di-load
         setTimeout(() => {
           if (!monitorState.nextFetchAt) {
-            const oneMinuteFromNow = Date.now() + 60000; // 1 menit dari sekarang
-            monitorState.nextFetchAt = oneMinuteFromNow;
+            setNextFetchCountdown();
             updateCountdownLabel();
             console.log("⏰ Countdown 1 menit dimulai untuk fetch pesan pending pertama kali");
           }
