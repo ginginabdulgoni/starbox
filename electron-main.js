@@ -2082,6 +2082,8 @@ const DEFAULT_TIKTOK_AUTOMATION_STATE = Object.freeze({
   likeMode: "interval", // interval | burst
   burstDurationMs: 30000,
   burstRestMs: 20000,
+  likeMaxDurationMs: null,
+  commentMaxDurationMs: null,
   commentPool: [],
   commentIndex: 0,
   commentSentCount: 0,
@@ -3660,6 +3662,9 @@ function readAndroidRemoteDevices() {
         if (typeof next.whatsappCallbackUrl !== "string") {
           next.whatsappCallbackUrl = "";
         }
+        next.whatsappVariant = sanitizeWhatsappVariant(
+          next.whatsappVariant || "consumer"
+        );
         return next;
       });
       // if (IS_DEV_BUILD) {
@@ -3697,6 +3702,24 @@ function sanitizeRemoteServiceId(service = "") {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, "-");
+}
+
+function sanitizeWhatsappVariant(value = "") {
+  const normalized = (value || "").toString().toLowerCase().trim();
+  if (
+    ["business", "bisnis", "w4b", "wa-business", "wa_bisnis", "bussines"].includes(
+      normalized
+    )
+  ) {
+    return "business";
+  }
+  return "consumer";
+}
+
+function resolveWhatsappPackageName(variant = "consumer") {
+  return sanitizeWhatsappVariant(variant) === "business"
+    ? "com.whatsapp.w4b"
+    : "com.whatsapp";
 }
 
 const androidRemoteActionTokens = new Map();
@@ -3737,6 +3760,9 @@ function addAndroidRemoteDeviceRecord(payload = {}) {
   const service = sanitizeRemoteServiceId(
     payload.service || "android-whatsapp"
   );
+  const whatsappVariant = sanitizeWhatsappVariant(
+    payload.whatsappVariant || "consumer"
+  );
   if (!adbId) {
     throw new Error("ADB device harus dipilih.");
   }
@@ -3758,6 +3784,7 @@ function addAndroidRemoteDeviceRecord(payload = {}) {
     status: sanitizeRemoteServiceId(payload.status) || "disconnected",
     whatsappBaseUrl: sanitizePendingUrl(payload.whatsappBaseUrl || ""),
     whatsappCallbackUrl: sanitizePendingUrl(payload.whatsappCallbackUrl || ""),
+    whatsappVariant,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -3985,6 +4012,10 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
     /[^\d]/g,
     ""
   );
+  const whatsappVariant = sanitizeWhatsappVariant(
+    options.whatsappVariant || options.variant
+  );
+  const whatsappPackage = resolveWhatsappPackageName(whatsappVariant);
   const callbackUrl = options.callbackUrl || null;
   const messageId = options.messageId || null;
   if (!phoneNumber) {
@@ -4089,7 +4120,7 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
             "android.intent.action.VIEW",
             "-d",
             waUrl,
-            "com.whatsapp",
+            whatsappPackage,
           ],
           { timeout: 20000, silent: true }
         );
@@ -4141,7 +4172,7 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
             "android.intent.action.VIEW",
             "-d",
             waUrl,
-            "com.whatsapp",
+            whatsappPackage,
           ],
           { timeout: 20000, silent: true }
         );
@@ -4241,6 +4272,9 @@ async function sendSingleWhatsappMessage(
   message = "",
   options = {}
 ) {
+  const whatsappVariant = sanitizeWhatsappVariant(
+    options.whatsappVariant || options.variant
+  );
   await sendWhatsappSampleMessagesThroughAdb(adbId, {
     messages: [String(message || "")],
     phoneNumber: phoneNumber,
@@ -4248,6 +4282,7 @@ async function sendSingleWhatsappMessage(
     callbackUrl: options.callbackUrl,
     messageId: options.messageId,
     deviceUid: options.deviceUid,
+    whatsappVariant,
   });
 }
 
@@ -4958,6 +4993,7 @@ async function performAndroidRemoteAction(
         await sendWhatsappSampleMessagesThroughAdb(record.adbId, {
           ...payload,
           token,
+          whatsappVariant: record.whatsappVariant,
         });
         return {
           success: true,
@@ -5005,6 +5041,11 @@ function updateAndroidRemoteDeviceRecord(payload = {}) {
   if (payload.whatsappCallbackUrl !== undefined) {
     next.whatsappCallbackUrl = sanitizePendingUrl(
       payload.whatsappCallbackUrl || ""
+    );
+  }
+  if (payload.whatsappVariant !== undefined) {
+    next.whatsappVariant = sanitizeWhatsappVariant(
+      payload.whatsappVariant || "consumer"
     );
   }
 
@@ -5899,6 +5940,12 @@ function getTikTokAutomationState(uid) {
       commentPool: [],
       commentIndex: 0,
       commentSentCount: 0,
+      likeMaxDurationMs: DEFAULT_TIKTOK_AUTOMATION_STATE.likeMaxDurationMs,
+      commentMaxDurationMs: DEFAULT_TIKTOK_AUTOMATION_STATE.commentMaxDurationMs,
+      likeAutoStopTimer: null,
+      commentAutoStopTimer: null,
+      likeAutoStopDeadline: null,
+      commentAutoStopDeadline: null,
     });
   }
   return tiktokAutomationState.get(uid);
@@ -5916,6 +5963,10 @@ function serializeTikTokState(state) {
     likeMode: state.likeMode || DEFAULT_TIKTOK_AUTOMATION_STATE.likeMode,
     burstDurationMs: state.burstDurationMs || DEFAULT_TIKTOK_AUTOMATION_STATE.burstDurationMs,
     burstRestMs: state.burstRestMs || DEFAULT_TIKTOK_AUTOMATION_STATE.burstRestMs,
+    likeMaxDurationMs: state.likeMaxDurationMs || null,
+    commentMaxDurationMs: state.commentMaxDurationMs || null,
+    likeAutoStopDeadline: state.likeAutoStopDeadline || null,
+    commentAutoStopDeadline: state.commentAutoStopDeadline || null,
     commentPoolSize: Array.isArray(state.commentPool) ? state.commentPool.length : 0,
     commentSentCount: state.commentSentCount || 0,
     lastLike: state.lastLike || null,
@@ -6037,10 +6088,21 @@ function teardownTikTokAutomation(uid, options = {}) {
     clearTimeout(state.likeRestTimer);
     state.likeRestTimer = null;
   }
+  if (state.likeAutoStopTimer) {
+    clearTimeout(state.likeAutoStopTimer);
+    state.likeAutoStopTimer = null;
+  }
   if (state.commentTimer) {
     clearInterval(state.commentTimer);
     state.commentTimer = null;
   }
+  if (state.commentAutoStopTimer) {
+    clearTimeout(state.commentAutoStopTimer);
+    state.commentAutoStopTimer = null;
+  }
+
+  state.likeAutoStopDeadline = null;
+  state.commentAutoStopDeadline = null;
 
   state.autoLike = false;
   state.autoComment = false;
@@ -6127,6 +6189,14 @@ function updateTikTokSettings(uid, payload = {}) {
     const ms = Math.max(5000, Number(payload.burstRestMs) || 0);
     state.burstRestMs = ms;
   }
+  if (payload.likeMaxDurationMs !== undefined) {
+    const ms = Math.max(0, Number(payload.likeMaxDurationMs) || 0);
+    state.likeMaxDurationMs = ms || null;
+  }
+  if (payload.commentMaxDurationMs !== undefined) {
+    const ms = Math.max(0, Number(payload.commentMaxDurationMs) || 0);
+    state.commentMaxDurationMs = ms || null;
+  }
   if (payload.commentText !== undefined) {
     const sanitized = sanitizeTikTokComment(payload.commentText);
     state.commentText =
@@ -6167,6 +6237,11 @@ function stopTikTokAutoLike(uid) {
     clearTimeout(state.likeRestTimer);
     state.likeRestTimer = null;
   }
+  if (state.likeAutoStopTimer) {
+    clearTimeout(state.likeAutoStopTimer);
+    state.likeAutoStopTimer = null;
+  }
+  state.likeAutoStopDeadline = null;
   state.autoLike = false;
 }
 
@@ -6177,7 +6252,65 @@ function stopTikTokAutoComment(uid) {
     clearInterval(state.commentTimer);
     state.commentTimer = null;
   }
+  if (state.commentAutoStopTimer) {
+    clearTimeout(state.commentAutoStopTimer);
+    state.commentAutoStopTimer = null;
+  }
+  state.commentAutoStopDeadline = null;
   state.autoComment = false;
+}
+
+function clearTikTokAutoStop(uid, kind = "like") {
+  const state = getTikTokAutomationState(uid);
+  if (!state) return;
+  if (kind === "comment") {
+    if (state.commentAutoStopTimer) {
+      clearTimeout(state.commentAutoStopTimer);
+      state.commentAutoStopTimer = null;
+    }
+    state.commentAutoStopDeadline = null;
+  } else {
+    if (state.likeAutoStopTimer) {
+      clearTimeout(state.likeAutoStopTimer);
+      state.likeAutoStopTimer = null;
+    }
+    state.likeAutoStopDeadline = null;
+  }
+}
+
+function scheduleTikTokAutoStop(uid, kind = "like") {
+  const state = getTikTokAutomationState(uid);
+  if (!state) return;
+  const duration =
+    kind === "comment"
+      ? Number(state.commentMaxDurationMs || 0)
+      : Number(state.likeMaxDurationMs || 0);
+  clearTikTokAutoStop(uid, kind);
+  if (!duration || duration <= 0) return;
+
+  const clamped = Math.max(5000, duration);
+  const deadline = Date.now() + clamped;
+  if (kind === "comment") {
+    state.commentAutoStopDeadline = new Date(deadline).toISOString();
+    state.commentAutoStopTimer = setTimeout(() => {
+      state.lastMessage = "Auto comment dihentikan otomatis (durasi habis).";
+      stopTikTokAutoComment(uid);
+      sendTikTokControlUpdate(uid, {
+        state: serializeTikTokState(state),
+        message: state.lastMessage,
+      });
+    }, clamped);
+  } else {
+    state.likeAutoStopDeadline = new Date(deadline).toISOString();
+    state.likeAutoStopTimer = setTimeout(() => {
+      state.lastMessage = "Auto love dihentikan otomatis (durasi habis).";
+      stopTikTokAutoLike(uid);
+      sendTikTokControlUpdate(uid, {
+        state: serializeTikTokState(state),
+        message: state.lastMessage,
+      });
+    }, clamped);
+  }
 }
 
 function nextCommentText(state) {
@@ -6528,8 +6661,18 @@ function startTikTokAutoLike(uid) {
         state.likeBurstTicker = null;
       }
 
-      state.lastMessage =
-        "Auto love burst: spam 60 detik, lalu jeda 20 detik.";
+      const burstDuration = Math.max(
+        5000,
+        Number(state.burstDurationMs || DEFAULT_TIKTOK_AUTOMATION_STATE.burstDurationMs)
+      );
+      const burstRest = Math.max(
+        5000,
+        Number(state.burstRestMs || DEFAULT_TIKTOK_AUTOMATION_STATE.burstRestMs)
+      );
+
+      state.lastMessage = `Auto love burst: spam ${(burstDuration / 1000).toFixed(
+        0
+      )} detik, jeda ${(burstRest / 1000).toFixed(0)} detik.`;
       sendTikTokControlUpdate(uid, {
         state: serializeTikTokState(state),
         message: state.lastMessage,
@@ -6539,15 +6682,6 @@ function startTikTokAutoLike(uid) {
       state.likeBurstTicker = setInterval(
         () => performTikTokAutoLike(uid),
         TIKTOK_BURST_SPAM_INTERVAL_MS
-      );
-
-      const burstDuration = Math.max(
-        5000,
-        Number(state.burstDurationMs || DEFAULT_TIKTOK_AUTOMATION_STATE.burstDurationMs)
-      );
-      const burstRest = Math.max(
-        5000,
-        Number(state.burstRestMs || DEFAULT_TIKTOK_AUTOMATION_STATE.burstRestMs)
       );
 
       state.likeRestTimer = setTimeout(() => {
@@ -6567,6 +6701,7 @@ function startTikTokAutoLike(uid) {
     };
 
     runBurst();
+    scheduleTikTokAutoStop(uid, "like");
     return;
   }
 
@@ -6575,6 +6710,7 @@ function startTikTokAutoLike(uid) {
   const tick = () => performTikTokAutoLike(uid);
   tick();
   state.likeTimer = setInterval(tick, interval);
+  scheduleTikTokAutoStop(uid, "like");
   sendTikTokControlUpdate(uid, {
     state: serializeTikTokState(state),
     message: "Auto love berjalan.",
@@ -6590,6 +6726,7 @@ function startTikTokAutoComment(uid) {
   const tick = () => performTikTokAutoComment(uid);
   tick();
   state.commentTimer = setInterval(tick, interval);
+  scheduleTikTokAutoStop(uid, "comment");
   sendTikTokControlUpdate(uid, {
     state: serializeTikTokState(state),
     message: "Auto comment berjalan.",
@@ -8281,6 +8418,15 @@ ipcMain.on("monitor-control-automation", (_event, uid, state) => {
   });
 });
 
+ipcMain.on("monitor-update-settings", (_event, uid, payload = {}) => {
+  if (!uid) return;
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed() && win.webContents) {
+      win.webContents.send("automation-settings-updated", uid, payload || {});
+    }
+  });
+});
+
 ipcMain.handle("tiktok-control-init", (_event, uid) => {
   if (!uid) {
     return { success: false, message: "UID tidak valid." };
@@ -8517,6 +8663,7 @@ ipcMain.handle("android-remote-add", (_event, payload = {}) => {
       service: record.service,
       whatsappBaseUrl: record.whatsappBaseUrl,
       whatsappCallbackUrl: record.whatsappCallbackUrl,
+      whatsappVariant: record.whatsappVariant,
       status: record.status,
     };
     queueMicrotask(() =>
@@ -8594,6 +8741,7 @@ ipcMain.handle(
       const message = String(payload.message || "").trim();
       const messageId = payload.id || null;
       const callbackUrl = record.whatsappCallbackUrl || null;
+      const whatsappVariant = record.whatsappVariant || "consumer";
 
       if (!phone) {
         throw new Error("Nomor tujuan tidak valid.");
@@ -8605,6 +8753,7 @@ ipcMain.handle(
         typingSpeed: "instant",
         callbackUrl: callbackUrl,
         messageId: messageId,
+        whatsappVariant,
       });
       return {
         success: true,

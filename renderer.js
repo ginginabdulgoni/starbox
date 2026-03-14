@@ -1122,6 +1122,8 @@ let automationMessages = [];
 let automationTimer = null;
 let automationFetchTimer = null;
 let automationFetchRunning = false;
+const AUTOMATION_MIN_FETCH_INTERVAL_MS = 5000; // minimal 5 detik agar tidak terlalu agresif
+const AUTOMATION_RATE_WINDOW_MS = 60000; // 1 menit
 const AUTOMATION_FETCH_INTERVAL_MS = 60000; // interval fetch saat antrean kosong
 const AUTOMATION_IDLE_FETCH_INTERVAL_MS = 60000; // 60 detik saat antrean kosong
 const automationMonitorMeta = {
@@ -3962,6 +3964,10 @@ function getOrCreateAutomationSession(deviceOrUid) {
       fetchToastMessage: null,
       isSending: false,
       fetchTimer: null, // Timer individual untuk fetch per device
+      fetchIntervalMs: AUTOMATION_FETCH_INTERVAL_MS,
+      sendRatePerMinute: null,
+      rateWindowStart: null,
+      rateWindowSent: 0,
     };
     automationSessions.set(uid, session);
   }
@@ -3975,6 +3981,25 @@ function getOrCreateAutomationSession(deviceOrUid) {
       deviceOrUid.callbackUrl || session.callbackUrl || ""
     );
     session.deviceName = deviceOrUid.name || session.deviceName || uid;
+  }
+
+  const sanitizedInterval =
+    sanitizeFetchIntervalMs(session.fetchIntervalMs) ??
+    AUTOMATION_FETCH_INTERVAL_MS;
+  session.fetchIntervalMs = sanitizedInterval;
+
+  const sanitizedRate = sanitizeMessagesPerMinute(session.sendRatePerMinute);
+  session.sendRatePerMinute = sanitizedRate;
+  if (!sanitizedRate) {
+    session.rateWindowStart = null;
+    session.rateWindowSent = 0;
+  } else {
+    if (!session.rateWindowStart) {
+      session.rateWindowStart = Date.now();
+      session.rateWindowSent = 0;
+    } else if (!Number.isFinite(session.rateWindowSent)) {
+      session.rateWindowSent = 0;
+    }
   }
 
   return session;
@@ -4067,13 +4092,58 @@ function normalizeAutomationPriority(value) {
   return 9999;
 }
 
+function sanitizeFetchIntervalMs(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return Math.max(AUTOMATION_MIN_FETCH_INTERVAL_MS, Math.round(num));
+}
+
+function getSessionFetchIntervalMs(session = getActiveSession()) {
+  if (!session) return AUTOMATION_IDLE_FETCH_INTERVAL_MS;
+  const sanitized =
+    sanitizeFetchIntervalMs(session.fetchIntervalMs) ??
+    sanitizeFetchIntervalMs(AUTOMATION_FETCH_INTERVAL_MS);
+  return sanitized ?? AUTOMATION_FETCH_INTERVAL_MS;
+}
+
+function sanitizeMessagesPerMinute(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return Math.max(1, Math.floor(num));
+}
+
+function getSendRateState(session = getActiveSession(), nowMs = Date.now()) {
+  const limit = sanitizeMessagesPerMinute(session?.sendRatePerMinute);
+  if (!limit) {
+    return { limit: null, remaining: Infinity, resetInMs: 0 };
+  }
+
+  let windowStart = session.rateWindowStart || nowMs;
+  let used = Number.isFinite(session.rateWindowSent)
+    ? session.rateWindowSent
+    : 0;
+
+  if (nowMs - windowStart >= AUTOMATION_RATE_WINDOW_MS) {
+    windowStart = nowMs;
+    used = 0;
+  }
+
+  const remaining = Math.max(0, limit - used);
+  const resetInMs = Math.max(
+    0,
+    AUTOMATION_RATE_WINDOW_MS - (nowMs - windowStart)
+  );
+
+  return { limit, remaining, resetInMs, windowStart, used };
+}
+
 function getNextFetchIntervalMs(session = getActiveSession()) {
   if (!session) return AUTOMATION_IDLE_FETCH_INTERVAL_MS;
   const pendingCount = pendingAutomationCount(session);
   if (pendingCount > 0) {
     return null; // hentikan fetch saat masih ada antrian pending
   }
-  return AUTOMATION_FETCH_INTERVAL_MS;
+  return getSessionFetchIntervalMs(session);
 }
 
 function scheduleNextAutomationFetch(
@@ -4339,6 +4409,8 @@ function broadcastAutomationMonitor(session = getActiveSession(), extra = {}) {
     nextFetchAt: effectiveMeta.nextFetchAt,
     connection: connectionPayload,
     connectionLog: connectionLogPayload,
+    fetchIntervalMs: getSessionFetchIntervalMs(session),
+    messagesPerMinute: sanitizeMessagesPerMinute(session.sendRatePerMinute),
     ...extraClone,
   };
 
@@ -4767,6 +4839,53 @@ function pendingAutomationCount(session = getActiveSession()) {
   if (!session) return 0;
   return (session.messages || []).filter((item) => item.status !== "done")
     .length;
+}
+
+function applyAutomationSettingsUpdate(uid, payload = {}) {
+  if (!uid || !payload || typeof payload !== "object") return;
+  const session = automationSessions.get(uid);
+  if (!session) return;
+
+  let changed = false;
+
+  if ("fetchIntervalMs" in payload) {
+    const sanitized =
+      sanitizeFetchIntervalMs(payload.fetchIntervalMs) ??
+      AUTOMATION_FETCH_INTERVAL_MS;
+    if (session.fetchIntervalMs !== sanitized) {
+      session.fetchIntervalMs = sanitized;
+      changed = true;
+    }
+    const delay = getNextFetchIntervalMs(session);
+    scheduleNextAutomationFetch(Date.now(), session, delay);
+    if (!session.isPaused) {
+      if (session.fetchRunner) {
+        rescheduleDeviceFetchTimer(session);
+      } else if (session.pendingUrl) {
+        startDeviceFetchTimer(session);
+      }
+    }
+  }
+
+  if ("messagesPerMinute" in payload) {
+    const sanitizedRate = sanitizeMessagesPerMinute(payload.messagesPerMinute);
+    if (session.sendRatePerMinute !== sanitizedRate) {
+      session.sendRatePerMinute = sanitizedRate;
+      session.rateWindowStart = sanitizedRate ? Date.now() : null;
+      session.rateWindowSent = 0;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    broadcastAutomationMonitor(session, {
+      fetchIntervalMs: getSessionFetchIntervalMs(session),
+      messagesPerMinute: sanitizeMessagesPerMinute(session.sendRatePerMinute),
+    });
+    if (isSessionActive(session)) {
+      persistActiveAutomationSession();
+    }
+  }
 }
 
 function renderSystemInfoBadge(info, error) {
@@ -5325,10 +5444,33 @@ async function sendAutomationQueueForSession(session, options = {}) {
       Number.isFinite(limit) && limit > 0
         ? Math.max(1, Math.floor(limit))
         : Infinity;
+    const rateState = getSendRateState(session);
+    if (rateState.limit) {
+      session.rateWindowStart = rateState.windowStart;
+      session.rateWindowSent = rateState.used;
+    }
+
+    const allowedByRate =
+      rateState.limit == null
+        ? effectiveLimit
+        : Math.min(effectiveLimit, rateState.remaining);
+
+    const batchSize =
+      allowedByRate === Infinity
+        ? pending.length
+        : Math.max(0, Math.min(pending.length, allowedByRate));
+
     const batch =
-      effectiveLimit === Infinity ? pending : pending.slice(0, effectiveLimit);
+      batchSize >= pending.length ? pending : pending.slice(0, batchSize);
 
     if (!batch.length) {
+      if (rateState.limit && rateState.remaining <= 0) {
+        console.log(
+          `⏸️ Batas ${rateState.limit} pesan/menit tercapai untuk ${session.uid}, menunggu ${Math.ceil(
+            rateState.resetInMs / 1000
+          )}s`
+        );
+      }
       broadcastAutomationMonitor(session, { typing: false, activeId: null });
       return;
     }
@@ -5347,6 +5489,13 @@ async function sendAutomationQueueForSession(session, options = {}) {
         silent: true,
       }
     );
+
+    if (rateState.limit) {
+      session.rateWindowStart =
+        rateState.windowStart || session.rateWindowStart || Date.now();
+      const nextCount = (session.rateWindowSent || 0) + batch.length;
+      session.rateWindowSent = Math.min(rateState.limit, nextCount);
+    }
 
     if (Array.isArray(results) && results.length) {
       const successCount = results.filter(
@@ -5952,10 +6101,13 @@ function openEditAndroidRemoteDevice(device) {
   // Populate WhatsApp automation fields if available
   const baseUrlInput = document.getElementById("editWhatsAppBaseUrl");
   const callbackUrlInput = document.getElementById("editWhatsAppCallbackUrl");
+  const variantSelect = document.getElementById("editWhatsAppVariant");
 
   if (baseUrlInput) baseUrlInput.value = device.whatsappBaseUrl || "";
   if (callbackUrlInput)
     callbackUrlInput.value = device.whatsappCallbackUrl || "";
+  if (variantSelect)
+    variantSelect.value = device.whatsappVariant || "consumer";
 
   // Show/hide WhatsApp fields based on service
   toggleWhatsAppAutomationFields();
@@ -5974,11 +6126,18 @@ function toggleWhatsAppAutomationFields() {
   const whatsappFields = document.getElementById(
     "editWhatsAppAutomationFields"
   );
+  const variantSelect = document.getElementById("editWhatsAppVariant");
 
   if (!serviceSelect || !whatsappFields) return;
 
   const isWhatsApp = serviceSelect.value === "android-whatsapp";
   whatsappFields.style.display = isWhatsApp ? "block" : "none";
+  if (variantSelect) {
+    variantSelect.disabled = !isWhatsApp;
+    if (!isWhatsApp) {
+      variantSelect.value = "consumer";
+    }
+  }
 }
 
 function closeEditAndroidRemoteModal() {
@@ -6085,9 +6244,12 @@ async function saveEditAndroidRemoteDevice() {
     const callbackUrl = document
       .getElementById("editWhatsAppCallbackUrl")
       .value.trim();
+    const whatsappVariant =
+      document.getElementById("editWhatsAppVariant")?.value || "consumer";
 
     updates.whatsappBaseUrl = baseUrl;
     updates.whatsappCallbackUrl = callbackUrl;
+    updates.whatsappVariant = whatsappVariant;
   }
 
   try {
@@ -6247,11 +6409,20 @@ async function connectEditAdbDevice() {
 function toggleAddWhatsAppFields() {
   const serviceSelect = document.getElementById("androidRemoteServiceSelect");
   const whatsappFields = document.getElementById("addWhatsAppAutomationFields");
+  const variantSelect = document.getElementById("addWhatsAppVariant");
 
   if (!serviceSelect || !whatsappFields) return;
 
   const isWhatsApp = serviceSelect.value === "android-whatsapp";
   whatsappFields.style.display = isWhatsApp ? "block" : "none";
+  if (variantSelect) {
+    variantSelect.disabled = !isWhatsApp;
+    if (!isWhatsApp) {
+      variantSelect.value = "consumer";
+    } else if (!variantSelect.value) {
+      variantSelect.value = "consumer";
+    }
+  }
 }
 
 function getAndroidRemoteLimit() {
@@ -7100,6 +7271,20 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     });
   }
+
+  // Listener untuk pembaruan pengaturan monitor (interval fetch & rate limit)
+  if (window.electronAPI?.onAutomationSettingsUpdated) {
+    window.electronAPI.onAutomationSettingsUpdated((uid, settings) => {
+      applyAutomationSettingsUpdate(uid, settings || {});
+    });
+  } else if (window.electronAPI?.on) {
+    window.electronAPI.on(
+      "automation-settings-updated",
+      (_event, uid, settings) => {
+        applyAutomationSettingsUpdate(uid, settings || {});
+      }
+    );
+  }
 });
 document.addEventListener("click", () => {
   document
@@ -7656,9 +7841,12 @@ window.submitAndroidDevice = async function () {
       document.getElementById("addWhatsAppBaseUrl")?.value.trim() || "";
     const callbackUrl =
       document.getElementById("addWhatsAppCallbackUrl")?.value.trim() || "";
+    const whatsappVariant =
+      document.getElementById("addWhatsAppVariant")?.value || "consumer";
 
     deviceData.whatsappBaseUrl = baseUrl;
     deviceData.whatsappCallbackUrl = callbackUrl;
+    deviceData.whatsappVariant = whatsappVariant;
   }
 
   const limit = getAndroidRemoteLimit();

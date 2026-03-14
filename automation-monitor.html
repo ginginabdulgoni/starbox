@@ -273,6 +273,74 @@
         padding: 8px 10px;
       }
 
+      .settings-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 12px 14px;
+        margin: 6px 0;
+        background: rgba(30, 41, 59, 0.65);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 10px;
+      }
+
+      .settings-panel .settings-row {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .settings-label {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #e2e8f0;
+      }
+
+      .settings-input-group {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .settings-input-group input {
+        flex: 1;
+        background: rgba(15, 23, 42, 0.9);
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        color: #e2e8f0;
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 0.9rem;
+      }
+
+      .settings-input-group input:focus {
+        outline: none;
+        border-color: rgba(56, 189, 248, 0.6);
+        box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.3);
+      }
+
+      .settings-input-group button {
+        border: 1px solid rgba(56, 189, 248, 0.5);
+        background: rgba(56, 189, 248, 0.18);
+        color: #e2e8f0;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 0.85rem;
+        cursor: pointer;
+      }
+
+      .settings-input-group button:hover {
+        background: rgba(56, 189, 248, 0.28);
+      }
+
+      .settings-hint {
+        font-size: 0.75rem;
+        color: rgba(226, 232, 240, 0.7);
+      }
+
+      .settings-panel.is-disabled {
+        opacity: 0.6;
+      }
+
       .status-response {
         margin: 0;
         margin-top: -4px;
@@ -506,7 +574,7 @@
           id="resetCountdownButton"
           class="header-action control-btn"
           type="button"
-          title="Reset hitung mundur fetch otomatis (1 menit)"
+          title="Reset hitung mundur fetch otomatis"
           style="display: none"
         >
           🔄 Timer
@@ -596,6 +664,47 @@
           <span id="monitorResponseInfo">Respon: -</span>
           <span id="monitorNextFetch">Sinkron ulang: -</span>
         </div>
+        <form id="automationSettingsForm" class="settings-panel">
+          <div class="settings-row">
+            <label class="settings-label" for="fetchIntervalInput">
+              Interval get pending (detik)
+            </label>
+            <div class="settings-input-group">
+              <input
+                id="fetchIntervalInput"
+                type="number"
+                min="5"
+                step="5"
+                placeholder="60"
+                inputmode="numeric"
+              />
+              <button type="submit" title="Simpan interval dan batas kirim">
+                Simpan
+              </button>
+            </div>
+            <div id="fetchIntervalHelper" class="settings-hint">
+              Default 60 detik, minimal 5 detik.
+            </div>
+          </div>
+          <div class="settings-row">
+            <label class="settings-label" for="messagesPerMinuteInput">
+              Batas pesan per menit
+            </label>
+            <div class="settings-input-group">
+              <input
+                id="messagesPerMinuteInput"
+                type="number"
+                min="1"
+                step="1"
+                placeholder="Kosongkan untuk tanpa batas"
+                inputmode="numeric"
+              />
+            </div>
+            <div id="messagesPerMinuteHelper" class="settings-hint">
+              Kosongkan agar proses kirim berjalan terus.
+            </div>
+          </div>
+        </form>
         <pre
           id="monitorResponsePreview"
           class="status-response is-hidden"
@@ -645,6 +754,17 @@
       const manualFetchButton = document.getElementById("manualFetchButton");
       const automationStatusLabel = document.getElementById("automationStatus");
       const statusIndicator = document.querySelector(".status-indicator");
+      const settingsForm = document.getElementById("automationSettingsForm");
+      const fetchIntervalInput = document.getElementById("fetchIntervalInput");
+      const messagesPerMinuteInput = document.getElementById(
+        "messagesPerMinuteInput"
+      );
+      const fetchIntervalHelper = document.getElementById(
+        "fetchIntervalHelper"
+      );
+      const messagesPerMinuteHelper = document.getElementById(
+        "messagesPerMinuteHelper"
+      );
 
       if (integrationTokenLabel) {
         integrationTokenLabel.title =
@@ -669,6 +789,7 @@
       };
 
       const FETCH_INTERVAL_MS = 60_000; // 1 menit
+      const MIN_FETCH_INTERVAL_MS = 5_000;
 
       const monitorState = {
         queue: [],
@@ -682,6 +803,8 @@
         pendingUrl: "",
         inputGuardEnabled: true,
         autoSender: false,
+        fetchIntervalMs: FETCH_INTERVAL_MS,
+        messagesPerMinute: null,
         counts: { total: 0, pending: 0, done: 0 },
         connection: { ...defaultConnectionState },
         nextFetchAt: null,
@@ -717,8 +840,27 @@
         }
       }
 
-      function setNextFetchCountdown(ms = FETCH_INTERVAL_MS) {
-        monitorState.nextFetchAt = new Date(Date.now() + ms).toISOString();
+      function sanitizeMonitorIntervalMs(value) {
+        const num = Number(value);
+        if (!Number.isFinite(num) || num <= 0) return FETCH_INTERVAL_MS;
+        return Math.max(MIN_FETCH_INTERVAL_MS, Math.round(num));
+      }
+
+      function sanitizeMonitorRate(value) {
+        const num = Number(value);
+        if (!Number.isFinite(num) || num <= 0) return null;
+        return Math.max(1, Math.floor(num));
+      }
+
+      function getActiveFetchInterval() {
+        return sanitizeMonitorIntervalMs(monitorState.fetchIntervalMs);
+      }
+
+      function setNextFetchCountdown(ms = null) {
+        const interval =
+          ms != null ? sanitizeMonitorIntervalMs(ms) : getActiveFetchInterval();
+        monitorState.fetchIntervalMs = interval;
+        monitorState.nextFetchAt = new Date(Date.now() + interval).toISOString();
       }
 
       function updateCountdownLabel() {
@@ -734,6 +876,12 @@
         }
 
         if (!monitorState.nextFetchAt && monitorState.autoSender !== false) {
+          if (Number(monitorState.counts?.pending || 0) > 0) {
+            nextFetchLabel.textContent = "Sinkron ulang: menunggu antrean kosong";
+            nextFetchLabel.title =
+              "Fetch otomatis ditahan sampai tidak ada pesan pending.";
+            return;
+          }
           setNextFetchCountdown();
         }
 
@@ -940,6 +1088,38 @@
           manualFetchButton.style.display = enabled ? "inline-flex" : "none";
           manualFetchButton.disabled = !enabled;
         }
+        syncSettingsForm();
+      }
+
+      function syncSettingsForm() {
+        const enabled = Boolean(monitorState.uid) && monitorState.autoSender !== false;
+        if (settingsForm) {
+          settingsForm.classList.toggle("is-disabled", !enabled);
+          settingsForm
+            .querySelectorAll("input, button")
+            .forEach((el) => {
+              el.disabled = !enabled;
+            });
+        }
+        const intervalSeconds = Math.max(
+          1,
+          Math.round(getActiveFetchInterval() / 1000)
+        );
+        if (fetchIntervalInput) {
+          fetchIntervalInput.value = intervalSeconds;
+        }
+        if (fetchIntervalHelper) {
+          fetchIntervalHelper.textContent = `Interval get pending aktif ${intervalSeconds} detik.`;
+        }
+        const rate = sanitizeMonitorRate(monitorState.messagesPerMinute);
+        if (messagesPerMinuteInput) {
+          messagesPerMinuteInput.value = rate ? rate : "";
+        }
+        if (messagesPerMinuteHelper) {
+          messagesPerMinuteHelper.textContent = rate
+            ? `Batas ${rate} pesan per menit.`
+            : "Kosongkan agar proses kirim berjalan terus.";
+        }
       }
 
       function updateMeta() {
@@ -1136,6 +1316,18 @@
         }
         if ("autoSenderEnabled" in payload) {
           monitorState.autoSender = !!payload.autoSenderEnabled;
+        }
+
+        if ("fetchIntervalMs" in payload) {
+          monitorState.fetchIntervalMs = sanitizeMonitorIntervalMs(
+            payload.fetchIntervalMs
+          );
+        }
+
+        if ("messagesPerMinute" in payload) {
+          monitorState.messagesPerMinute = sanitizeMonitorRate(
+            payload.messagesPerMinute
+          );
         }
 
         if ("nextFetchAt" in payload) {
@@ -1352,6 +1544,46 @@
         });
       }
 
+      if (settingsForm) {
+        settingsForm.addEventListener("submit", (event) => {
+          event.preventDefault();
+          if (
+            !monitorState.uid ||
+            !window.monitorAPI?.updateAutomationSettings
+          )
+            return;
+
+          const intervalSeconds = fetchIntervalInput
+            ? Number(fetchIntervalInput.value)
+            : null;
+          const sanitizedInterval =
+            Number.isFinite(intervalSeconds) && intervalSeconds > 0
+              ? Math.max(5, Math.round(intervalSeconds))
+              : null;
+
+          const rateValue = messagesPerMinuteInput
+            ? Number(messagesPerMinuteInput.value)
+            : null;
+          const sanitizedRate = sanitizeMonitorRate(rateValue);
+
+          const nextIntervalMs =
+            sanitizedInterval != null
+              ? sanitizedInterval * 1000
+              : getActiveFetchInterval();
+
+          monitorState.fetchIntervalMs = nextIntervalMs;
+          monitorState.messagesPerMinute = sanitizedRate;
+
+          window.monitorAPI.updateAutomationSettings(monitorState.uid, {
+            fetchIntervalMs: nextIntervalMs,
+            messagesPerMinute: sanitizedRate,
+          });
+          setNextFetchCountdown(nextIntervalMs);
+          updateCountdownLabel();
+          syncSettingsForm();
+        });
+      }
+
       updateFetchButtons();
       updateCountdownLabel();
       if (nextFetchLabel) {
@@ -1361,12 +1593,15 @@
       if (window.monitorAPI?.onAutomationUpdate) {
         window.monitorAPI.onAutomationUpdate(applyAutomationPayload);
 
-        // Set countdown 1 menit pertama kali saat monitor di-load
+        // Set countdown pertama kali saat monitor di-load
         setTimeout(() => {
           if (!monitorState.nextFetchAt) {
             setNextFetchCountdown();
             updateCountdownLabel();
-            console.log("⏰ Countdown 1 menit dimulai untuk fetch pesan pending pertama kali");
+            const seconds = Math.round(getActiveFetchInterval() / 1000);
+            console.log(
+              `⏰ Countdown ${seconds}s dimulai untuk fetch pesan pending pertama kali`
+            );
           }
         }, 1000); // Delay 1 detik untuk memastikan data awal sudah dimuat
       } else {

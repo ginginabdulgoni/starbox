@@ -278,7 +278,14 @@
           <label for="burstRest">Jeda setelah spam (detik)</label>
           <input id="burstRest" type="number" min="5" step="1" value="20" />
         </div>
+        <div class="field">
+          <label for="likeDuration">Durasi Auto Love (menit, kosongkan untuk tanpa batas)</label>
+          <input id="likeDuration" type="number" min="1" step="1" placeholder="Misal 30" />
+        </div>
         <div class="status-line" id="lastLike">Menunggu...</div>
+        <div class="status-line" id="likeCountdown" style="color: #c084fc">
+          Durasi: tanpa batas
+        </div>
       </div>
 
       <div class="card">
@@ -352,7 +359,20 @@
             value="60"
           />
         </div>
+        <div class="field">
+          <label for="commentDuration">Durasi Auto Comment (menit, kosongkan untuk tanpa batas)</label>
+          <input
+            id="commentDuration"
+            type="number"
+            min="1"
+            step="1"
+            placeholder="Misal 30"
+          />
+        </div>
         <div class="status-line" id="lastComment">Menunggu...</div>
+        <div class="status-line" id="commentCountdown" style="color: #c084fc">
+          Durasi: tanpa batas
+        </div>
       </div>
 
       <div class="card">
@@ -378,17 +398,21 @@
         likeMode: document.getElementById("likeMode"),
         burstDuration: document.getElementById("burstDuration"),
         burstRest: document.getElementById("burstRest"),
+        likeDuration: document.getElementById("likeDuration"),
         commentToggle: document.getElementById("autoCommentToggle"),
         likeStatus: document.getElementById("likeStatus"),
         commentStatus: document.getElementById("commentStatus"),
         likeInterval: document.getElementById("likeInterval"),
         commentInterval: document.getElementById("commentInterval"),
+        commentDuration: document.getElementById("commentDuration"),
         commentText: document.getElementById("commentText"),
         commentCsvButton: document.getElementById("commentCsv"),
         commentCsvSample: document.getElementById("commentCsvSample"),
         commentCsvInfo: document.getElementById("commentCsvInfo"),
         lastLike: document.getElementById("lastLike"),
         lastComment: document.getElementById("lastComment"),
+        likeCountdown: document.getElementById("likeCountdown"),
+        commentCountdown: document.getElementById("commentCountdown"),
       };
 
       els.deviceName.textContent = deviceName;
@@ -396,6 +420,8 @@
 
       let updatingUI = false;
       let cleanup = null;
+      let countdownTimer = null;
+      let latestState = {};
 
       function formatStatus(label, time) {
         if (!label) return "Menunggu...";
@@ -411,6 +437,60 @@
         const combined = [`[${now}] ${message}`, previous].filter(Boolean).join("\n");
         const lines = combined.split("\n").slice(0, 30); // batasi 30 baris, terbaru di atas
         els.log.textContent = lines.join("\n");
+      }
+
+      function formatRemaining(deadlineIso) {
+        if (!deadlineIso) return null;
+        const target = new Date(deadlineIso).getTime();
+        const diff = target - Date.now();
+        if (Number.isNaN(target) || diff <= 0) return "00:00";
+        const totalSec = Math.max(0, Math.floor(diff / 1000));
+        const m = Math.floor(totalSec / 60)
+          .toString()
+          .padStart(2, "0");
+        const s = (totalSec % 60).toString().padStart(2, "0");
+        return `${m}:${s}`;
+      }
+
+      function updateCountdownLabels(state = latestState) {
+        const likeLabel = els.likeCountdown;
+        const commentLabel = els.commentCountdown;
+        if (likeLabel) {
+          const text = formatRemaining(state.likeAutoStopDeadline);
+          if (state.autoLike && text) {
+            likeLabel.textContent = `Durasi: ${text}`;
+          } else if (state.autoLike && !text && state.likeMaxDurationMs) {
+            likeLabel.textContent = "Durasi: selesai";
+          } else if (state.likeMaxDurationMs) {
+            likeLabel.textContent = "Durasi: siap (belum jalan)";
+          } else {
+            likeLabel.textContent = "Durasi: tanpa batas";
+          }
+        }
+        if (commentLabel) {
+          const text = formatRemaining(state.commentAutoStopDeadline);
+          if (state.autoComment && text) {
+            commentLabel.textContent = `Durasi: ${text}`;
+          } else if (state.autoComment && !text && state.commentMaxDurationMs) {
+            commentLabel.textContent = "Durasi: selesai";
+          } else if (state.commentMaxDurationMs) {
+            commentLabel.textContent = "Durasi: siap (belum jalan)";
+          } else {
+            commentLabel.textContent = "Durasi: tanpa batas";
+          }
+        }
+      }
+
+      function startCountdownTick() {
+        if (countdownTimer) return;
+        countdownTimer = setInterval(() => updateCountdownLabels(), 1000);
+      }
+
+      function stopCountdownTick() {
+        if (countdownTimer) {
+          clearInterval(countdownTimer);
+          countdownTimer = null;
+        }
       }
 
       function applyState(state = {}, meta = {}) {
@@ -443,6 +523,18 @@
             Math.round((state.burstRestMs || 20000) / 1000)
           );
         }
+        if (els.likeDuration) {
+          const minutes = state.likeMaxDurationMs
+            ? Math.max(1, Math.round(state.likeMaxDurationMs / 60000))
+            : "";
+          els.likeDuration.value = minutes;
+        }
+        if (els.commentDuration) {
+          const minutes = state.commentMaxDurationMs
+            ? Math.max(1, Math.round(state.commentMaxDurationMs / 60000))
+            : "";
+          els.commentDuration.value = minutes;
+        }
         els.likeStatus.textContent = state.autoLike ? "Aktif" : "Mati";
         els.commentStatus.textContent = state.autoComment ? "Aktif" : "Mati";
         els.statusDot.className = state.autoLike || state.autoComment ? "dot success" : "dot idle";
@@ -458,6 +550,16 @@
           const count = state.commentPoolSize || 0;
           els.commentCsvInfo.textContent =
             count > 0 ? `${count} komentar siap dipakai` : "Belum ada daftar";
+        }
+        latestState = {
+          ...latestState,
+          ...state,
+        };
+        updateCountdownLabels(latestState);
+        if (state.autoLike || state.autoComment) {
+          startCountdownTick();
+        } else if (!state.likeMaxDurationMs && !state.commentMaxDurationMs) {
+          stopCountdownTick();
         }
         if (meta.message) {
           appendLog(meta.message);
@@ -487,6 +589,14 @@
             5000,
             Number(els.burstRest?.value || 20) * 1000
           ),
+          likeMaxDurationMs: Math.max(
+            0,
+            Number(els.likeDuration?.value || 0) * 60000
+          ) || null,
+          commentMaxDurationMs: Math.max(
+            0,
+            Number(els.commentDuration?.value || 0) * 60000
+          ) || null,
         };
       }
 
@@ -520,7 +630,16 @@
             .catch(() => {});
         }, 350);
 
-        ["likeInterval", "commentInterval", "commentText", "likeMode", "burstDuration", "burstRest"].forEach((id) => {
+        [
+          "likeInterval",
+          "commentInterval",
+          "commentText",
+          "likeMode",
+          "burstDuration",
+          "burstRest",
+          "likeDuration",
+          "commentDuration",
+        ].forEach((id) => {
           const el = els[id];
           if (!el) return;
           ["input", "change", "blur"].forEach((evt) => {

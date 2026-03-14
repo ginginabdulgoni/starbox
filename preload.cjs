@@ -45,6 +45,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       }
     });
   },
+  onAutomationSettingsUpdated: (callback) => {
+    ipcRenderer.on('automation-settings-updated', (event, uid, settings) => {
+      if (typeof callback === 'function') {
+        callback(uid, settings);
+      }
+    });
+  },
     auth: {
       getSession: () => ipcRenderer.invoke('auth-get-session'),
       login: (credentials) => ipcRenderer.invoke('auth-login', credentials),
