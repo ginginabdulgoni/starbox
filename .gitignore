@@ -1,4 +1,4 @@
 dist/
 sessions/
 node_modules/
-repo/
+repo/remote-server/data/*.db
