@@ -26,6 +26,7 @@ const fs = require("fs");
 const { pathToFileURL } = require("url");
 const { machineIdSync } = require("node-machine-id");
 const { VirtualOSStorage } = require("./vm-storage");
+const RemoteClient = require("./remote-client");
 
 function ensureDefaultPath() {
   // Tambah path umum supaya binary seperti adb/scrcpy ditemukan di build production
@@ -457,6 +458,8 @@ function initializeLogging() {
   loadCachedChromeVersion();
   restoreAuthSessionFromStore();
   scheduleAuthRefresh();
+  // Start remote client if session already exists (e.g. app restart while logged in)
+  setTimeout(() => startRemoteClient(), 1500);
 
   // Initialize managers
   androidManager = new AndroidManager();
@@ -1047,6 +1050,14 @@ async function refreshAuthToken() {
       expiresIn: data.expires_in || data.expiresIn || null,
     };
     applyAuthSessionFromPayload(data, overrides);
+    try {
+      remoteClient.updateToken(authSession.token);
+    } catch (syncErr) {
+      console.warn(
+        "⚠️ Gagal sinkron token refresh ke Remote Client:",
+        syncErr?.message || syncErr
+      );
+    }
     console.log("✅ Token berhasil diperbarui.");
   } catch (err) {
     console.error("❌ Gagal memperbarui token autentikasi:", err);
@@ -2059,6 +2070,8 @@ let iosManager = null;
 
 const deviceWindows = {}; // Untuk melacak window yang terbuka
 const monitorWindows = {}; // Untuk melacak window monitor automasi
+const remoteClient = new RemoteClient(); // Remote control antar StarBox instance
+const remoteMonitorWindows = new Map(); // key: `${toClientId}::${uid}` -> BrowserWindow
 const monitorWindowState = {
   collapsed: false,
   contentHidden: false,
@@ -7115,6 +7128,7 @@ ipcMain.on("load-config", (event) => {
 ipcMain.handle("auth-get-session", () => sanitizeAuthSession());
 
 ipcMain.handle("auth-logout", () => {
+  stopRemoteClient();
   clearAuthSession();
   return { success: true };
 });
@@ -7156,6 +7170,7 @@ ipcMain.handle("auth-login", async (_event, credentials = {}) => {
       accountSnapshot: session,
     });
     await refreshPackageInfo();
+    startRemoteClient();
     return {
       success: true,
       session,
@@ -10893,3 +10908,328 @@ const CHROME_BLANK_TITLE_SET = new Set([
   "Blank Tab",
   "New page",
 ]);
+
+// ============================================================
+// Remote Control – StarBox MultiDevice
+// ============================================================
+
+/**
+ * Broadcast event ke semua BrowserWindow yang terbuka.
+ */
+function broadcastRemoteEvent(channel, data) {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win || win.isDestroyed()) return;
+    try { win.webContents.send(channel, data); } catch {}
+  });
+}
+
+/**
+ * Mulai remote client setelah user login.
+ */
+function startRemoteClient() {
+  if (!authSession.isLoggedIn || !authSession.token) return;
+  try {
+    const serverUrl = process.env.STARBOX_REMOTE_URL ||
+      (IS_DEV_BUILD ? "http://localhost:4200" : "https://starbox.weagate.com:4200");
+
+    remoteClient.start({
+      token:        authSession.token,
+      appVersion:   APP_VERSION,
+      serverUrl,
+      deviceWindows,
+      getDeviceConfig,
+      dbPath:        DB_PATH,
+      dbPathAndroid: ANDROID_REMOTE_DB_PATH,
+      ipcHandlers: {
+        "load-devices": async (dbType) => {
+          if (dbType === "android") {
+            return { devices: readAndroidRemoteDevices() };
+          }
+
+          const targetPath = DB_PATH;
+          if (!targetPath) return { devices: [] };
+
+          const dbDir = path.dirname(targetPath);
+          if (!fs.existsSync(dbDir)) {
+            fs.mkdirSync(dbDir, { recursive: true });
+          }
+          if (!fs.existsSync(targetPath)) {
+            fs.writeFileSync(targetPath, JSON.stringify({ devices: [] }, null, 2));
+            return { devices: [] };
+          }
+
+          let raw = "";
+          try {
+            raw = fs.readFileSync(targetPath, "utf8");
+          } catch (err) {
+            console.warn("⚠️ Remote load-devices gagal baca file:", err?.message || err);
+            return { devices: [] };
+          }
+
+          let data = { devices: [] };
+          if (raw && raw.trim()) {
+            try {
+              data = JSON.parse(raw);
+            } catch (parseErr) {
+              try {
+                const cleanedRaw = raw.replace(/^\uFEFF/, "").replace(/\u0000/g, "");
+                data = JSON.parse(cleanedRaw);
+                if (cleanedRaw !== raw) {
+                  fs.writeFileSync(targetPath, cleanedRaw, "utf8");
+                }
+              } catch {
+                console.warn(
+                  "⚠️ Remote load-devices gagal parse devices.json:",
+                  parseErr?.message || parseErr
+                );
+                return { devices: [] };
+              }
+            }
+          }
+
+          if (!Array.isArray(data.devices)) {
+            data.devices = [];
+          }
+          const modified = normalizeDeviceList(data);
+          if (modified) {
+            fs.writeFileSync(targetPath, JSON.stringify(data, null, 2));
+          }
+          return { devices: data.devices };
+        },
+        "start-device": async (uid, service) => {
+          startDevice(uid, service);
+          return { ok: true };
+        },
+        "stop-device": async (uid) => {
+          if (!uid) throw new Error("uid wajib diisi");
+          await stopDevice(uid);
+          return { ok: true };
+        },
+        "focus-device": async (uid) => {
+          if (!uid) throw new Error("uid wajib diisi");
+          const win = deviceWindows[uid];
+          if (!win || win.isDestroyed()) {
+            throw new Error(`Window device ${uid} tidak ditemukan`);
+          }
+          if (win.isMinimized()) win.restore();
+          win.focus();
+          return { ok: true };
+        },
+        "ensure-monitor-window": async (uid) => {
+          if (!uid) throw new Error("uid wajib diisi");
+          const parentWindow = deviceWindows[uid];
+          if (!parentWindow || parentWindow.isDestroyed()) {
+            throw new Error(`Device ${uid} tidak sedang berjalan`);
+          }
+          await ensureMonitorWindow(uid, parentWindow);
+          return { ok: true };
+        },
+        "close-monitor-window": async (uid) => {
+          if (!uid) throw new Error("uid wajib diisi");
+          const monitor = monitorWindows[uid];
+          if (monitor && !monitor.isDestroyed()) {
+            monitor.close();
+          }
+          delete monitorWindows[uid];
+          return { ok: true };
+        },
+      },
+    });
+
+    remoteClient.onClientsChange((clients) => {
+      broadcastRemoteEvent("remote:clients-updated", { clients });
+    });
+    remoteClient.onConnectionChange(({ connected }) => {
+      broadcastRemoteEvent("remote:connection-changed", { connected });
+    });
+    remoteClient.onAuthInvalid(async () => {
+      console.warn("[Remote] AUTH_INVALID — refresh token dan reconnect...");
+      try {
+        await refreshAuthToken();
+        // refreshAuthToken() sudah memanggil remoteClient.updateToken(newToken)
+        // yang akan reconnect dengan token baru
+      } catch (err) {
+        console.error("[Remote] Gagal refresh token setelah AUTH_INVALID:", err.message);
+        // Retry dalam 10 detik
+        setTimeout(() => startRemoteClient(), 10000);
+      }
+    });
+
+    console.log("[Remote] Client started, ID:", remoteClient.clientId);
+    startRemoteWatchdog();
+  } catch (err) {
+    console.error("[Remote] Gagal start remote client:", err.message);
+  }
+}
+
+/**
+ * Hentikan remote client saat logout.
+ */
+function stopRemoteClient() {
+  stopRemoteWatchdog();
+  try {
+    remoteClient.stop();
+    console.log("[Remote] Client stopped");
+  } catch (err) {
+    console.error("[Remote] Gagal stop remote client:", err.message);
+  }
+}
+
+// ── Remote Watchdog ──────────────────────────────────────────
+let _remoteWatchdogTimer = null;
+
+/**
+ * Watchdog: setiap 15 detik cek apakah remote client harus terhubung tapi tidak.
+ * Restart koneksi jika token masih valid tapi socket terputus diam-diam.
+ */
+function startRemoteWatchdog() {
+  stopRemoteWatchdog();
+  _remoteWatchdogTimer = setInterval(() => {
+    if (!authSession.isLoggedIn || !authSession.token) return;
+    if (remoteClient.isConnected) return;
+
+    // Socket terputus tapi user masih login — restart
+    console.log("[Remote] Watchdog: socket terputus, restart remote client...");
+    try {
+      startRemoteClient();
+    } catch (err) {
+      console.error("[Remote] Watchdog restart gagal:", err.message);
+    }
+  }, 15000);
+}
+
+function stopRemoteWatchdog() {
+  if (_remoteWatchdogTimer) {
+    clearInterval(_remoteWatchdogTimer);
+    _remoteWatchdogTimer = null;
+  }
+}
+
+// ── IPC Handlers Remote ─────────────────────────────────────
+
+/** Ambil status koneksi dan daftar client online */
+ipcMain.handle("remote:get-clients", () => ({
+  clients:   remoteClient.onlineClients,
+  clientId:  remoteClient.clientId,
+  connected: remoteClient.isConnected,
+}));
+
+/** Paksa refresh daftar client dari server */
+ipcMain.on("remote:refresh-clients", () => {
+  remoteClient.refreshClients();
+});
+
+/** Kirim command ke client target, tunggu hasilnya */
+ipcMain.handle("remote:send-command", async (_, { toClientId, command, payload }) => {
+  try {
+    const result = await remoteClient.sendCommand(toClientId, command, payload);
+    return { success: true, ...result };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+/** Kirim command tanpa menunggu result (untuk high-frequency event seperti pointer move) */
+ipcMain.on("remote:fire-command", (_, { toClientId, command, payload }) => {
+  try {
+    remoteClient.fireCommand(toClientId, command, payload);
+  } catch {}
+});
+
+/** Buka window Remote Control */
+ipcMain.handle("remote:open-window", () => {
+  const existing = BrowserWindow.getAllWindows().find(
+    (w) => !w.isDestroyed() && w.webContents.getURL().includes("remote-control.html")
+  );
+  if (existing) {
+    existing.focus();
+    return { success: true };
+  }
+  const win = new BrowserWindow({
+    width: 1080, height: 720,
+    minWidth: 800, minHeight: 500,
+    title: "Remote Control – StarBox",
+    webPreferences: {
+      nodeIntegration:  false,
+      contextIsolation: true,
+      preload: path.join(__dirname, "preload.cjs"),
+    },
+  });
+  win.loadFile(path.join(__dirname, "remote-control.html"));
+  return { success: true };
+});
+
+/** Buka window monitor remote untuk satu device (bisa multi window per device berbeda). */
+ipcMain.handle("remote:open-monitor-window", (_, payload = {}) => {
+  try {
+    const toClientId = String(payload?.toClientId || "").trim();
+    const uid = String(payload?.uid || "").trim();
+    const deviceName = String(payload?.deviceName || uid || "Remote Monitor").trim();
+    const resolution = String(payload?.resolution || "auto").trim().toLowerCase();
+
+    if (!toClientId || !uid) {
+      return { success: false, error: "toClientId dan uid wajib diisi" };
+    }
+
+    const key = `${toClientId}::${uid}`;
+    const existing = remoteMonitorWindows.get(key);
+    if (existing && !existing.isDestroyed()) {
+      existing.focus();
+      existing.webContents.send("remote:monitor:update-meta", {
+        toClientId,
+        uid,
+        deviceName,
+        resolution,
+      });
+      return { success: true, reused: true };
+    }
+
+    let winWidth = 980;
+    let winHeight = 760;
+    const match = resolution.match(/^(\\d{3,5})x(\\d{3,5})$/);
+    if (match) {
+      const targetW = Number(match[1]);
+      const targetH = Number(match[2]);
+      if (Number.isFinite(targetW) && Number.isFinite(targetH)) {
+        winWidth = Math.max(760, Math.min(1720, targetW + 140));
+        winHeight = Math.max(560, Math.min(1220, targetH + 220));
+      }
+    }
+
+    const win = new BrowserWindow({
+      width: winWidth,
+      height: winHeight,
+      minWidth: 640,
+      minHeight: 480,
+      title: `Remote View - ${deviceName}`,
+      autoHideMenuBar: true,
+      resizable: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: path.join(__dirname, "preload.cjs"),
+      },
+    });
+
+    win.loadFile(path.join(__dirname, "remote-monitor.html"), {
+      query: {
+        toClientId,
+        uid,
+        name: deviceName,
+        resolution,
+      },
+    });
+
+    remoteMonitorWindows.set(key, win);
+    win.on("closed", () => {
+      const current = remoteMonitorWindows.get(key);
+      if (current === win) {
+        remoteMonitorWindows.delete(key);
+      }
+    });
+
+    return { success: true, reused: false };
+  } catch (err) {
+    return { success: false, error: err?.message || "Gagal membuka monitor window" };
+  }
+});

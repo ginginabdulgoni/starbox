@@ -241,6 +241,42 @@ contextBridge.exposeInMainWorld('electronAPI', {
   logs: {
     get: () => ipcRenderer.invoke('get-logs'),
     clear: () => ipcRenderer.invoke('clear-logs')
+  },
+
+  // Remote Control API – kontrol StarBox di komputer lain
+  remote: {
+    /** Ambil status koneksi dan daftar client online milik user yang sama */
+    getClients: () => ipcRenderer.invoke('remote:get-clients'),
+
+    /** Paksa refresh daftar client dari server */
+    refreshClients: () => ipcRenderer.send('remote:refresh-clients'),
+
+    /** Kirim command ke client target dan tunggu hasilnya */
+    sendCommand: (toClientId, command, payload) =>
+      ipcRenderer.invoke('remote:send-command', { toClientId, command, payload }),
+
+    /** Kirim command tanpa menunggu hasil (fire-and-forget) */
+    fireCommand: (toClientId, command, payload) =>
+      ipcRenderer.send('remote:fire-command', { toClientId, command, payload }),
+
+    /** Buka window Remote Control */
+    openWindow: () => ipcRenderer.invoke('remote:open-window'),
+
+    /** Buka window monitor remote per device */
+    openMonitorWindow: (payload) =>
+      ipcRenderer.invoke('remote:open-monitor-window', payload),
+
+    /** Event: daftar client berubah (client online/offline) */
+    onClientsUpdated: (cb) =>
+      ipcRenderer.on('remote:clients-updated', (_e, data) => cb(data)),
+
+    /** Event: status koneksi ke server berubah */
+    onConnectionChanged: (cb) =>
+      ipcRenderer.on('remote:connection-changed', (_e, data) => cb(data)),
+
+    /** Event: update metadata monitor window (jika window lama dipakai ulang) */
+    onMonitorMetaUpdate: (cb) =>
+      ipcRenderer.on('remote:monitor:update-meta', (_e, data) => cb(data)),
   }
 });
 

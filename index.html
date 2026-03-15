@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StarBox v1.3.260123 – MultiService Emulator</title>
+    <title>StarBox v1.4.260315 – MultiService Emulator</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
@@ -108,6 +108,28 @@
           <i class="bi bi-person-circle"></i>
           <span id="userProfileName">User</span>
         </button>
+
+        <!-- Remote Control Status Button -->
+        <button
+          id="remoteStatusBtn"
+          onclick="openRemoteWindow()"
+          title="Remote Control – klik untuk buka"
+          style="
+            display: none;
+            align-items: center; gap: 5px;
+            padding: 4px 10px; border-radius: 20px; border: none;
+            background: transparent; cursor: pointer; font-size: 12px;
+            font-weight: 500; transition: background .15s;
+          "
+          onmouseover="this.style.background='rgba(255,255,255,.08)'"
+          onmouseout="this.style.background='transparent'"
+        >
+          <span id="remoteDot" style="
+            width: 8px; height: 8px; border-radius: 50%;
+            display: inline-block; background: #6b7280; flex-shrink: 0;
+          "></span>
+          <span id="remoteLabel" style="color: #9ca3af;">Remote</span>
+        </button>
       </div>
     </nav>
     <script>
@@ -165,6 +187,15 @@
         >
           <i class="bi bi-phone"></i>
           <span>Android / iOS</span>
+        </a>
+        <a
+          href="#"
+          class="sidebar-item"
+          data-page="remote-control"
+          onclick="switchPage('remote-control')"
+        >
+          <i class="bi bi-pc-display"></i>
+          <span>Remote Control</span>
         </a>
         <a
           href="#"
@@ -593,6 +624,387 @@
         </main>
       </div>
       <!-- End Page: CCTV -->
+
+      <!-- Page: Remote Control (embedded) -->
+      <div id="page-remote-control" class="page-content">
+        <style>
+          #page-remote-control {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
+            background:
+              radial-gradient(1200px 600px at -10% -20%, #1f6e8b35, transparent),
+              radial-gradient(1000px 500px at 120% -10%, #15c7a21f, transparent),
+              linear-gradient(145deg, #041523, #071f31 45%, #0d2940);
+            color: #e6f2fb;
+            font-family: "Sora", "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+            cursor: default;
+          }
+
+          #page-remote-control *, #page-remote-control *::before, #page-remote-control *::after {
+            box-sizing: border-box;
+          }
+
+          .rc-topbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 18px;
+            border-bottom: 1px solid #2d4d67;
+            background: #081826d8;
+            backdrop-filter: blur(10px);
+            flex-shrink: 0;
+          }
+
+          .rc-dot {
+            width: 9px; height: 9px;
+            border-radius: 99px;
+            box-shadow: 0 0 0 4px #4edc9022;
+            background: #4edc90;
+            flex-shrink: 0;
+          }
+          .rc-dot.rc-dot-offline { background: #e05b6f; box-shadow: 0 0 0 4px #e05b6f2b; }
+
+          .rc-title { font-size: 16px; letter-spacing: .01em; font-weight: 700; color: #d8f3ff; white-space: nowrap; }
+
+          .rc-conn-label {
+            font-size: 12px; color: #95aec4; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis; max-width: 44vw;
+          }
+
+          .rc-spacer { flex: 1; }
+
+          .rc-btn {
+            border: 1px solid #35556f; background: #153048; color: #dff3ff;
+            border-radius: 10px; padding: 6px 12px; font-size: 12px; font-weight: 600;
+            cursor: pointer !important; transition: transform .12s ease, opacity .12s ease;
+            user-select: none;
+          }
+          .rc-btn:hover { transform: translateY(-1px); opacity: .92; }
+          .rc-btn:active { transform: translateY(0); }
+
+          .rc-btn-primary {
+            background: linear-gradient(135deg, #1ec8a5, #16a085);
+            border-color: #1ec8a588; color: #03251f;
+          }
+          .rc-btn-danger { background: #452332; border-color: #6d384b; color: #ffd8df; }
+          .rc-btn-soft { background: #10283d; border-color: #2a4a61; color: #c4daea; }
+          .rc-btn-xs { padding: 5px 9px; border-radius: 8px; font-size: 11px; }
+
+          .rc-workspace {
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            overflow: hidden;
+            flex: 1;
+            min-height: 0;
+          }
+
+          .rc-sidebar {
+            border-right: 1px solid #27475f;
+            background: #071a2abf;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            overflow: hidden;
+            min-height: 0;
+          }
+
+          .rc-sidebar-head {
+            padding: 12px 15px 10px;
+            border-bottom: 1px solid #1f3a4f;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            font-size: 11px;
+            color: #86a7bf;
+            font-weight: 700;
+            flex-shrink: 0;
+          }
+
+          .rc-client-list {
+            overflow-y: auto; padding: 8px;
+            display: flex; flex-direction: column; gap: 8px; flex: 1;
+          }
+
+          .rc-client-item {
+            border: 1px solid #24455d; border-radius: 12px; padding: 10px 11px;
+            cursor: pointer !important; background: #0d2437;
+            transition: border-color .12s ease, background .12s ease;
+            user-select: none;
+          }
+          .rc-client-item:hover { border-color: #3e6f90; background: #112c42; }
+          .rc-client-item.rc-active { border-color: #1ec8a5; background: #123848; box-shadow: inset 0 0 0 1px #1ec8a522; }
+
+          .rc-client-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          .rc-client-meta { margin-top: 3px; color: #95aec4; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          .rc-client-badge {
+            margin-top: 8px; display: inline-flex; align-items: center;
+            border-radius: 999px; padding: 3px 8px; font-size: 10px; font-weight: 700; border: 1px solid transparent;
+          }
+          .rc-badge-online { background: #173927; border-color: #2d6b4a; color: #8cf3bf; }
+          .rc-badge-offline { background: #402634; border-color: #6a3a4d; color: #ffb8c5; }
+
+          .rc-empty-client {
+            margin: 10px; padding: 16px 14px;
+            border: 1px dashed #2e4b61; border-radius: 12px;
+            color: #7f9bb0; text-align: center; font-size: 12px; line-height: 1.45;
+          }
+
+          .rc-main {
+            overflow-y: auto; overflow-x: hidden;
+            padding: 14px; display: flex; flex-direction: column; gap: 12px; min-height: 0;
+          }
+
+          .rc-panel {
+            background: #0e2234cc; border: 1px solid #28445d;
+            border-radius: 14px; box-shadow: 0 18px 40px rgba(2,10,18,.45);
+            overflow: visible; flex-shrink: 0;
+          }
+
+          .rc-panel-head {
+            padding: 12px 14px; border-bottom: 1px solid #21435c;
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            background: #0e2235cc; border-radius: 14px 14px 0 0; overflow: hidden;
+          }
+          .rc-panel-title { font-size: 14px; font-weight: 700; }
+          .rc-panel-sub { margin-top: 2px; font-size: 11px; color: #95aec4; }
+          .rc-panel-body { padding: 12px; }
+
+          .rc-chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
+          .rc-chip {
+            display: inline-flex; align-items: center; gap: 6px;
+            border: 1px solid #325671; background: #0d273c; color: #c2daed;
+            border-radius: 999px; font-size: 11px; padding: 5px 9px; font-weight: 600;
+          }
+
+          .rc-device-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 10px;
+          }
+
+          .rc-device-card {
+            border: 1px solid #294a63; background: #0d2234;
+            border-radius: 12px; padding: 11px;
+            display: flex; flex-direction: column; gap: 8px; min-height: 140px;
+          }
+          .rc-device-head { display: flex; gap: 8px; align-items: center; min-width: 0; }
+          .rc-device-icon {
+            width: 33px; height: 33px; border-radius: 9px; display: grid; place-items: center;
+            background: #173248; border: 1px solid #2b4f68; flex-shrink: 0; font-size: 15px;
+          }
+          .rc-device-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          .rc-device-meta { font-size: 11px; color: #95aec4; }
+          .rc-status-pill {
+            display: inline-flex; border-radius: 999px; border: 1px solid transparent;
+            font-size: 10px; padding: 3px 8px; font-weight: 700; width: fit-content;
+          }
+          .rc-running { background: #133b29; border-color: #2d6b4a; color: #8cf3bf; }
+          .rc-stopped { background: #23374a; border-color: #3a5871; color: #adc5d8; }
+          .rc-device-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+
+          .rc-hint {
+            color: #9ab5c9; font-size: 12px; line-height: 1.5;
+            border: 1px dashed #355972; border-radius: 12px;
+            background: #0a1f31; padding: 12px;
+          }
+
+          .rc-log-panel {
+            height: 160px; overflow-y: auto; padding: 10px;
+            font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+            font-size: 11px; background: #061521;
+            border-radius: 0 0 14px 14px;
+          }
+          .rc-log-entry { display: flex; gap: 10px; border-bottom: 1px solid #10283b; padding: 2px 0; }
+          .rc-log-time { color: #6c879d; flex-shrink: 0; }
+          .rc-log-info { color: #8acbff; }
+          .rc-log-success { color: #6ef0b7; }
+          .rc-log-warn { color: #ffd08a; }
+          .rc-log-error { color: #ff9dad; }
+
+          #page-remote-control ::-webkit-scrollbar { width: 6px; height: 6px; }
+          #page-remote-control ::-webkit-scrollbar-thumb { background: #23455e; border-radius: 999px; }
+          #page-remote-control ::-webkit-scrollbar-track { background: transparent; }
+
+          @media (max-width: 900px) {
+            .rc-workspace { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+            .rc-sidebar { max-height: 180px; border-right: none; border-bottom: 1px solid #27475f; }
+          }
+          @media (max-width: 600px) {
+            .rc-device-grid { grid-template-columns: 1fr; }
+          }
+        </style>
+
+        <!-- Paywall Overlay (hidden by default, shown for free/guest users) -->
+        <div id="rc-paywall" style="display:none; flex:1; flex-direction:column; align-items:center; justify-content:center; padding:32px 24px; background: radial-gradient(900px 500px at 50% 30%, #1ec8a512, transparent), linear-gradient(160deg, #041523, #071f31 60%, #0d2940);">
+          <div style="max-width:560px; width:100%; text-align:center;">
+            <!-- Icon -->
+            <div style="width:72px;height:72px;border-radius:20px;background:linear-gradient(135deg,#1ec8a5,#16a085);display:inline-flex;align-items:center;justify-content:center;margin-bottom:24px;box-shadow:0 12px 32px #1ec8a530;">
+              <i class="bi bi-pc-display" style="font-size:32px;color:#031f18;"></i>
+            </div>
+
+            <!-- Badge -->
+            <div style="display:inline-flex;align-items:center;gap:6px;background:#1a3a2a;border:1px solid #2d6b4a;border-radius:999px;padding:4px 14px;font-size:11px;font-weight:700;color:#6ef0b7;letter-spacing:.06em;text-transform:uppercase;margin-bottom:16px;">
+              <i class="bi bi-star-fill" style="font-size:9px;"></i> Fitur Premium
+            </div>
+
+            <h2 style="font-size:26px;font-weight:800;color:#d8f3ff;margin:0 0 12px;line-height:1.25;">
+              Remote Web Emulator<br>Tanpa Login Ulang
+            </h2>
+
+            <p style="color:#95aec4;font-size:14px;line-height:1.65;margin:0 0 28px;">
+              Kendalikan seluruh <strong style="color:#c8dff0;">web emulator</strong> di PC lain dari satu dashboard — sesi WhatsApp, Shopee, TikTok, dan layanan lainnya tetap aktif tanpa perlu scan ulang atau login ulang.
+            </p>
+
+            <!-- Benefits -->
+            <div style="background:#0d2234;border:1px solid #1e3d55;border-radius:14px;padding:20px 24px;margin-bottom:28px;text-align:left;">
+              <div style="font-size:11px;font-weight:700;color:#86a7bf;text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px;">Yang Anda dapatkan</div>
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                  <i class="bi bi-check-circle-fill" style="color:#1ec8a5;font-size:15px;flex-shrink:0;margin-top:1px;"></i>
+                  <div style="color:#c8dff0;font-size:13px;line-height:1.5;">Remote semua web emulator (WhatsApp, Shopee, TikTok, dll) dari PC mana pun</div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                  <i class="bi bi-check-circle-fill" style="color:#1ec8a5;font-size:15px;flex-shrink:0;margin-top:1px;"></i>
+                  <div style="color:#c8dff0;font-size:13px;line-height:1.5;">Sesi tetap aktif — tidak perlu scan ulang QR atau login ulang di setiap perangkat</div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                  <i class="bi bi-check-circle-fill" style="color:#1ec8a5;font-size:15px;flex-shrink:0;margin-top:1px;"></i>
+                  <div style="color:#c8dff0;font-size:13px;line-height:1.5;">Start, stop, dan pantau status semua device web secara real-time</div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                  <i class="bi bi-check-circle-fill" style="color:#1ec8a5;font-size:15px;flex-shrink:0;margin-top:1px;"></i>
+                  <div style="color:#c8dff0;font-size:13px;line-height:1.5;">Tampilan layar dan kontrol mouse/keyboard jarak jauh secara real-time</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- CTA Buttons -->
+            <div id="rc-paywall-actions" style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;"></div>
+
+            <p style="color:#4a6a82;font-size:11px;margin-top:20px;">
+              Sudah berlangganan? Pastikan Anda masuk dengan akun yang aktif.
+            </p>
+          </div>
+        </div>
+
+        <!-- Topbar (hanya tampil untuk pengguna premium) -->
+        <header id="rc-main-header" class="rc-topbar">
+          <div id="rc-dot" class="rc-dot rc-dot-offline"></div>
+          <div class="rc-title">Remote Control</div>
+          <span id="rc-connLabel" class="rc-conn-label">Tidak terhubung</span>
+          <span class="rc-spacer"></span>
+          <button class="rc-btn rc-btn-soft" onclick="rcRefreshClients()">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+          </button>
+        </header>
+
+        <!-- Workspace -->
+        <div class="rc-workspace">
+          <aside class="rc-sidebar">
+            <div class="rc-sidebar-head">Komputer Online</div>
+            <div id="rc-clientList" class="rc-client-list">
+              <div class="rc-empty-client">Memuat daftar client...</div>
+            </div>
+          </aside>
+
+          <main class="rc-main">
+            <section class="rc-panel">
+              <div class="rc-panel-head">
+                <div>
+                  <div id="rc-selectedTitle" class="rc-panel-title">Belum ada komputer dipilih</div>
+                  <div id="rc-selectedSub" class="rc-panel-sub">Pilih client dari panel kiri untuk mulai remote.</div>
+                </div>
+                <div class="rc-chip-row">
+                  <span class="rc-chip">Device: <strong id="rc-chipDevice">0</strong></span>
+                  <span class="rc-chip">Running: <strong id="rc-chipRunning">0</strong></span>
+                </div>
+              </div>
+              <div class="rc-panel-body">
+                <div id="rc-deviceGrid" class="rc-device-grid">
+                  <div class="rc-hint">Pilih komputer untuk memuat device.</div>
+                </div>
+              </div>
+            </section>
+
+            <section class="rc-panel">
+              <div class="rc-panel-head">
+                <div class="rc-panel-title">Log Aktivitas</div>
+              </div>
+              <div id="rc-logPanel" class="rc-log-panel"></div>
+            </section>
+          </main>
+        </div>
+      </div>
+      <!-- End Page: Remote Control -->
+
+      <!-- Support Toast — pojok kiri bawah, tampil untuk free/guest users -->
+      <div id="supportToast" style="
+        display: none;
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        z-index: 9999;
+        width: 300px;
+        background: linear-gradient(145deg, #1a1f2e, #1e2740);
+        border: 1px solid #2d3a5a;
+        border-radius: 16px;
+        box-shadow: 0 12px 40px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04);
+        overflow: hidden;
+        animation: stSlideIn .35s cubic-bezier(.22,.9,.36,1) both;
+      ">
+        <style>
+          @keyframes stSlideIn {
+            from { opacity: 0; transform: translateY(16px) scale(.97); }
+            to   { opacity: 1; transform: translateY(0) scale(1); }
+          }
+          #supportToast .st-close {
+            position: absolute; top: 10px; right: 12px;
+            background: none; border: none; cursor: pointer;
+            color: #6b7a9e; font-size: 16px; line-height: 1; padding: 2px;
+            transition: color .15s;
+          }
+          #supportToast .st-close:hover { color: #c0cfe8; }
+          #supportToast .st-btn {
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            width: 100%; padding: 10px 14px;
+            background: linear-gradient(135deg, #e8514a, #c0392b);
+            border: none; border-radius: 10px; cursor: pointer;
+            color: #fff; font-size: 13px; font-weight: 700;
+            text-decoration: none;
+            transition: opacity .15s, transform .12s;
+          }
+          #supportToast .st-btn:hover { opacity: .9; transform: translateY(-1px); }
+          #supportToast .st-dismiss {
+            display: block; text-align: center; margin-top: 10px;
+            font-size: 11px; color: #4a5578; cursor: pointer;
+            transition: color .15s;
+          }
+          #supportToast .st-dismiss:hover { color: #8a96b8; }
+        </style>
+
+        <button class="st-close" onclick="dismissSupportToast()" title="Tutup">✕</button>
+
+        <!-- Header strip -->
+        <div style="background: linear-gradient(90deg,#c0392b22,#e8514a18); padding: 14px 16px 10px; display:flex; align-items:center; gap:10px; border-bottom:1px solid #2d3a5a;">
+          <span style="font-size:22px;">☕</span>
+          <div>
+            <div style="font-size:13px; font-weight:800; color:#e8e4ff; line-height:1.2;">Traktir Kopi Developer</div>
+            <div style="font-size:11px; color:#7a85a8; margin-top:2px;">Dukung pengembangan StarBox</div>
+          </div>
+        </div>
+
+        <div style="padding: 12px 16px 14px;">
+          <p style="font-size:12px; color:#9aa3c2; line-height:1.6; margin:0 0 12px;">
+            Jika StarBox bermanfaat buat kamu, yuk bantu developer tetap semangat ngembangin fitur baru dengan sawer kopi kecil! 🙏
+          </p>
+          <a href="https://trakteer.id/ginginabdulgoni/tip" target="_blank" class="st-btn">
+            <span>☕</span> Traktir Kopi Sekarang
+          </a>
+          <span class="st-dismiss" onclick="dismissSupportToast()">Nanti saja, ingatkan lagi besok</span>
+        </div>
+      </div>
 
       <div id="aboutModal" class="modal">
         <div class="modal-content">
@@ -4642,7 +5054,7 @@ adb connect ip:port</code></pre>
       </script>
       <footer class="app-footer">
         <span class="footer-left"
-          >StarBox v1.3.260123 &copy; 2025 Gingin Abdul Goni —
+          >StarBox v1.4.260315 &copy; 2025 Gingin Abdul Goni —
           <a
             href="https://1112-project.com"
             target="_blank"
@@ -4709,6 +5121,13 @@ adb connect ip:port</code></pre>
         // Refresh device list when switching pages
         if (typeof window.refreshDeviceList === "function") {
           window.refreshDeviceList();
+        }
+
+        // Initialize Remote Control page on first visit
+        if (pageName === "remote-control") {
+          if (typeof window.initRemoteControlPage === "function") {
+            window.initRemoteControlPage();
+          }
         }
 
         // Load WhatsApp Gateway devices when switching to that page
@@ -7470,5 +7889,432 @@ adb connect ip:port</code></pre>
       }
     </script>
     <script src="renderer.js"></script>
+
+    <!-- Support Toast Logic -->
+    <script>
+    (function () {
+      const TOAST_KEY        = "starbox-support-toast-dismissed";
+      const REMIND_DELAY_MS  = 10 * 60 * 1000; // 10 menit
+      const SHOW_DELAY_MS    = 5000;            // tampil setelah 5 detik
+
+      function isDismissed() {
+        const val = localStorage.getItem(TOAST_KEY);
+        if (!val) return false;
+        return Date.now() < parseInt(val, 10);
+      }
+
+      function showToastEl() {
+        const el = document.getElementById("supportToast");
+        if (el) el.style.display = "block";
+      }
+
+      window.dismissSupportToast = function () {
+        const el = document.getElementById("supportToast");
+        if (el) {
+          el.style.animation = "stSlideIn .25s cubic-bezier(.22,.9,.36,1) reverse both";
+          setTimeout(() => { el.style.display = "none"; }, 230);
+        }
+        localStorage.setItem(TOAST_KEY, String(Date.now() + REMIND_DELAY_MS));
+        // Jadwalkan muncul lagi setelah 10 menit
+        setTimeout(showToastEl, REMIND_DELAY_MS);
+      };
+
+      // Hapus data dismiss lama jika sudah expired, lalu tampilkan
+      if (isDismissed()) {
+        const remaining = parseInt(localStorage.getItem(TOAST_KEY), 10) - Date.now();
+        setTimeout(showToastEl, remaining);
+      } else {
+        localStorage.removeItem(TOAST_KEY);
+        setTimeout(showToastEl, SHOW_DELAY_MS);
+      }
+    })();
+    </script>
+
+    <!-- Remote Control Page Logic -->
+    <script>
+    (function () {
+      "use strict";
+
+      let _rcInitialized = false;
+
+      const rcState = {
+        connected: false,
+        myClientId: null,
+        clients: [],
+        selectedClient: null,
+        selectedClientDevices: [],
+        pollTimer: null,
+        _reconnectTimer: null,
+      };
+
+      function rcEsc(str) {
+        return String(str || "")
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+      }
+
+      function rcNow() {
+        return new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      }
+
+      function rcAddLog(level, message) {
+        const panel = document.getElementById("rc-logPanel");
+        if (!panel) return;
+        const row = document.createElement("div");
+        row.className = "rc-log-entry";
+        row.innerHTML = `<span class="rc-log-time">${rcNow()}</span><span class="rc-log-${level}">${rcEsc(message)}</span>`;
+        panel.appendChild(row);
+        panel.scrollTop = panel.scrollHeight;
+        while (panel.children.length > 200) panel.removeChild(panel.firstChild);
+      }
+
+      function rcUpdateConnectionUI() {
+        const dot = document.getElementById("rc-dot");
+        const label = document.getElementById("rc-connLabel");
+        if (!dot || !label) return;
+        if (rcState.connected) {
+          dot.className = "rc-dot";
+          label.textContent = `Terhubung (ID: ${rcState.myClientId || "-"})`;
+        } else {
+          dot.className = "rc-dot rc-dot-offline";
+          label.textContent = "Menghubungkan ulang...";
+        }
+      }
+
+      function rcUpdateStats() {
+        const total = rcState.selectedClientDevices.length;
+        const running = rcState.selectedClientDevices.filter((d) => d.running).length;
+        const el1 = document.getElementById("rc-chipDevice");
+        const el2 = document.getElementById("rc-chipRunning");
+        if (el1) el1.textContent = String(total);
+        if (el2) el2.textContent = String(running);
+      }
+
+      function rcRenderSelectedHeader() {
+        const title = document.getElementById("rc-selectedTitle");
+        const sub = document.getElementById("rc-selectedSub");
+        if (!title || !sub) return;
+        if (!rcState.selectedClient) {
+          title.textContent = "Belum ada komputer dipilih";
+          sub.textContent = "Pilih client dari panel kiri untuk mulai remote.";
+          return;
+        }
+        const c = rcState.selectedClient;
+        title.textContent = c.hostname || c.client_id;
+        sub.textContent = `${c.platform || "-"} · ${c.user_email || "akun sama"}`;
+      }
+
+      function rcRenderClientList() {
+        const listEl = document.getElementById("rc-clientList");
+        if (!listEl) return;
+        if (!rcState.clients.length) {
+          listEl.innerHTML = `<div class="rc-empty-client">Tidak ada client online dengan akun yang sama.</div>`;
+          return;
+        }
+        const sorted = [...rcState.clients].sort((a, b) => {
+          return (b.client_id === rcState.myClientId ? 1 : 0) - (a.client_id === rcState.myClientId ? 1 : 0);
+        });
+        listEl.innerHTML = sorted.map((c) => {
+          const online = c.status === "online";
+          const isSelected = rcState.selectedClient?.client_id === c.client_id;
+          const isSelf = c.client_id === rcState.myClientId;
+          return `<div class="rc-client-item ${isSelected ? "rc-active" : ""}" onclick="rcSelectClient('${rcEsc(c.client_id)}')">
+            <div class="rc-client-name">${rcEsc(c.hostname || c.client_id)}${isSelf ? " (Ini)" : ""}</div>
+            <div class="rc-client-meta">${rcEsc(c.platform || "-")} · v${rcEsc(c.app_version || "?")}</div>
+            <span class="rc-client-badge ${online ? "rc-badge-online" : "rc-badge-offline"}">${online ? "Online" : "Offline"}</span>
+          </div>`;
+        }).join("");
+      }
+
+      function rcStartPolling(clientId) {
+        rcStopPolling();
+        rcState.pollTimer = setInterval(async () => {
+          if (!rcState.selectedClient || !rcState.connected) return;
+          try {
+            const result = await rcSendCommand(clientId, "list_devices", { include_android: false });
+            const devices = Array.isArray(result?.devices) ? result.devices : [];
+            const oldSig = rcState.selectedClientDevices.map(d => `${d.uid}:${d.running}`).join(",");
+            const newSig = devices.map(d => `${d.uid}:${d.running}`).join(",");
+            if (oldSig !== newSig) {
+              rcState.selectedClientDevices = devices;
+              rcRenderDeviceGrid();
+              rcUpdateStats();
+            }
+          } catch { /* silent */ }
+        }, 10000); // 10s — cukup untuk deteksi status device, tidak spam server
+      }
+
+      function rcStopPolling() {
+        if (rcState.pollTimer) { clearInterval(rcState.pollTimer); rcState.pollTimer = null; }
+      }
+
+      window.rcSelectClient = async function (clientId) {
+        const target = rcState.clients.find((c) => c.client_id === clientId);
+        if (!target) return;
+        rcState.selectedClient = target;
+        rcRenderClientList();
+        rcRenderSelectedHeader();
+        const grid = document.getElementById("rc-deviceGrid");
+        if (grid) grid.innerHTML = `<div class="rc-hint">Memuat device dari ${rcEsc(target.hostname || target.client_id)}...</div>`;
+        await rcLoadDevices(clientId);
+        rcStartPolling(clientId);
+      };
+
+      async function rcLoadDevices(clientId) {
+        if (!clientId) return;
+        try {
+          const result = await rcSendCommand(clientId, "list_devices", { include_android: false });
+          rcState.selectedClientDevices = Array.isArray(result?.devices) ? result.devices : [];
+          rcRenderDeviceGrid();
+          rcUpdateStats();
+          rcAddLog("success", `Load ${rcState.selectedClientDevices.length} device dari ${clientId.slice(0, 16)}`);
+        } catch (err) {
+          rcState.selectedClientDevices = [];
+          rcRenderDeviceGrid();
+          rcUpdateStats();
+          rcAddLog("error", `Gagal load device: ${err.message}`);
+        }
+      }
+
+      function rcRenderDeviceGrid() {
+        const grid = document.getElementById("rc-deviceGrid");
+        if (!grid) return;
+        if (!rcState.selectedClient) {
+          grid.innerHTML = `<div class="rc-hint">Pilih komputer untuk memuat device.</div>`;
+          return;
+        }
+        if (!rcState.selectedClientDevices.length) {
+          grid.innerHTML = `<div class="rc-hint">Tidak ada device ditemukan.</div>`;
+          return;
+        }
+        const icons = { wa: "💬", android: "🤖", telegram: "✈️", tiktok: "🎵", youtube_studio: "▶️" };
+        grid.innerHTML = rcState.selectedClientDevices.map((d) => {
+          const uid = String(d.uid || "");
+          const running = !!d.running;
+          const icon = icons[String(d.service || "").toLowerCase()] || "🌐";
+          const safeUid = rcEsc(uid);
+          const safeName = rcEsc(d.name || uid);
+          const encodedName = encodeURIComponent(String(d.name || uid));
+
+          const runningBtns = `
+            <button class="rc-btn rc-btn-xs rc-btn-primary" onclick="rcOpenMonitor('${safeUid}','${encodedName}')">Remote</button>
+            <button class="rc-btn rc-btn-xs rc-btn-soft" onclick="rcQuickCmd('focus_tab','${safeUid}')">Fokus</button>
+            <button class="rc-btn rc-btn-xs rc-btn-soft" onclick="rcQuickCmd('reload_tab','${safeUid}')">Reload</button>
+            <button class="rc-btn rc-btn-xs rc-btn-danger" onclick="rcQuickCmd('stop_device','${safeUid}')">Stop</button>
+          `;
+          const stoppedBtns = `
+            <button class="rc-btn rc-btn-xs rc-btn-primary" onclick="rcQuickCmd('start_device','${safeUid}')">Start</button>
+            <button class="rc-btn rc-btn-xs rc-btn-soft" onclick="rcQuickCmd('open_tab','${safeUid}')">Buka Tab</button>
+          `;
+          return `<div class="rc-device-card">
+            <div class="rc-device-head">
+              <div class="rc-device-icon">${icon}</div>
+              <div style="min-width:0">
+                <div class="rc-device-name">${safeName}</div>
+                <div class="rc-device-meta">${rcEsc(d.service || "web")} · ${rcEsc(uid.slice(0, 10))}</div>
+              </div>
+            </div>
+            <span class="rc-status-pill ${running ? "rc-running" : "rc-stopped"}">${running ? "Running" : "Stopped"}</span>
+            <div class="rc-device-actions">${running ? runningBtns : stoppedBtns}</div>
+          </div>`;
+        }).join("");
+      }
+
+      window.rcOpenMonitor = async function (uid, encodedName) {
+        if (!rcState.selectedClient) { rcAddLog("warn", "Pilih client dulu."); return; }
+        const deviceName = (() => { try { return decodeURIComponent(encodedName || ""); } catch { return uid; } })();
+        try {
+          const res = await window.electronAPI.remote.openMonitorWindow({
+            toClientId: rcState.selectedClient.client_id,
+            uid, deviceName, resolution: "960x540",
+          });
+          if (!res?.success) throw new Error(res?.error || "Gagal buka monitor");
+          rcAddLog("info", `Monitor dibuka: ${deviceName}`);
+        } catch (err) {
+          rcAddLog("error", `Open monitor gagal: ${err.message}`);
+        }
+      };
+
+      window.rcQuickCmd = async function (command, uid) {
+        if (!rcState.selectedClient) { rcAddLog("warn", "Pilih client dulu."); return; }
+        if (!uid) return;
+        rcAddLog("info", `${command} -> ${uid.slice(0, 10)}`);
+        try {
+          const result = await rcSendCommand(rcState.selectedClient.client_id, command, { uid });
+          rcAddLog("success", `${command}: ${JSON.stringify(result).slice(0, 100)}`);
+          if (["start_device","stop_device","restart_device","open_tab","close_tab"].includes(command)) {
+            setTimeout(() => rcLoadDevices(rcState.selectedClient.client_id), 600);
+          }
+        } catch (err) {
+          rcAddLog("error", `${command}: ${err.message}`);
+        }
+      };
+
+      async function rcSendCommand(toClientId, command, payload = {}) {
+        const res = await window.electronAPI.remote.sendCommand(toClientId, command, payload);
+        if (!res?.success) throw new Error(res?.error || "Unknown error");
+        return res.result;
+      }
+
+      window.rcRefreshClients = function () {
+        if (window.electronAPI?.remote?.refreshClients) {
+          window.electronAPI.remote.refreshClients();
+          rcAddLog("info", "Refresh daftar client...");
+        }
+      };
+
+      function rcCheckPremiumAccess() {
+        const state = window.getCurrentAuthState?.();
+        const paywall = document.getElementById("rc-paywall");
+        const header  = document.getElementById("rc-main-header");
+        const workspace = document.querySelector(".rc-workspace");
+
+        if (!paywall || !header || !workspace) return true;
+
+        const isLoggedIn = !!state?.isLoggedIn;
+        let isFree = !isLoggedIn;
+
+        if (isLoggedIn && state?.package) {
+          const priceRaw = state.package.price ?? state.package.price_display ?? "";
+          const text = String(priceRaw).toLowerCase();
+          if (text.includes("gratis") || text.includes("free")) {
+            isFree = true;
+          } else {
+            const num = Number(String(priceRaw).replace(/[^0-9.-]/g, ""));
+            isFree = Number.isFinite(num) && num <= 0;
+          }
+        }
+
+        if (isFree) {
+          // Tampilkan paywall, sembunyikan konten utama
+          paywall.style.display = "flex";
+          header.style.display  = "none";
+          workspace.style.display = "none";
+
+          // Render tombol aksi sesuai kondisi
+          const actions = document.getElementById("rc-paywall-actions");
+          if (actions) {
+            if (!isLoggedIn) {
+              actions.innerHTML = `
+                <button onclick="handleAuthButtonClick()" style="background:linear-gradient(135deg,#1ec8a5,#16a085);border:none;color:#031f18;font-size:14px;font-weight:700;padding:12px 28px;border-radius:12px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;">
+                  <i class="bi bi-box-arrow-in-right"></i> Masuk / Daftar
+                </button>
+                <button onclick="openPackageModal()" style="background:#0d2234;border:1px solid #28445d;color:#c8dff0;font-size:14px;font-weight:600;padding:12px 28px;border-radius:12px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;">
+                  <i class="bi bi-rocket-takeoff"></i> Lihat Paket
+                </button>`;
+            } else {
+              actions.innerHTML = `
+                <button onclick="openPackageModal()" style="background:linear-gradient(135deg,#1ec8a5,#16a085);border:none;color:#031f18;font-size:14px;font-weight:700;padding:12px 28px;border-radius:12px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;">
+                  <i class="bi bi-rocket-takeoff"></i> Upgrade Sekarang
+                </button>
+                <button onclick="openAccountModal()" style="background:#0d2234;border:1px solid #28445d;color:#c8dff0;font-size:14px;font-weight:600;padding:12px 28px;border-radius:12px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;">
+                  <i class="bi bi-person-circle"></i> Info Akun
+                </button>`;
+            }
+          }
+          return false; // tidak punya akses
+        }
+
+        // Premium — tampilkan konten normal
+        paywall.style.display   = "none";
+        header.style.display    = "flex";
+        workspace.style.display = "grid";
+        return true; // punya akses
+      }
+
+      window.initRemoteControlPage = function () {
+        // Cek akses premium dulu — jika tidak, tampilkan paywall dan berhenti
+        if (!rcCheckPremiumAccess()) return;
+
+        if (!window.electronAPI?.remote) {
+          const label = document.getElementById("rc-connLabel");
+          if (label) label.textContent = "Error: API tidak tersedia";
+          return;
+        }
+
+        // Register persistent event listeners only once
+        if (!_rcInitialized) {
+          _rcInitialized = true;
+
+          window.electronAPI.remote.onClientsUpdated(({ clients }) => {
+            // Receiving a client list from server = we're connected
+            if (!rcState.connected) {
+              rcState.connected = true;
+              rcUpdateConnectionUI();
+            }
+            rcState.clients = Array.isArray(clients) ? clients : [];
+            rcRenderClientList();
+            if (rcState.selectedClient) {
+              const still = rcState.clients.find((c) => c.client_id === rcState.selectedClient.client_id);
+              if (!still) {
+                rcAddLog("warn", "Client terpilih offline. Pilih client lain.");
+                rcStopPolling();
+                rcState.selectedClient = null;
+                rcState.selectedClientDevices = [];
+                rcRenderSelectedHeader();
+                rcRenderDeviceGrid();
+              } else {
+                rcState.selectedClient = still;
+                rcRenderSelectedHeader();
+              }
+            }
+            rcUpdateStats();
+          });
+
+          window.electronAPI.remote.onConnectionChanged(({ connected }) => {
+            const wasConnected = rcState.connected;
+            rcState.connected = !!connected;
+            rcUpdateConnectionUI();
+            if (!connected) {
+              clearTimeout(rcState._reconnectTimer);
+              rcState._reconnectTimer = setTimeout(() => {
+                if (!rcState.connected) window.electronAPI.remote.refreshClients();
+              }, 3000);
+            } else if (!wasConnected) {
+              window.electronAPI.remote.refreshClients();
+              rcAddLog("success", "Terhubung kembali ke server.");
+            }
+          });
+        }
+
+        // Every time the page opens: fetch current state + ask server for fresh client list
+        window.electronAPI.remote.getClients().then((initial) => {
+          rcState.connected = !!initial?.connected;
+          rcState.myClientId = initial?.clientId || null;
+          rcState.clients = Array.isArray(initial?.clients) ? initial.clients : [];
+          rcUpdateConnectionUI();
+          rcRenderClientList();
+          rcRenderSelectedHeader();
+          rcRenderDeviceGrid();
+          rcUpdateStats();
+          if (!rcState.clients.length) {
+            rcAddLog("info", "Menghubungkan ke server...");
+          }
+        }).catch((err) => {
+          const label = document.getElementById("rc-connLabel");
+          if (label) label.textContent = `Error: ${err.message}`;
+          rcAddLog("error", `getClients gagal: ${err.message}`);
+        });
+
+        // Immediately request fresh data from server (doesn't wait for getClients)
+        window.electronAPI.remote.refreshClients();
+      };
+      // Watch for when page-remote-control becomes active (most reliable trigger)
+      (function () {
+        function tryInit() {
+          if (typeof window.initRemoteControlPage === "function") {
+            window.initRemoteControlPage();
+          }
+        }
+        const rcPage = document.getElementById("page-remote-control");
+        if (rcPage) {
+          const obs = new MutationObserver(() => {
+            if (rcPage.classList.contains("active")) tryInit();
+          });
+          obs.observe(rcPage, { attributes: true, attributeFilter: ["class"] });
+        }
+      })();
+    })();
+    </script>
   </body>
 </html>

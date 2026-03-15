@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Remote Control - StarBox</title>
+  <style>
+    :root {
+      --bg-0: #041523;
+      --bg-1: #071f31;
+      --bg-2: #0d2940;
+      --panel: #0e2234cc;
+      --panel-border: #28445d;
+      --text: #e6f2fb;
+      --muted: #95aec4;
+      --brand: #1ec8a5;
+      --brand-2: #16a085;
+      --danger: #e05b6f;
+      --ok: #4edc90;
+      --shadow: 0 18px 40px rgba(2, 10, 18, 0.45);
+      --radius: 14px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      color: var(--text);
+      font-family: "Sora", "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(1200px 600px at -10% -20%, #1f6e8b35, transparent),
+        radial-gradient(1000px 500px at 120% -10%, #15c7a21f, transparent),
+        linear-gradient(145deg, var(--bg-0), var(--bg-1) 45%, var(--bg-2));
+      overflow: hidden;
+      cursor: default;
+    }
+
+    .page {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      height: 100vh;
+      min-height: 0;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 18px;
+      border-bottom: 1px solid #2d4d67;
+      background: #081826d8;
+      backdrop-filter: blur(10px);
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 99px;
+      box-shadow: 0 0 0 4px #4edc9022;
+      background: var(--ok);
+      flex-shrink: 0;
+    }
+
+    .dot.offline {
+      background: var(--danger);
+      box-shadow: 0 0 0 4px #e05b6f2b;
+    }
+
+    .title {
+      font-size: 19px;
+      letter-spacing: 0.01em;
+      font-weight: 700;
+      color: #d8f3ff;
+      white-space: nowrap;
+    }
+
+    .conn-label {
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 44vw;
+    }
+
+    .spacer { flex: 1; }
+
+    .btn {
+      border: 1px solid #35556f;
+      background: #153048;
+      color: #dff3ff;
+      border-radius: 10px;
+      padding: 7px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer !important;
+      transition: transform .12s ease, opacity .12s ease, border-color .12s ease;
+      user-select: none;
+    }
+
+    .btn:hover { transform: translateY(-1px); opacity: .92; border-color: #4d7a9a; }
+    .btn:active { transform: translateY(0); }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      border-color: #1ec8a588;
+      color: #03251f;
+    }
+
+    .btn-danger {
+      background: #452332;
+      border-color: #6d384b;
+      color: #ffd8df;
+    }
+
+    .btn-soft {
+      background: #10283d;
+      border-color: #2a4a61;
+      color: #c4daea;
+    }
+
+    .btn-xs {
+      padding: 5px 9px;
+      border-radius: 8px;
+      font-size: 11px;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .sidebar {
+      border-right: 1px solid #27475f;
+      background: #071a2abf;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .sidebar-head {
+      padding: 14px 15px 11px;
+      border-bottom: 1px solid #1f3a4f;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      font-size: 11px;
+      color: #86a7bf;
+      font-weight: 700;
+    }
+
+    .client-list {
+      overflow-y: auto;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .client-item {
+      border: 1px solid #24455d;
+      border-radius: 12px;
+      padding: 10px 11px;
+      cursor: pointer !important;
+      background: #0d2437;
+      transition: border-color .12s ease, background .12s ease;
+      user-select: none;
+    }
+
+    .client-item:hover { border-color: #3e6f90; background: #112c42; }
+
+    .client-item.active {
+      border-color: #1ec8a5;
+      background: #123848;
+      box-shadow: inset 0 0 0 1px #1ec8a522;
+    }
+
+    .client-name {
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .client-meta {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .client-badge {
+      margin-top: 8px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      border: 1px solid transparent;
+    }
+
+    .badge-online { background: #173927; border-color: #2d6b4a; color: #8cf3bf; }
+    .badge-offline { background: #402634; border-color: #6a3a4d; color: #ffb8c5; }
+
+    .empty-client {
+      margin: 14px 10px;
+      padding: 18px 14px;
+      border: 1px dashed #2e4b61;
+      border-radius: 12px;
+      color: #7f9bb0;
+      text-align: center;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .main {
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: visible;
+      flex-shrink: 0;
+    }
+
+    .panel-head {
+      padding: 12px 14px;
+      border-bottom: 1px solid #21435c;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: #0e2235cc;
+      border-radius: var(--radius) var(--radius) 0 0;
+      overflow: hidden;
+    }
+
+    .panel-title { font-size: 14px; font-weight: 700; }
+    .panel-sub { margin-top: 2px; font-size: 11px; color: var(--muted); }
+
+    .panel-body { padding: 12px; }
+
+    .chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid #325671;
+      background: #0d273c;
+      color: #c2daed;
+      border-radius: 999px;
+      font-size: 11px;
+      padding: 5px 9px;
+      font-weight: 600;
+    }
+
+    .device-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 10px;
+    }
+
+    .device-card {
+      border: 1px solid #294a63;
+      background: #0d2234;
+      border-radius: 12px;
+      padding: 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 144px;
+    }
+
+    .device-head { display: flex; gap: 8px; align-items: center; min-width: 0; }
+
+    .device-icon {
+      width: 33px;
+      height: 33px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      background: #173248;
+      border: 1px solid #2b4f68;
+      flex-shrink: 0;
+      font-size: 15px;
+    }
+
+    .device-name {
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .device-meta { font-size: 11px; color: var(--muted); }
+
+    .status-pill {
+      display: inline-flex;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-size: 10px;
+      padding: 3px 8px;
+      font-weight: 700;
+      width: fit-content;
+    }
+
+    .running { background: #133b29; border-color: #2d6b4a; color: #8cf3bf; }
+    .stopped { background: #23374a; border-color: #3a5871; color: #adc5d8; }
+
+    .device-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+
+    .form-wrap { display: flex; flex-wrap: wrap; gap: 9px; align-items: flex-end; }
+
+    .field { display: flex; flex-direction: column; gap: 4px; }
+
+    .field label {
+      font-size: 10px;
+      color: #88a6be;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    .input, .select {
+      min-width: 180px;
+      border: 1px solid #32556f;
+      border-radius: 10px;
+      background: #0a1d2d;
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 12px;
+      outline: none;
+    }
+
+    .input:focus, .select:focus { border-color: #1ec8a5; box-shadow: 0 0 0 2px #1ec8a523; }
+
+    .hint {
+      color: #9ab5c9;
+      font-size: 12px;
+      line-height: 1.5;
+      border: 1px dashed #355972;
+      border-radius: 12px;
+      background: #0a1f31;
+      padding: 12px;
+    }
+
+    .log-panel {
+      height: 180px;
+      overflow-y: auto;
+      padding: 10px;
+      font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+      font-size: 12px;
+      background: #061521;
+    }
+
+    .log-entry { display: flex; gap: 10px; border-bottom: 1px solid #10283b; padding: 2px 0; }
+    .log-time { color: #6c879d; flex-shrink: 0; }
+    .log-level-info { color: #8acbff; }
+    .log-level-success { color: #6ef0b7; }
+    .log-level-warn { color: #ffd08a; }
+    .log-level-error { color: #ff9dad; }
+
+    @media (max-width: 1100px) {
+      .workspace {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+      }
+      .sidebar {
+        max-height: 200px;
+        border-right: none;
+        border-bottom: 1px solid #27475f;
+      }
+      .conn-label { max-width: 30vw; }
+    }
+
+    @media (max-width: 700px) {
+      .topbar { flex-wrap: wrap; }
+      .conn-label { max-width: 100%; }
+      .device-grid { grid-template-columns: 1fr; }
+      .input, .select { min-width: 150px; }
+    }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: #23455e; border-radius: 999px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <header class="topbar">
+    <div id="dot" class="dot offline"></div>
+    <div class="title">Remote Control</div>
+    <span id="connLabel" class="conn-label">Tidak terhubung</span>
+    <span class="spacer"></span>
+    <button class="btn btn-soft" onclick="refreshClients()">Refresh Client</button>
+  </header>
+
+  <div class="workspace">
+    <aside class="sidebar">
+      <div class="sidebar-head">Komputer (akun sama)</div>
+      <div id="clientList" class="client-list">
+        <div class="empty-client">Memuat daftar client...</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <div id="selectedTitle" class="panel-title">Belum ada komputer dipilih</div>
+            <div id="selectedSub" class="panel-sub">Pilih client dari panel kiri untuk mulai remote.</div>
+          </div>
+          <div class="chip-row">
+            <span class="chip">Device: <strong id="chipDeviceCount">0</strong></span>
+            <span class="chip">Running: <strong id="chipRunningCount">0</strong></span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div id="deviceGrid" class="device-grid">
+            <div class="hint">Pilih komputer untuk memuat device.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Log Aktivitas</div>
+        </div>
+        <div id="logPanel" class="log-panel"></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script>
+const state = {
+  connected: false,
+  myClientId: null,
+  clients: [],
+  selectedClient: null,
+  selectedClientDevices: [],
+  pollTimer: null,
+  _reconnectTimer: null,
+};
+
+function esc(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function now() {
+  return new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function addLog(level, message) {
+  const panel = document.getElementById("logPanel");
+  if (!panel) return;
+  const row = document.createElement("div");
+  row.className = "log-entry";
+  row.innerHTML = `<span class="log-time">${now()}</span><span class="log-level-${level}">${esc(message)}</span>`;
+  panel.appendChild(row);
+  panel.scrollTop = panel.scrollHeight;
+  while (panel.children.length > 250) panel.removeChild(panel.firstChild);
+}
+
+function updateConnectionUI() {
+  const dot = document.getElementById("dot");
+  const label = document.getElementById("connLabel");
+  if (state.connected) {
+    dot.className = "dot";
+    label.textContent = `Terhubung (ID: ${state.myClientId || "-"})`;
+  } else {
+    dot.className = "dot offline";
+    label.textContent = "Menghubungkan ulang...";
+  }
+}
+
+function updateStats() {
+  const total = state.selectedClientDevices.length;
+  const running = state.selectedClientDevices.filter((d) => d.running).length;
+  document.getElementById("chipDeviceCount").textContent = String(total);
+  document.getElementById("chipRunningCount").textContent = String(running);
+}
+
+function renderSelectedHeader() {
+  const title = document.getElementById("selectedTitle");
+  const sub = document.getElementById("selectedSub");
+  if (!state.selectedClient) {
+    title.textContent = "Belum ada komputer dipilih";
+    sub.textContent = "Pilih client dari panel kiri untuk mulai remote.";
+    return;
+  }
+
+  const c = state.selectedClient;
+  title.textContent = c.hostname || c.client_id;
+  sub.textContent = `${c.platform || "-"} · ${c.user_email || "akun sama"}`;
+}
+
+function renderClientList() {
+  const listEl = document.getElementById("clientList");
+  if (!state.clients.length) {
+    listEl.innerHTML = `<div class="empty-client">Tidak ada client online dengan akun yang sama.</div>`;
+    return;
+  }
+
+  const sorted = [...state.clients].sort((a, b) => {
+    const aSelf = a.client_id === state.myClientId ? 1 : 0;
+    const bSelf = b.client_id === state.myClientId ? 1 : 0;
+    return bSelf - aSelf;
+  });
+
+  listEl.innerHTML = sorted
+    .map((c) => {
+      const online = c.status === "online";
+      const isSelected = state.selectedClient?.client_id === c.client_id;
+      const isSelf = c.client_id === state.myClientId;
+      return `
+        <div class="client-item ${isSelected ? "active" : ""}" onclick="selectClient('${esc(c.client_id)}')">
+          <div class="client-name">${esc(c.hostname || c.client_id)} ${isSelf ? "(Perangkat ini)" : ""}</div>
+          <div class="client-meta">${esc(c.platform || "-")} · v${esc(c.app_version || "?")}</div>
+          <span class="client-badge ${online ? "badge-online" : "badge-offline"}">${online ? "Online" : "Offline"}</span>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function startPolling(clientId) {
+  stopPolling();
+  state.pollTimer = setInterval(async () => {
+    if (!state.selectedClient || !state.connected) return;
+    try {
+      const result = await sendCommand(clientId, "list_devices", { include_android: false });
+      const devices = Array.isArray(result?.devices) ? result.devices : [];
+      // only re-render if status changed
+      const oldSig = state.selectedClientDevices.map(d => `${d.uid}:${d.running}`).join(",");
+      const newSig = devices.map(d => `${d.uid}:${d.running}`).join(",");
+      if (oldSig !== newSig) {
+        state.selectedClientDevices = devices;
+        renderDeviceGrid();
+        updateStats();
+      }
+    } catch { /* silent poll error */ }
+  }, 3000);
+}
+
+function stopPolling() {
+  if (state.pollTimer) {
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+  }
+}
+
+async function selectClient(clientId) {
+  const target = state.clients.find((c) => c.client_id === clientId);
+  if (!target) return;
+
+  state.selectedClient = target;
+  renderClientList();
+  renderSelectedHeader();
+
+  const grid = document.getElementById("deviceGrid");
+  grid.innerHTML = `<div class="hint">Memuat device dari ${esc(target.hostname || target.client_id)}...</div>`;
+
+  await loadDevices(clientId);
+  startPolling(clientId);
+}
+
+async function loadDevices(clientId) {
+  if (!clientId) return;
+
+  try {
+    const result = await sendCommand(clientId, "list_devices", { include_android: false });
+    state.selectedClientDevices = Array.isArray(result?.devices) ? result.devices : [];
+    renderDeviceGrid();
+    updateStats();
+    addLog("success", `Load ${state.selectedClientDevices.length} device dari ${clientId}`);
+  } catch (err) {
+    state.selectedClientDevices = [];
+    renderDeviceGrid();
+    updateStats();
+    addLog("error", `Gagal load device: ${err.message}`);
+  }
+}
+
+function getSelectedResolution() {
+  return "960x540";
+}
+
+async function openRemoteWindow(uid, encodedName = "") {
+  if (!state.selectedClient) {
+    addLog("warn", "Pilih client dulu.");
+    return;
+  }
+
+  const deviceName = (() => {
+    try { return decodeURIComponent(encodedName || ""); } catch { return uid; }
+  })();
+
+  const payload = {
+    toClientId: state.selectedClient.client_id,
+    uid,
+    deviceName,
+    resolution: getSelectedResolution(),
+  };
+
+  try {
+    const res = await window.electronAPI.remote.openMonitorWindow(payload);
+    if (!res?.success) throw new Error(res?.error || "Gagal membuka monitor window");
+    addLog("info", `Monitor dibuka: ${deviceName} (${payload.resolution})`);
+  } catch (err) {
+    addLog("error", `Open monitor gagal: ${err.message}`);
+  }
+}
+
+function renderDeviceGrid() {
+  const grid = document.getElementById("deviceGrid");
+  if (!state.selectedClient) {
+    grid.innerHTML = `<div class="hint">Pilih komputer untuk memuat device.</div>`;
+    return;
+  }
+
+  if (!state.selectedClientDevices.length) {
+    grid.innerHTML = `<div class="hint">Tidak ada device ditemukan.</div>`;
+    return;
+  }
+
+  const icons = {
+    wa: "💬",
+    android: "🤖",
+    telegram: "✈️",
+    tiktok: "🎵",
+    youtube_studio: "▶️",
+    other: "🌐",
+  };
+
+  grid.innerHTML = state.selectedClientDevices
+    .map((d) => {
+      const uid = String(d.uid || "");
+      const running = !!d.running;
+      const icon = icons[String(d.service || "").toLowerCase()] || "🌐";
+      const safeUid = esc(uid);
+      const safeName = esc(d.name || uid);
+      const encodedName = encodeURIComponent(String(d.name || uid));
+
+      const runningButtons = `
+        <button class="btn btn-xs btn-primary" onclick="openRemoteWindow('${safeUid}','${encodedName}')">Remote</button>
+        <button class="btn btn-xs btn-soft" onclick="quickCmd('focus_tab','${safeUid}')">Fokus</button>
+        <button class="btn btn-xs btn-soft" onclick="quickCmd('reload_tab','${safeUid}')">Reload</button>
+        <button class="btn btn-xs btn-danger" onclick="quickCmd('stop_device','${safeUid}')">Stop</button>
+        <button class="btn btn-xs btn-soft" onclick="quickCmd('get_current_url','${safeUid}')">URL</button>
+      `;
+
+      const stoppedButtons = `
+        <button class="btn btn-xs btn-primary" onclick="quickCmd('start_device','${safeUid}')">Start</button>
+        <button class="btn btn-xs btn-soft" onclick="quickCmd('open_tab','${safeUid}')">Buka Tab</button>
+      `;
+
+      return `
+        <div class="device-card">
+          <div class="device-head">
+            <div class="device-icon">${icon}</div>
+            <div style="min-width:0">
+              <div class="device-name">${safeName}</div>
+              <div class="device-meta">${esc(d.service || "web")} · ${esc(uid.slice(0, 10))}</div>
+            </div>
+          </div>
+          <span class="status-pill ${running ? "running" : "stopped"}">${running ? "Running" : "Stopped"}</span>
+          <div class="device-actions">${running ? runningButtons : stoppedButtons}</div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+async function quickCmd(command, uid) {
+  if (!state.selectedClient) {
+    addLog("warn", "Pilih client dulu.");
+    return;
+  }
+  if (!uid) return;
+
+  addLog("info", `${command} -> ${uid.slice(0, 10)}`);
+  try {
+    const result = await sendCommand(state.selectedClient.client_id, command, { uid });
+    addLog("success", `${command}: ${JSON.stringify(result).slice(0, 120)}`);
+
+    if (["start_device", "stop_device", "restart_device", "open_tab", "close_tab"].includes(command)) {
+      setTimeout(() => loadDevices(state.selectedClient.client_id), 600);
+    }
+  } catch (err) {
+    addLog("error", `${command}: ${err.message}`);
+  }
+}
+
+
+async function sendCommand(toClientId, command, payload = {}) {
+  const res = await window.electronAPI.remote.sendCommand(toClientId, command, payload);
+  if (!res?.success) throw new Error(res?.error || "Unknown error");
+  return res.result;
+}
+
+function refreshClients() {
+  window.electronAPI.remote.refreshClients();
+  addLog("info", "Refresh daftar client...");
+}
+
+async function init() {
+  const initial = await window.electronAPI.remote.getClients();
+  state.connected = !!initial?.connected;
+  state.myClientId = initial?.clientId || null;
+  state.clients = Array.isArray(initial?.clients) ? initial.clients : [];
+
+  updateConnectionUI();
+  renderClientList();
+  renderSelectedHeader();
+  renderDeviceGrid();
+  updateStats();
+
+  addLog("info", "Remote dashboard siap.");
+
+  window.electronAPI.remote.onClientsUpdated(({ clients }) => {
+    state.clients = Array.isArray(clients) ? clients : [];
+    renderClientList();
+
+    if (state.selectedClient) {
+      const still = state.clients.find((c) => c.client_id === state.selectedClient.client_id);
+      if (!still) {
+        addLog("warn", "Client terpilih offline/keluar. Pilih client lain.");
+        stopPolling();
+        state.selectedClient = null;
+        state.selectedClientDevices = [];
+        renderSelectedHeader();
+        renderDeviceGrid();
+      } else {
+        state.selectedClient = still;
+        renderSelectedHeader();
+      }
+    }
+
+    updateStats();
+  });
+
+  window.electronAPI.remote.onConnectionChanged(({ connected }) => {
+    const wasConnected = state.connected;
+    state.connected = !!connected;
+    updateConnectionUI();
+
+    if (!connected) {
+      // Auto-retry refresh setelah 3 detik jika terputus
+      clearTimeout(state._reconnectTimer);
+      state._reconnectTimer = setTimeout(() => {
+        if (!state.connected) {
+          window.electronAPI.remote.refreshClients();
+        }
+      }, 3000);
+    } else if (!wasConnected) {
+      // Baru reconnect — refresh daftar client
+      window.electronAPI.remote.refreshClients();
+      addLog("success", "Terhubung kembali ke server.");
+    }
+  });
+
+  // Saat window difokuskan dan offline → langsung refresh
+  window.addEventListener("focus", () => {
+    if (!state.connected) {
+      window.electronAPI.remote.refreshClients();
+    } else {
+      // Refresh client list saat fokus untuk update status terbaru
+      window.electronAPI.remote.refreshClients();
+    }
+  });
+}
+
+init().catch((err) => {
+  console.error("Remote control init error:", err);
+  addLog("error", `init gagal: ${err.message}`);
+  const label = document.getElementById("connLabel");
+  if (label) label.textContent = `Error: ${err.message}`;
+});
+</script>
+</body>
+</html>

@@ -8309,3 +8309,119 @@ window.switchPage = async function (page) {
     window.syncVersionDots();
   }
 };
+
+// ============================================================
+// Remote Control – Status UI
+// ============================================================
+
+/**
+ * Update indikator remote di navbar.
+ * @param {"connecting"|"online"|"offline"} status
+ * @param {number} clientCount - jumlah client lain yang online
+ */
+function updateRemoteStatusUI(status, clientCount = 0) {
+  const btn   = document.getElementById("remoteStatusBtn");
+  const dot   = document.getElementById("remoteDot");
+  const label = document.getElementById("remoteLabel");
+  if (!btn || !dot || !label) return;
+
+  const configs = {
+    connecting: {
+      color: "#f59e0b",
+      shadow: "0 0 6px #f59e0b88",
+      text:  "Remote...",
+      textColor: "#9ca3af",
+    },
+    online: {
+      color: "#4ade80",
+      shadow: "0 0 6px #4ade8088",
+      text:  clientCount > 0 ? `Remote (${clientCount})` : "Remote",
+      textColor: "#4ade80",
+    },
+    offline: {
+      color: "#6b7280",
+      shadow: "none",
+      text:  "Remote",
+      textColor: "#6b7280",
+    },
+  };
+
+  const cfg = configs[status] || configs.offline;
+  dot.style.background  = cfg.color;
+  dot.style.boxShadow   = cfg.shadow;
+  label.textContent     = cfg.text;
+  label.style.color     = cfg.textColor;
+  btn.title = status === "online"
+    ? `Remote terhubung${clientCount > 0 ? ` – ${clientCount} PC lain online` : ""}\nKlik untuk buka Remote Control`
+    : "Remote Control – Klik untuk buka";
+}
+
+/** Navigasi ke halaman Remote Control (embedded) */
+function openRemoteWindow() {
+  const sidebarItem = document.querySelector('.sidebar-item[data-page="remote-control"]');
+  if (sidebarItem) {
+    sidebarItem.click();
+  }
+}
+
+/** Inisialisasi Remote Status UI */
+function initRemoteStatusUI() {
+  if (!window.electronAPI?.remote) return;
+
+  const btn = document.getElementById("remoteStatusBtn");
+
+  // Tampilkan tombol hanya jika sudah login
+  function syncVisibility() {
+    if (!btn) return;
+    const isLoggedIn = !!document.getElementById("userProfileButton")
+      && document.getElementById("userProfileButton").style.display !== "none";
+    btn.style.display = isLoggedIn ? "flex" : "none";
+  }
+
+  // Cek status awal
+  window.electronAPI.remote.getClients().then((data) => {
+    syncVisibility();
+    if (data.connected) {
+      updateRemoteStatusUI("online", data.clients?.length || 0);
+    } else if (data.clientId) {
+      updateRemoteStatusUI("connecting");
+    } else {
+      updateRemoteStatusUI("offline");
+    }
+  }).catch(() => updateRemoteStatusUI("offline"));
+
+  // Listen event dari main process
+  if (window.electronAPI.remote.onConnectionChanged) {
+    window.electronAPI.remote.onConnectionChanged(({ connected }) => {
+      syncVisibility();
+      updateRemoteStatusUI(connected ? "online" : "offline");
+      if (connected) {
+        // Refresh jumlah client
+        window.electronAPI.remote.getClients().then((data) => {
+          updateRemoteStatusUI("online", data.clients?.length || 0);
+        }).catch(() => {});
+      }
+    });
+  }
+
+  if (window.electronAPI.remote.onClientsUpdated) {
+    window.electronAPI.remote.onClientsUpdated(({ clients }) => {
+      const online = (clients || []).filter(c => c.status === "online").length;
+      updateRemoteStatusUI("online", online);
+    });
+  }
+
+  // Sync visibility saat auth berubah
+  const observer = new MutationObserver(syncVisibility);
+  const profileBtn = document.getElementById("userProfileButton");
+  if (profileBtn) {
+    observer.observe(profileBtn, { attributes: true, attributeFilter: ["style"] });
+  }
+}
+
+// Boot remote UI setelah DOM siap
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initRemoteStatusUI);
+} else {
+  initRemoteStatusUI();
+}
