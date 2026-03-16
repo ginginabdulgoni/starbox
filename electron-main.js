@@ -9092,77 +9092,112 @@ ipcMain.handle('cctv-check-ffmpeg', async () => {
   return cctvManager.checkFfmpeg();
 });
 
-// ── FFmpeg auto-install (Windows portable download) ──────────────────────────
+// ── FFmpeg auto-install (semua platform) ─────────────────────────────────────
 ipcMain.handle('cctv-install-ffmpeg', async (event) => {
-  if (process.platform !== 'win32') {
-    return { success: false, message: 'Auto-install hanya tersedia di Windows.' };
-  }
-  const win = BrowserWindow.fromWebContents(event.sender);
-  const sendProgress = (phase, pct, message) => {
+  const win  = BrowserWindow.fromWebContents(event.sender);
+  const plat = process.platform;
+  const send = (phase, pct, message) => {
     win?.webContents?.send('cctv-ffmpeg-install-progress', { phase, pct, message });
   };
-  try {
-    const toolsDir  = path.join(app.getPath('userData'), 'tools');
-    const ffmpegDir = path.join(toolsDir, 'ffmpeg');
-    const zipPath   = path.join(toolsDir, 'ffmpeg-download.zip');
-    fs.mkdirSync(ffmpegDir, { recursive: true });
 
-    // Check if already installed
-    const existing = cctvManager._findPortableFfmpegWin();
-    if (existing) {
-      cctvManager.setFfmpegBin(existing);
-      return { success: true, path: existing, cached: true };
+  try {
+    // ── Windows: download portable zip ──────────────────────────────────────
+    if (plat === 'win32') {
+      const toolsDir  = path.join(app.getPath('userData'), 'tools');
+      const ffmpegDir = path.join(toolsDir, 'ffmpeg');
+      const zipPath   = path.join(toolsDir, 'ffmpeg-download.zip');
+      fs.mkdirSync(ffmpegDir, { recursive: true });
+
+      const existing = cctvManager._findPortableFfmpegWin();
+      if (existing) {
+        cctvManager.setFfmpegBin(existing);
+        return { success: true, path: existing, cached: true };
+      }
+
+      send('download', 0, 'Memulai download FFmpeg untuk Windows...');
+      const downloadUrl = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip';
+
+      await new Promise((resolve, reject) => {
+        const doGet = (url, hops = 0) => {
+          if (hops > 10) { reject(new Error('Terlalu banyak redirect')); return; }
+          const mod  = url.startsWith('https') ? require('https') : require('http');
+          const file = fs.createWriteStream(zipPath);
+          let downloaded = 0, total = 0;
+          const req = mod.get(url, { timeout: 60000 }, (res) => {
+            if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
+              file.close(); fs.unlink(zipPath, () => {});
+              const loc = res.headers.location;
+              if (!loc) { reject(new Error('Redirect tanpa Location')); return; }
+              doGet(loc.startsWith('http') ? loc : new URL(loc, url).href, hops + 1);
+              return;
+            }
+            if (res.statusCode !== 200) {
+              file.close(); fs.unlink(zipPath, () => {});
+              reject(new Error(`HTTP ${res.statusCode}`)); return;
+            }
+            total = parseInt(res.headers['content-length'] || '0', 10);
+            res.pipe(file);
+            res.on('data', (chunk) => {
+              downloaded += chunk.length;
+              const pct = total > 0 ? Math.round((downloaded / total) * 100) : -1;
+              send('download', pct, `Mengunduh FFmpeg... ${pct >= 0 ? pct + '%' : ''}`);
+            });
+            file.on('finish', () => { file.close(); resolve(); });
+          });
+          req.on('error', (e) => { file.close(); fs.unlink(zipPath, () => {}); reject(e); });
+          req.on('timeout', () => { req.destroy(); file.close(); fs.unlink(zipPath, () => {}); reject(new Error('Timeout')); });
+        };
+        doGet(downloadUrl);
+      });
+
+      send('extract', 0, 'Mengekstrak FFmpeg...');
+      const extractZipLib = require('extract-zip');
+      await extractZipLib(zipPath, { dir: ffmpegDir });
+      fs.unlink(zipPath, () => {});
+
+      const binPath = cctvManager._findPortableFfmpegWin();
+      if (!binPath) throw new Error('ffmpeg.exe tidak ditemukan setelah ekstrak.');
+      cctvManager.setFfmpegBin(binPath);
+      send('done', 100, 'FFmpeg berhasil diinstall!');
+      return { success: true, path: binPath };
     }
 
-    const downloadUrl = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip';
-    sendProgress('download', 0, 'Memulai download FFmpeg...');
+    // ── macOS: brew install ffmpeg ───────────────────────────────────────────
+    if (plat === 'darwin') {
+      const brewCheck = spawnSync('brew', ['--version'], { timeout: 5000 });
+      if (brewCheck.error) {
+        return {
+          success: false,
+          message: 'Homebrew tidak ditemukan. Install Homebrew dulu di https://brew.sh, lalu jalankan: brew install ffmpeg',
+          manualUrl: 'https://brew.sh',
+        };
+      }
+      send('install', 0, 'Menginstall FFmpeg via Homebrew...');
+      await new Promise((resolve, reject) => {
+        const child = spawn('brew', ['install', 'ffmpeg'], { stdio: ['ignore', 'pipe', 'pipe'] });
+        child.stdout.on('data', (d) => send('install', -1, d.toString().trim()));
+        child.stderr.on('data', (d) => send('install', -1, d.toString().trim()));
+        child.on('error', reject);
+        child.on('exit', (code) => code === 0 ? resolve() : reject(new Error(`brew exit code ${code}`)));
+      });
+      send('done', 100, 'FFmpeg berhasil diinstall via Homebrew!');
+      return { success: true };
+    }
 
-    // Download with redirect following
+    // ── Linux: apt install ffmpeg ────────────────────────────────────────────
+    send('install', 0, 'Menginstall FFmpeg via apt...');
     await new Promise((resolve, reject) => {
-      const doGet = (url, hops = 0) => {
-        if (hops > 10) { reject(new Error('Terlalu banyak redirect')); return; }
-        const mod = url.startsWith('https') ? require('https') : require('http');
-        const file = fs.createWriteStream(zipPath);
-        let downloaded = 0, total = 0;
-        const req = mod.get(url, { timeout: 60000 }, (res) => {
-          if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
-            file.close(); fs.unlink(zipPath, () => {});
-            const loc = res.headers.location;
-            if (!loc) { reject(new Error('Redirect tanpa Location')); return; }
-            doGet(loc.startsWith('http') ? loc : new URL(loc, url).href, hops + 1);
-            return;
-          }
-          if (res.statusCode !== 200) {
-            file.close(); fs.unlink(zipPath, () => {});
-            reject(new Error(`HTTP ${res.statusCode}`)); return;
-          }
-          total = parseInt(res.headers['content-length'] || '0', 10);
-          res.pipe(file);
-          res.on('data', (chunk) => {
-            downloaded += chunk.length;
-            const pct = total > 0 ? Math.round((downloaded / total) * 100) : -1;
-            sendProgress('download', pct, `Mengunduh FFmpeg... ${pct >= 0 ? pct + '%' : ''}`);
-          });
-          file.on('finish', () => { file.close(); resolve(); });
-        });
-        req.on('error', (e) => { file.close(); fs.unlink(zipPath, () => {}); reject(e); });
-        req.on('timeout', () => { req.destroy(); file.close(); fs.unlink(zipPath, () => {}); reject(new Error('Timeout')); });
-      };
-      doGet(downloadUrl);
+      const child = spawn('sudo', ['apt-get', 'install', '-y', 'ffmpeg'], { stdio: ['ignore', 'pipe', 'pipe'] });
+      child.stdout.on('data', (d) => send('install', -1, d.toString().trim()));
+      child.stderr.on('data', (d) => send('install', -1, d.toString().trim()));
+      child.on('error', reject);
+      child.on('exit', (code) => code === 0 ? resolve() : reject(new Error(`apt exit code ${code}`)));
     });
+    send('done', 100, 'FFmpeg berhasil diinstall via apt!');
+    return { success: true };
 
-    sendProgress('extract', 0, 'Mengekstrak FFmpeg...');
-    const extractZipLib = require('extract-zip');
-    await extractZipLib(zipPath, { dir: ffmpegDir });
-    fs.unlink(zipPath, () => {});
-
-    sendProgress('done', 100, 'FFmpeg berhasil diinstall!');
-    const binPath = cctvManager._findPortableFfmpegWin();
-    if (!binPath) throw new Error('ffmpeg.exe tidak ditemukan setelah ekstrak.');
-    cctvManager.setFfmpegBin(binPath);
-    return { success: true, path: binPath };
   } catch (err) {
-    sendProgress('error', 0, `Gagal: ${err.message}`);
+    send('error', 0, `Gagal: ${err.message}`);
     return { success: false, message: err.message };
   }
 });

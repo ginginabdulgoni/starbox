@@ -9004,49 +9004,64 @@ async function cctvInit() {
 }
 
 async function cctvCheckFfmpeg() {
-  const dot  = document.getElementById('cctvStatusDot');
-  const text = document.getElementById('cctvStatusText');
-  const btn  = document.getElementById('cctvInstallFfmpegBtn');
+  const dot    = document.getElementById('cctvStatusDot');
+  const text   = document.getElementById('cctvStatusText');
+  const btn    = document.getElementById('cctvInstallFfmpegBtn');
+  const banner = document.getElementById('cctvFfmpegMissingBanner');
   try {
     const r = await window.electronAPI.cctv.checkFfmpeg();
     if (r.available) {
-      if (dot)  dot.style.background  = '#22c55e';
-      if (text) text.textContent = 'ffmpeg tersedia';
-      if (btn)  btn.style.display = 'none';
+      if (dot)    dot.style.background = '#22c55e';
+      if (text)   text.textContent = 'ffmpeg tersedia';
+      if (btn)    btn.style.display = 'none';
+      if (banner) banner.style.display = 'none';
     } else {
-      if (dot)  dot.style.background  = '#f59e0b';
-      if (text) text.textContent = 'ffmpeg tidak ditemukan';
-      // Show install button on Windows only
-      if (btn) btn.style.display = (process.platform === 'win32') ? 'inline-flex' : 'none';
+      if (dot)    dot.style.background = '#f59e0b';
+      if (text)   text.textContent = 'ffmpeg tidak ditemukan';
+      if (btn)    btn.style.display = 'inline-flex';
+      if (banner) banner.style.display = 'flex';
     }
   } catch {
-    if (dot)  dot.style.background = '#666';
-    if (text) text.textContent = '';
-    if (btn)  btn.style.display = 'none';
+    if (dot)    dot.style.background = '#666';
+    if (text)   text.textContent = '';
+    if (btn)    btn.style.display = 'none';
+    if (banner) banner.style.display = 'none';
   }
 }
 
 async function cctvInstallFfmpeg() {
-  const btn = document.getElementById('cctvInstallFfmpegBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Menginstall...'; }
+  const allBtns = [
+    document.getElementById('cctvInstallFfmpegBtn'),
+    document.getElementById('cctvInstallFfmpegBannerBtn'),
+  ];
+  allBtns.forEach(b => { if (b) { b.disabled = true; b.textContent = 'Menginstall...'; } });
+
+  const plat = process.platform;
+  const desc = plat === 'win32'
+    ? 'Mengunduh FFmpeg portable (~90 MB)...'
+    : plat === 'darwin'
+      ? 'Menginstall FFmpeg via Homebrew...'
+      : 'Menginstall FFmpeg via apt...';
 
   let unsubscribe = null;
   try {
-    let progressHtml = '<div style="text-align:left;max-height:200px;overflow-y:auto;font-size:0.85rem;" id="ffmpegInstallLog"></div>';
-    const swalInst = Swal.fire({
-      title: 'Install FFmpeg',
-      html: `<p style="margin-bottom:8px;">Mengunduh FFmpeg portable untuk Windows...</p>${progressHtml}`,
+    Swal.fire({
+      title: 'Install FFmpeg / RTSP',
+      html: `<p style="margin-bottom:8px;font-size:0.9rem;">${desc}</p>
+             <div style="text-align:left;max-height:220px;overflow-y:auto;font-size:0.8rem;
+                  font-family:monospace;background:#111;padding:8px;border-radius:6px;" id="ffmpegInstallLog">
+               Memulai...
+             </div>`,
       allowOutsideClick: false,
       allowEscapeKey: false,
       showConfirmButton: false,
-      showCancelButton: false,
     });
 
     unsubscribe = window.electronAPI.cctv.onFfmpegInstallProgress((data) => {
       const log = document.getElementById('ffmpegInstallLog');
-      if (log) {
+      if (log && data.message) {
         const line = document.createElement('div');
-        line.textContent = data.message || '';
+        line.textContent = data.message;
         log.appendChild(line);
         log.scrollTop = log.scrollHeight;
       }
@@ -9056,16 +9071,18 @@ async function cctvInstallFfmpeg() {
     if (unsubscribe) unsubscribe();
 
     if (result.success) {
-      Swal.fire({ icon: 'success', title: 'FFmpeg Terinstall', text: 'FFmpeg berhasil diinstall. CCTV RTSP siap digunakan.', confirmButtonText: 'OK' });
+      await Swal.fire({ icon: 'success', title: 'FFmpeg Terinstall', text: 'FFmpeg / RTSP siap digunakan.', confirmButtonText: 'OK' });
       await cctvCheckFfmpeg();
     } else {
-      Swal.fire({ icon: 'error', title: 'Gagal Install FFmpeg', text: result.message || 'Terjadi kesalahan.', confirmButtonText: 'OK' });
+      const opts = { icon: 'error', title: 'Gagal Install FFmpeg', text: result.message || 'Terjadi kesalahan.', confirmButtonText: 'OK' };
+      if (result.manualUrl) opts.footer = `<a href="${result.manualUrl}" target="_blank">Download Manual</a>`;
+      await Swal.fire(opts);
     }
   } catch (err) {
     if (unsubscribe) unsubscribe();
     Swal.fire({ icon: 'error', title: 'Error', text: err.message, confirmButtonText: 'OK' });
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Install FFmpeg'; }
+    allBtns.forEach(b => { if (b) { b.disabled = false; b.innerHTML = '<i class="bi bi-download"></i> Install FFmpeg'; } });
   }
 }
 

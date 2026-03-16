@@ -1620,6 +1620,18 @@
             </button>
           </div>
 
+          <!-- FFmpeg missing banner -->
+          <div id="cctvFfmpegMissingBanner" style="display:none;align-items:center;gap:12px;padding:14px 18px;margin:10px 10px 0;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.4);border-radius:10px;flex-shrink:0;flex-wrap:wrap;">
+            <i class="bi bi-exclamation-triangle-fill" style="color:#f59e0b;font-size:1.3rem;flex-shrink:0;"></i>
+            <div style="flex:1;min-width:200px;">
+              <div style="font-weight:700;font-size:0.9rem;margin-bottom:2px;">FFmpeg / RTSP tidak ditemukan</div>
+              <div style="font-size:0.8rem;color:var(--color-muted);">FFmpeg diperlukan untuk streaming RTSP dari kamera IP. Klik tombol untuk menginstall otomatis.</div>
+            </div>
+            <button id="cctvInstallFfmpegBannerBtn" onclick="cctvInstallFfmpeg()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:0.85rem;font-weight:600;border-radius:8px;background:#f59e0b;color:#000;border:none;cursor:pointer;white-space:nowrap;flex-shrink:0;">
+              <i class="bi bi-download"></i> Install FFmpeg / RTSP
+            </button>
+          </div>
+
           <!-- Grid -->
           <div id="cctvGrid" class="cctv-grid cctv-grid-1" style="flex:1;overflow:auto;padding:10px;gap:8px;">
             <!-- cells rendered by JS -->
