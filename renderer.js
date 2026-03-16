@@ -10808,17 +10808,54 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
     function drawBlur({x1,y1,x2,y2}) {
       const rx=Math.min(x1,x2),ry=Math.min(y1,y2),rw=Math.abs(x2-x1),rh=Math.abs(y2-y1);
       if(rw<4||rh<4)return;
-      const BLOCK=Math.max(8,Math.round(Math.min(rw,rh)/14));
+      // Larger block = stronger pixelation blur
+      const BLOCK=Math.max(20,Math.round(Math.min(rw,rh)/5));
       try {
         const imgData=ctx.getImageData(rx,ry,rw,rh), d=imgData.data;
         for(let by=0;by<rh;by+=BLOCK) for(let bx=0;bx<rw;bx+=BLOCK) {
-          const idx=(by*rw+bx)*4, r=d[idx],g=d[idx+1],b=d[idx+2];
+          // Average all pixels in the block
+          let tr=0,tg=0,tb=0,cnt=0;
           for(let fy=by;fy<Math.min(by+BLOCK,rh);fy++) for(let fx=bx;fx<Math.min(bx+BLOCK,rw);fx++) {
-            const fi=(fy*rw+fx)*4; d[fi]=r;d[fi+1]=g;d[fi+2]=b;d[fi+3]=255;
+            const fi=(fy*rw+fx)*4; tr+=d[fi];tg+=d[fi+1];tb+=d[fi+2];cnt++;
+          }
+          const ar=tr/cnt|0,ag=tg/cnt|0,ab=tb/cnt|0;
+          for(let fy=by;fy<Math.min(by+BLOCK,rh);fy++) for(let fx=bx;fx<Math.min(bx+BLOCK,rw);fx++) {
+            const fi=(fy*rw+fx)*4; d[fi]=ar;d[fi+1]=ag;d[fi+2]=ab;d[fi+3]=255;
           }
         }
         ctx.putImageData(imgData,rx,ry);
       } catch(e){}
+    }
+
+    function showTextInput(screenX, screenY, canvasX, canvasY) {
+      const existing = document.getElementById('scTextInputOverlay');
+      if(existing) existing.remove();
+      const fs = Math.max(16, activeWidth * 7);
+      const inp = document.createElement('input');
+      inp.id = 'scTextInputOverlay';
+      inp.type = 'text';
+      inp.placeholder = 'Ketik teks, Enter untuk OK';
+      inp.style.cssText = `
+        position:fixed;left:${screenX}px;top:${Math.max(10, screenY - fs - 8)}px;
+        background:rgba(0,0,0,0.85);color:${activeColor};
+        border:2px solid ${activeColor};border-radius:5px;
+        padding:5px 10px;font-size:${fs}px;font-weight:700;
+        font-family:-apple-system,sans-serif;outline:none;
+        min-width:160px;max-width:420px;z-index:99999;
+        box-shadow:0 4px 16px rgba(0,0,0,0.6);
+      `;
+      const commit = () => {
+        const txt = inp.value.trim(); inp.remove();
+        if(txt) { annotations.push({type:'text',x:canvasX,y:canvasY,text:txt,color:activeColor,width:activeWidth}); redraw(); }
+      };
+      inp.addEventListener('keydown', e => {
+        if(e.key==='Enter') { e.preventDefault(); commit(); }
+        if(e.key==='Escape') { e.preventDefault(); inp.remove(); }
+        e.stopPropagation();
+      });
+      inp.addEventListener('blur', commit);
+      document.body.appendChild(inp);
+      inp.focus();
     }
 
     function onDown(e) {
@@ -10828,8 +10865,7 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
       if(activeTool==='pencil') pencilPoints=[{x,y}];
       if(activeTool==='text') {
         isDrawing=false;
-        const txt=prompt('Masukkan teks:');
-        if(txt){annotations.push({type:'text',x,y,text:txt,color:activeColor,width:activeWidth});redraw();}
+        showTextInput(e.clientX, e.clientY, x, y);
       }
     }
     function onMove(e) {
