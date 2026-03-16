@@ -10831,31 +10831,53 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
       const existing = document.getElementById('scTextInputOverlay');
       if(existing) existing.remove();
       const fs = Math.max(16, activeWidth * 7);
+      const top = Math.max(10, screenY - fs - 14);
+
+      // Wrapper: input + confirm button
+      const wrap = document.createElement('div');
+      wrap.id = 'scTextInputOverlay';
+      wrap.style.cssText = `position:fixed;left:${screenX}px;top:${top}px;display:flex;align-items:stretch;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,0.7);`;
+
       const inp = document.createElement('input');
-      inp.id = 'scTextInputOverlay';
       inp.type = 'text';
-      inp.placeholder = 'Ketik teks, Enter untuk OK';
+      inp.placeholder = 'Ketik teks...';
       inp.style.cssText = `
-        position:fixed;left:${screenX}px;top:${Math.max(10, screenY - fs - 8)}px;
-        background:rgba(0,0,0,0.85);color:${activeColor};
-        border:2px solid ${activeColor};border-radius:5px;
-        padding:5px 10px;font-size:${fs}px;font-weight:700;
+        background:rgba(0,0,0,0.92);color:${activeColor};
+        border:2px solid ${activeColor};border-right:none;border-radius:6px 0 0 6px;
+        padding:6px 12px;font-size:${fs}px;font-weight:700;
         font-family:-apple-system,sans-serif;outline:none;
-        min-width:160px;max-width:420px;z-index:99999;
-        box-shadow:0 4px 16px rgba(0,0,0,0.6);
+        min-width:180px;max-width:380px;
       `;
+
+      const btn = document.createElement('button');
+      btn.textContent = '✓';
+      btn.title = 'Konfirmasi (Enter)';
+      btn.style.cssText = `
+        background:${activeColor};color:#000;
+        border:2px solid ${activeColor};border-radius:0 6px 6px 0;
+        padding:6px 14px;font-size:${fs}px;font-weight:900;
+        cursor:pointer;outline:none;flex-shrink:0;
+      `;
+
       const commit = () => {
-        const txt = inp.value.trim(); inp.remove();
+        const txt = inp.value.trim(); wrap.remove();
         if(txt) { annotations.push({type:'text',x:canvasX,y:canvasY,text:txt,color:activeColor,width:activeWidth}); redraw(); }
       };
+
       inp.addEventListener('keydown', e => {
         if(e.key==='Enter') { e.preventDefault(); commit(); }
-        if(e.key==='Escape') { e.preventDefault(); inp.remove(); }
+        if(e.key==='Escape') { e.preventDefault(); wrap.remove(); }
         e.stopPropagation();
       });
-      inp.addEventListener('blur', commit);
-      document.body.appendChild(inp);
-      inp.focus();
+      // Prevent input blur when clicking the ✓ button
+      btn.addEventListener('mousedown', e => { e.preventDefault(); });
+      btn.addEventListener('click', commit);
+
+      wrap.appendChild(inp);
+      wrap.appendChild(btn);
+      document.body.appendChild(wrap);
+      // Delay focus to avoid immediate blur from canvas mouseup
+      setTimeout(() => inp.focus(), 50);
     }
 
     function onDown(e) {
