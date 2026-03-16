@@ -1,116 +1,478 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StarBox VNC Viewer</title>
-    <style>
-      html, body {
-        margin: 0;
-        padding: 0;
-        width: 100%;
-        height: 100%;
-        background: #0b1220;
-        color: #e2e8f0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      }
-      #status {
-        position: absolute;
-        top: 10px;
-        left: 10px;
-        padding: 8px 12px;
-        background: rgba(0, 0, 0, 0.7);
-        border-radius: 8px;
-        font-size: 12px;
-        z-index: 10;
-        color: #fbbf24;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-      }
-      #vncScreen {
-        width: 100%;
-        height: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      #vncScreen canvas {
-        max-width: 100%;
-        max-height: 100%;
-      }
-    </style>
-    <script type="module">
-      // Import noVNC RFB module
-      import RFB from 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.4.0/core/rfb.js';
+<head>
+  <meta charset="UTF-8" />
+  <title>StarBox VNC Viewer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; background: #060a14; color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; overflow: hidden; }
 
-      function getParams() {
-        const url = new URL(window.location.href);
-        return {
-          host: url.searchParams.get("host") || "127.0.0.1",
-          port: url.searchParams.get("port") || "6080",
-        };
+    /* ── Toolbar ─────────────────────────────────────────────────────── */
+    #toolbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 12px;
+      background: linear-gradient(to bottom, rgba(6,10,20,0.97) 0%, rgba(6,10,20,0) 100%);
+      backdrop-filter: blur(6px);
+      transition: opacity 0.3s, transform 0.3s;
+    }
+    #toolbar.hidden { opacity: 0; pointer-events: none; transform: translateY(-10px); }
+
+    .tb-title { flex: 1; font-size: 13px; font-weight: 600; color: #c9d1d9;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tb-sep { width: 1px; height: 18px; background: rgba(255,255,255,0.1); flex-shrink: 0; }
+
+    .tb-status { font-size: 11px; padding: 3px 8px; border-radius: 12px; font-weight: 600; flex-shrink: 0; }
+    .tb-status.connecting { background: rgba(240,160,64,0.15); color: #f0a040; }
+    .tb-status.connected  { background: rgba(80,200,120,0.15);  color: #50c878; }
+    .tb-status.paused     { background: rgba(124,111,224,0.2);  color: #a78bfa; }
+    .tb-status.error      { background: rgba(239,68,68,0.15);   color: #f87171; }
+
+    .tb-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+      padding: 5px 10px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.07); color: #ccc; cursor: pointer;
+      font-size: 12px; font-weight: 500; transition: all 0.15s; flex-shrink: 0; user-select: none;
+    }
+    .tb-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
+    .tb-btn:active { transform: scale(0.96); }
+
+    .tb-btn.record        { border-color: rgba(239,68,68,0.35); color: #f87171; }
+    .tb-btn.record:hover  { background: rgba(239,68,68,0.15); }
+    .tb-btn.record.active {
+      background: #dc2626; border-color: #dc2626; color: #fff;
+      animation: rec-pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes rec-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.5)} 50%{box-shadow:0 0 0 6px rgba(220,38,38,0)} }
+
+    .tb-btn.icon-only { padding: 5px 8px; }
+    .tb-btn.purple     { border-color: rgba(124,111,224,0.35); color: #a78bfa; }
+    .tb-btn.purple:hover { background: rgba(124,111,224,0.15); }
+
+    #recTimer { font-size: 11px; color: #f87171; font-variant-numeric: tabular-nums; display: none; flex-shrink: 0; }
+
+    /* ── Controls Dropdown ───────────────────────────────────────────── */
+    #ctrlWrap { position: relative; flex-shrink: 0; }
+
+    #ctrlPanel {
+      display: none;
+      position: absolute; top: calc(100% + 6px); right: 0;
+      background: rgba(10,14,28,0.97); border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px; padding: 10px; width: 240px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+      backdrop-filter: blur(10px);
+      z-index: 300;
+    }
+    #ctrlPanel.open { display: block; animation: fadeDown 0.15s ease; }
+    @keyframes fadeDown { from { opacity:0; transform:translateY(-6px) } to { opacity:1; transform:translateY(0) } }
+
+    .cp-section { font-size: 10px; font-weight: 700; color: #4a5568; letter-spacing: 0.08em;
+      text-transform: uppercase; padding: 2px 4px 6px; }
+    .cp-row { display: flex; gap: 6px; margin-bottom: 6px; }
+    .cp-btn {
+      flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
+      padding: 7px 8px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.06); color: #ccc; cursor: pointer;
+      font-size: 12px; font-weight: 500; transition: all 0.15s; text-align: center;
+    }
+    .cp-btn:hover { background: rgba(255,255,255,0.13); color: #fff; }
+    .cp-btn:active { transform: scale(0.96); }
+    .cp-btn .icon { font-size: 15px; }
+
+    .cp-btn.green  { border-color: rgba(80,200,120,0.3); color: #50c878; }
+    .cp-btn.green:hover  { background: rgba(80,200,120,0.12); }
+    .cp-btn.amber  { border-color: rgba(240,160,64,0.3); color: #f0a040; }
+    .cp-btn.amber:hover  { background: rgba(240,160,64,0.12); }
+    .cp-btn.red    { border-color: rgba(239,68,68,0.35); color: #f87171; }
+    .cp-btn.red:hover    { background: rgba(239,68,68,0.13); }
+    .cp-btn.purple { border-color: rgba(124,111,224,0.35); color: #a78bfa; }
+    .cp-btn.purple:hover { background: rgba(124,111,224,0.13); }
+    .cp-btn.blue   { border-color: rgba(59,130,246,0.35); color: #93c5fd; }
+    .cp-btn.blue:hover   { background: rgba(59,130,246,0.12); }
+    .cp-btn:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
+
+    .cp-divider { height: 1px; background: rgba(255,255,255,0.07); margin: 6px 0; }
+
+    /* Snapshot input */
+    .cp-snapshot-row { display: flex; gap: 5px; }
+    .cp-snapshot-row input {
+      flex: 1; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 6px; color: #ddd; font-size: 12px; padding: 6px 8px; outline: none;
+    }
+    .cp-snapshot-row input:focus { border-color: rgba(124,111,224,0.5); }
+
+    /* ── VNC Screen ──────────────────────────────────────────────────── */
+    #vncScreen { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+    #vncScreen canvas { max-width: 100%; max-height: 100%; display: block; }
+
+    /* ── Overlay ─────────────────────────────────────────────────────── */
+    #overlay {
+      position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 14px;
+      background: rgba(6,10,20,0.9); z-index: 100; font-size: 15px; color: #94a3b8;
+    }
+    #overlay .spinner { width: 36px; height: 36px; border: 3px solid rgba(124,111,224,0.2);
+      border-top-color: #7c6fe0; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #overlay.hidden { display: none; }
+
+    /* ── Toast ───────────────────────────────────────────────────────── */
+    #toastContainer {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; gap: 6px; align-items: center;
+      z-index: 500; pointer-events: none;
+    }
+    .toast {
+      padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500;
+      backdrop-filter: blur(8px); animation: toastIn 0.2s ease;
+      pointer-events: none; max-width: 360px; text-align: center;
+    }
+    .toast.success { background: rgba(34,197,94,0.2); border: 1px solid rgba(34,197,94,0.3); color: #86efac; }
+    .toast.error   { background: rgba(239,68,68,0.2);  border: 1px solid rgba(239,68,68,0.3);  color: #fca5a5; }
+    .toast.info    { background: rgba(59,130,246,0.2); border: 1px solid rgba(59,130,246,0.3); color: #93c5fd; }
+    @keyframes toastIn { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
+  </style>
+</head>
+<body>
+
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <span class="tb-title" id="tbTitle">VNC Viewer</span>
+    <span class="tb-status connecting" id="tbStatus">Connecting...</span>
+
+    <div class="tb-sep"></div>
+
+    <!-- Recording -->
+    <span id="recTimer">⏺ <span id="recTimerVal">00:00</span></span>
+    <button class="tb-btn record" id="btnRecord" title="Rekam layar VM">⏺ Rec</button>
+
+    <!-- Screenshot -->
+    <button class="tb-btn icon-only" id="btnScreenshot" title="Screenshot layar VM">📸</button>
+
+    <!-- Controls dropdown -->
+    <div id="ctrlWrap">
+      <button class="tb-btn purple" id="btnCtrl" title="VM Controls">⚙ Controls ▾</button>
+      <div id="ctrlPanel">
+        <div class="cp-section">Kontrol VM</div>
+
+        <div class="cp-row">
+          <button class="cp-btn amber" id="cpPause" title="Freeze proses QEMU">
+            <span class="icon">⏸</span> Pause
+          </button>
+          <button class="cp-btn green" id="cpResume" title="Lanjutkan proses QEMU">
+            <span class="icon">▶</span> Resume
+          </button>
+        </div>
+
+        <div class="cp-row">
+          <button class="cp-btn blue" id="cpRestart" title="Restart VM (graceful)">
+            <span class="icon">🔄</span> Restart
+          </button>
+          <button class="cp-btn amber" id="cpStop" title="Stop VM via ACPI">
+            <span class="icon">⏹</span> Stop
+          </button>
+        </div>
+
+        <div class="cp-row">
+          <button class="cp-btn red" id="cpKill" title="Force kill proses QEMU">
+            <span class="icon">💀</span> Force Kill
+          </button>
+        </div>
+
+        <div class="cp-divider"></div>
+        <div class="cp-section">Snapshot</div>
+
+        <div class="cp-snapshot-row">
+          <input id="cpSnapName" type="text" placeholder="Nama snapshot (opsional)" />
+          <button class="cp-btn purple" id="cpSnap" style="flex:0 0 auto;padding:6px 10px;">
+            <span class="icon">💾</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tb-sep"></div>
+    <button class="tb-btn purple icon-only" id="btnFullscreen" title="Fullscreen">⛶</button>
+  </div>
+
+  <!-- Overlay -->
+  <div id="overlay">
+    <div class="spinner"></div>
+    <span id="overlayMsg">Connecting to VNC...</span>
+  </div>
+
+  <!-- VNC screen -->
+  <div id="vncScreen"></div>
+
+  <!-- Toast container -->
+  <div id="toastContainer"></div>
+
+  <script type="module">
+    import RFB from 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.4.0/core/rfb.js';
+
+    const params  = Object.fromEntries(new URL(location.href).searchParams);
+    const host    = params.host   || '127.0.0.1';
+    const port    = params.port   || '6080';
+    const vmId    = params.vmId   || '';
+    const vmName  = params.vmName || 'VM';
+
+    const api = window.vncAPI; // from vnc-preload.cjs
+
+    // ── Toast ────────────────────────────────────────────────────────
+    function toast(msg, type = 'info', ms = 2500) {
+      const el = document.createElement('div');
+      el.className = `toast ${type}`;
+      el.textContent = msg;
+      document.getElementById('toastContainer').appendChild(el);
+      setTimeout(() => el.remove(), ms);
+    }
+
+    // ── Toolbar refs ─────────────────────────────────────────────────
+    const toolbar     = document.getElementById('toolbar');
+    const tbTitle     = document.getElementById('tbTitle');
+    const tbStatus    = document.getElementById('tbStatus');
+    const overlay     = document.getElementById('overlay');
+    const overlayMsg  = document.getElementById('overlayMsg');
+    const btnRecord   = document.getElementById('btnRecord');
+    const btnFull     = document.getElementById('btnFullscreen');
+    const btnShot     = document.getElementById('btnScreenshot');
+    const recTimer    = document.getElementById('recTimer');
+    const recTimerVal = document.getElementById('recTimerVal');
+    const btnCtrl     = document.getElementById('btnCtrl');
+    const ctrlPanel   = document.getElementById('ctrlPanel');
+
+    tbTitle.textContent = `VNC — ${vmName}`;
+    document.title      = `VNC — ${vmName}`;
+
+    // ── Toolbar auto-hide ────────────────────────────────────────────
+    let hideTimer;
+    function showToolbar() {
+      toolbar.classList.remove('hidden');
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => toolbar.classList.add('hidden'), 3500);
+    }
+    document.addEventListener('mousemove', showToolbar);
+    document.addEventListener('keydown',   showToolbar);
+    showToolbar();
+
+    // ── VNC connection ───────────────────────────────────────────────
+    function setStatus(text, cls) {
+      tbStatus.textContent = text;
+      tbStatus.className   = `tb-status ${cls}`;
+    }
+
+    const rfb = new RFB(document.getElementById('vncScreen'), `ws://${host}:${port}`, {
+      credentials: { password: '' }
+    });
+    rfb.viewOnly       = false;
+    rfb.scaleViewport  = true;
+    rfb.resizeSession  = false;
+
+    rfb.addEventListener('connect', () => {
+      setStatus('Connected', 'connected');
+      overlay.classList.add('hidden');
+      showToolbar();
+    });
+    rfb.addEventListener('disconnect', (e) => {
+      const clean  = e.detail?.clean;
+      const reason = clean ? 'Disconnected' : 'Connection lost';
+      setStatus(reason, 'error');
+      overlay.classList.remove('hidden');
+      overlayMsg.textContent = reason;
+      // VM was killed/stopped externally — close this window
+      if (!clean) {
+        toast('VM berhenti — menutup jendela…', 'info', 2500);
+        setTimeout(() => window.close(), 2500);
       }
+    });
 
-      const params = getParams();
-      console.log("VNC Viewer params:", params);
+    // ── Fullscreen ───────────────────────────────────────────────────
+    btnFull.addEventListener('click', () => {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+      else document.exitFullscreen().catch(() => {});
+    });
+    document.addEventListener('fullscreenchange', () => {
+      btnFull.title       = document.fullscreenElement ? 'Exit Fullscreen' : 'Fullscreen';
+      btnFull.textContent = document.fullscreenElement ? '⤡' : '⛶';
+    });
 
-      const statusEl = document.getElementById("status");
-      const screen = document.getElementById("vncScreen");
-
-      // Update status
-      function updateStatus(text, color = "#fbbf24") {
-        statusEl.textContent = text;
-        statusEl.style.color = color;
-      }
-
-      updateStatus(`Connecting to ws://${params.host}:${params.port}...`);
-
+    // ── Screenshot ───────────────────────────────────────────────────
+    btnShot.addEventListener('click', async () => {
+      const canvas = document.querySelector('#vncScreen canvas');
+      if (!canvas) { toast('Layar belum tersedia', 'error'); return; }
       try {
-        const rfb = new RFB(screen, `ws://${params.host}:${params.port}`, {
-          credentials: { password: '' }
-        });
+        const dataUrl = canvas.toDataURL('image/png');
+        const binary  = atob(dataUrl.split(',')[1]);
+        const arr     = Array.from({ length: binary.length }, (_, i) => binary.charCodeAt(i));
+        const safe    = vmName.replace(/[^a-z0-9]/gi, '_');
+        const ts      = new Date().toISOString().replace(/[:.]/g, '-');
+        const name    = `screenshot_${safe}_${ts}.png`;
 
-        rfb.viewOnly = false;
-        rfb.scaleViewport = true;
-        rfb.resizeSession = false;
-
-        rfb.addEventListener("connect", () => {
-          console.log("✅ VNC Connected");
-          updateStatus("✅ Connected", "#10b981");
-          setTimeout(() => {
-            statusEl.style.display = "none";
-          }, 2000);
-        });
-
-        rfb.addEventListener("disconnect", (e) => {
-          console.log("❌ VNC Disconnected:", e.detail);
-          const reason = e.detail?.clean ? "Connection closed" : "Connection error";
-          updateStatus(`❌ Disconnected: ${reason}`, "#ef4444");
-          statusEl.style.display = "block";
-        });
-
-        rfb.addEventListener("credentialsrequired", () => {
-          console.log("🔑 VNC credentials required");
-          updateStatus("🔑 Authentication required", "#f59e0b");
-        });
-
-        rfb.addEventListener("securityfailure", (e) => {
-          console.error("❌ VNC security failure:", e.detail);
-          updateStatus(`❌ Security failure: ${e.detail?.status || 'unknown'}`, "#ef4444");
-        });
-
-        // Debug logging
-        console.log("🎬 VNC RFB initialized");
-        console.log("📍 Target:", `ws://${params.host}:${params.port}`);
-
+        if (api) {
+          const res = await api.showSaveDialog(name);
+          if (!res.canceled && res.filePath) {
+            await api.saveFile(res.filePath, arr);
+            toast('Screenshot disimpan', 'success');
+          }
+        } else {
+          // fallback: trigger browser download
+          const a = document.createElement('a');
+          a.href     = dataUrl;
+          a.download = name;
+          a.click();
+          toast('Screenshot diunduh', 'success');
+        }
       } catch (err) {
-        console.error("❌ Failed to initialize VNC viewer:", err);
-        updateStatus(`❌ Error: ${err.message}`, "#ef4444");
+        toast('Gagal screenshot: ' + (err?.message || err), 'error');
       }
-    </script>
-  </head>
-  <body>
-    <div id="status">Initializing...</div>
-    <div id="vncScreen"></div>
-  </body>
+    });
+
+    // ── Controls dropdown toggle ─────────────────────────────────────
+    btnCtrl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      ctrlPanel.classList.toggle('open');
+      showToolbar();
+    });
+    document.addEventListener('click', (e) => {
+      if (!document.getElementById('ctrlWrap').contains(e.target)) {
+        ctrlPanel.classList.remove('open');
+      }
+    });
+
+    // ── VM action helper ─────────────────────────────────────────────
+    async function vmAction(fn, successMsg, confirmMsg) {
+      if (!api)  { toast('Preload tidak tersedia', 'error'); return; }
+      if (!vmId) { toast('VM ID tidak diketahui', 'error'); return; }
+      if (confirmMsg) {
+        if (!confirm(confirmMsg)) return;
+      }
+      ctrlPanel.classList.remove('open');
+      try {
+        const res = await fn();
+        if (res?.success === false) toast(res.message || 'Gagal', 'error');
+        else toast(successMsg, 'success');
+      } catch (err) {
+        toast('Error: ' + (err?.message || err), 'error');
+      }
+    }
+
+    document.getElementById('cpPause').addEventListener('click', () =>
+      vmAction(() => api.pause(vmId), 'VM di-pause ⏸', null));
+
+    document.getElementById('cpResume').addEventListener('click', () =>
+      vmAction(() => api.resume(vmId), 'VM dilanjutkan ▶', null));
+
+    document.getElementById('cpRestart').addEventListener('click', () =>
+      vmAction(() => api.restart(vmId), 'VM sedang restart…', 'Restart VM sekarang?'));
+
+    document.getElementById('cpStop').addEventListener('click', async () => {
+      if (!api || !vmId) { toast('Preload/VM ID tidak tersedia', 'error'); return; }
+      if (!confirm('Stop VM sekarang (ACPI)?')) return;
+      ctrlPanel.classList.remove('open');
+      try {
+        const res = await api.stop(vmId);
+        if (res?.success === false) { toast(res.message || 'Gagal stop', 'error'); return; }
+        toast('VM sedang berhenti — menutup jendela…', 'info', 2000);
+        setTimeout(() => window.close(), 2000);
+      } catch (err) { toast('Error: ' + (err?.message || err), 'error'); }
+    });
+
+    document.getElementById('cpKill').addEventListener('click', async () => {
+      if (!api || !vmId) { toast('Preload/VM ID tidak tersedia', 'error'); return; }
+      if (!confirm('⚠️ Force kill akan langsung mematikan proses QEMU.\nData yang belum disimpan bisa hilang. Lanjutkan?')) return;
+      ctrlPanel.classList.remove('open');
+      try {
+        const res = await api.forceStop(vmId);
+        if (res?.success === false) { toast(res.message || 'Gagal kill', 'error'); return; }
+        toast('VM di-kill 💀 — menutup jendela…', 'info', 1500);
+        setTimeout(() => window.close(), 1500);
+      } catch (err) { toast('Error: ' + (err?.message || err), 'error'); }
+    });
+
+    document.getElementById('cpSnap').addEventListener('click', async () => {
+      if (!api)  { toast('Preload tidak tersedia', 'error'); return; }
+      if (!vmId) { toast('VM ID tidak diketahui', 'error'); return; }
+      const nameInput = document.getElementById('cpSnapName');
+      const snapName  = nameInput.value.trim() ||
+        'snap_' + new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-');
+      ctrlPanel.classList.remove('open');
+      try {
+        const res = await api.snapshot(vmId, snapName);
+        if (res?.success === false) toast(res.message || 'Gagal snapshot', 'error');
+        else { toast(`Snapshot "${snapName}" dibuat 💾`, 'success'); nameInput.value = ''; }
+      } catch (err) {
+        toast('Error snapshot: ' + (err?.message || err), 'error');
+      }
+    });
+
+    // ── Recording ────────────────────────────────────────────────────
+    let recState = null;
+
+    async function startRecording() {
+      if (!api) { toast('Recording tidak tersedia (preload missing)', 'error'); return; }
+      try {
+        const res = await api.getSourceId();
+        if (!res?.ok) { toast('Gagal source: ' + (res?.error || ''), 'error'); return; }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: res.sourceId } }
+        });
+        const chunks   = [];
+        const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' });
+        recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+        recorder.onstop = async () => {
+          stream.getTracks().forEach(t => t.stop());
+          clearInterval(recState?.intervalId);
+          recTimer.style.display = 'none';
+          recState = null;
+          btnRecord.textContent = '⏺ Rec';
+          btnRecord.classList.remove('active');
+
+          const blob = new Blob(chunks, { type: 'video/webm' });
+          const safe = vmName.replace(/[^a-z0-9]/gi, '_');
+          const ts   = new Date().toISOString().replace(/[:.]/g, '-');
+          const name = `vnc_${safe}_${ts}.webm`;
+          try {
+            const saveRes = await api.showSaveDialog(name);
+            if (!saveRes.canceled && saveRes.filePath) {
+              const arr = Array.from(new Uint8Array(await blob.arrayBuffer()));
+              await api.saveFile(saveRes.filePath, arr);
+              toast('Recording disimpan', 'success');
+            }
+          } catch (_) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = name; a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+            toast('Recording diunduh', 'success');
+          }
+        };
+        recorder.start(1000);
+
+        const startTs  = Date.now();
+        const intervalId = setInterval(() => {
+          const s = Math.floor((Date.now() - startTs) / 1000);
+          recTimerVal.textContent =
+            `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+        }, 1000);
+
+        recState = { recorder, chunks, stream, startTs, intervalId };
+        btnRecord.textContent = '⏹ Stop';
+        btnRecord.classList.add('active');
+        recTimer.style.display = 'inline';
+        recTimerVal.textContent = '00:00';
+        showToolbar();
+        toast('Recording dimulai', 'info');
+      } catch (err) {
+        toast('Gagal rekam: ' + (err?.message || err), 'error');
+      }
+    }
+
+    btnRecord.addEventListener('click', () => {
+      if (recState) recState.recorder.stop();
+      else startRecording();
+    });
+  </script>
+</body>
 </html>

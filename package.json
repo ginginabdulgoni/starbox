@@ -1,6 +1,6 @@
 {
   "name": "starbox",
-  "version": "1.3.260123",
+  "version": "1.3.260316",
   "description": "StarBox - Emulator ringan multi-layanan",
   "main": "electron-main.js",
   "author": "Gingin Abdul Goni",
@@ -65,7 +65,10 @@
       "node_modules/file-type/**",
       "node_modules/libphonenumber-js/**",
       "node_modules/qified/**",
-      "node_modules/hashery/**"
+      "node_modules/hashery/**",
+      "node_modules/ssh2/**",
+      "node_modules/cpu-features/**",
+      "node_modules/nan/**"
     ],
     "extraResources": [
       {
@@ -178,12 +181,14 @@
     "cron-parser": "^4.9.0",
     "electron-store": "^8.1.0",
     "extract-zip": "^2.0.1",
-    "hashery": "^2.1.0",
+    "hashery": "^1.2.0",
     "node-machine-id": "^1.1.12",
     "node-window-manager": "^2.2.4",
     "pino": "8.19.0",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
+    "socket.io-client": "^4.8.3",
+    "ssh2": "^1.17.0",
     "tree-kill": "^1.2.2",
     "uuid": "^9.0.1",
     "ws": "^8.15.0"

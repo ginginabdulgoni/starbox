@@ -733,6 +733,7 @@ const assetUrlCache = new Map();
 const assetPendingRequests = new Map();
 const assetElementRegistry = new Map();
 let cachedAndroidRemoteDevices = [];
+let _androidAddType = 'adb'; // 'adb' | 'emulator'
 let cachedAdbDevices = [];
 const scrcpyStatusState = {
   installed: false,
@@ -742,6 +743,89 @@ const scrcpyStatusState = {
   progressMessage: "",
 };
 let vmListCache = [];
+
+// ── Screen Recording ──────────────────────────────────────────────────────────
+const recordingSessions = new Map(); // uid → { recorder, chunks, stream }
+
+async function startRecording(uid, deviceName) {
+  if (recordingSessions.has(uid)) {
+    showToast("Sedang merekam...", 1500, "info");
+    return;
+  }
+  try {
+    const res = await window.electronAPI.getDeviceSourceId(uid);
+    if (!res?.ok) {
+      showToast("Gagal mendapatkan sumber layar: " + (res?.error || ""), 3000, "error");
+      return;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        mandatory: {
+          chromeMediaSource: "desktop",
+          chromeMediaSourceId: res.sourceId,
+        },
+      },
+    });
+    const chunks = [];
+    const recorder = new MediaRecorder(stream, { mimeType: "video/webm;codecs=vp8" });
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      recordingSessions.delete(uid);
+      updateRecordButtonState(uid, false);
+      const blob = new Blob(chunks, { type: "video/webm" });
+      const safeName = (deviceName || "device").replace(/[^a-z0-9]/gi, "_");
+      const defaultName = `${safeName}_${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
+      try {
+        const saveRes = await window.electronAPI.showSaveDialogRecording(defaultName);
+        if (!saveRes.canceled && saveRes.filePath) {
+          const buf = await blob.arrayBuffer();
+          const arr = Array.from(new Uint8Array(buf));
+          await window.electronAPI.invoke("save-recording-file", saveRes.filePath, arr);
+          showToast("Recording disimpan.", 2500, "success");
+        }
+      } catch (_) {
+        // Fallback: download via anchor
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = defaultName;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        showToast("Recording diunduh.", 2500, "success");
+      }
+    };
+    recorder.start(1000);
+    recordingSessions.set(uid, { recorder, chunks, stream });
+    updateRecordButtonState(uid, true);
+    showToast("Merekam layar...", 2000, "info");
+  } catch (err) {
+    showToast("Gagal mulai rekam: " + (err?.message || ""), 3500, "error");
+  }
+}
+
+function stopRecording(uid) {
+  const session = recordingSessions.get(uid);
+  if (!session) return;
+  session.recorder.stop();
+}
+
+function updateRecordButtonState(uid, isRecording) {
+  const card = document.querySelector(`.device[data-uid="${uid}"]`);
+  if (!card) return;
+  const btn = card.querySelector(".record-btn");
+  if (!btn) return;
+  if (isRecording) {
+    btn.innerHTML = `<i class="bi bi-stop-circle-fill"></i><span>Stop Rec</span>`;
+    btn.classList.add("recording-active");
+    btn.title = "Stop Recording";
+  } else {
+    btn.innerHTML = `<i class="bi bi-record-circle"></i><span>Record</span>`;
+    btn.classList.remove("recording-active");
+    btn.title = "Rekam layar device";
+  }
+}
 
 function buildServiceConfig(list = []) {
   return list.reduce(
@@ -2121,9 +2205,9 @@ function setStoredTheme(value) {
 function getStoredThemeMode() {
   try {
     const stored = localStorage.getItem(MODE_STORAGE_KEY);
-    if (stored === "light") return "light";
+    if (stored === "light" || stored === "dark") return stored;
   } catch {}
-  return "dark";
+  return "light"; // default: light mode
 }
 
 function setStoredThemeMode(value) {
@@ -3200,7 +3284,7 @@ async function submitRegisterForm(event) {
     });
 
     if (result.success) {
-      showToast(result.message || "Registrasi berhasil.", 3500, "success");
+      showToast(result.message || window.t('toast.register.success'), 3500, "success");
       if (result.autoLogin) {
         closeAuthModal();
       } else {
@@ -3209,38 +3293,38 @@ async function submitRegisterForm(event) {
         if (loginEmail) loginEmail.value = email;
       }
     } else {
-      showToast(result.message || "Registrasi gagal.", 4000, "error");
+      showToast(result.message || window.t('toast.register.failed'), 4000, "error");
     }
   } catch (err) {
     console.error("Registrasi error:", err);
-    showToast("Terjadi kesalahan saat registrasi.", 4000, "error");
+    showToast(window.t('toast.register.error'), 4000, "error");
   } finally {
-    setAuthFormLoading("registerSubmitButton", false, "Daftar");
+    setAuthFormLoading("registerSubmitButton", false, window.t('form.register.btn'));
   }
 }
 
 function handleLogout() {
   if (!window.electronAPI?.auth) return;
   Swal.fire({
-    title: "Keluar dari akun?",
-    text: "Anda akan kembali ke mode tamu.",
+    title: window.t('dialog.logout.title'),
+    text: window.t('dialog.logout.text'),
     icon: "question",
     showCancelButton: true,
-    confirmButtonText: "Keluar",
-    cancelButtonText: "Batal",
+    confirmButtonText: window.t('dialog.logout.confirm'),
+    cancelButtonText: window.t('dialog.logout.cancel'),
     confirmButtonColor: "#ef4444",
   }).then((result) => {
     if (!result.isConfirmed) return;
     window.electronAPI.auth
       .logout()
       .then(() => {
-        showToast("Berhasil logout.", 3000, "success");
+        showToast(window.t('toast.logout.success'), 3000, "success");
         closeAccountModal();
         closeAuthModal();
       })
       .catch((err) => {
         console.error("Logout error:", err);
-        showToast("Gagal logout.", 3500, "error");
+        showToast(window.t('toast.logout.error'), 3500, "error");
       });
   });
 }
@@ -5165,6 +5249,10 @@ async function renderDevices(devices) {
             <i class="bi bi-pencil-square"></i>
             <span>Edit</span>
           </button>
+          <button class="record-btn" title="Rekam layar device">
+            <i class="bi bi-record-circle"></i>
+            <span>Record</span>
+          </button>
           <button class="delete">
             <i class="bi bi-trash-fill"></i>
             <span>Hapus</span>
@@ -5205,6 +5293,7 @@ async function renderDevices(devices) {
     const runButton = deviceCard.querySelector(".run");
     const deleteButton = deviceCard.querySelector(".delete");
     const editButton = deviceCard.querySelector(".edit");
+    const recordButton = deviceCard.querySelector(".record-btn");
 
     statusButton?.addEventListener("click", () => {
       const currentStatus = (deviceCard.dataset.status || "").toLowerCase();
@@ -5328,7 +5417,36 @@ async function renderDevices(devices) {
         );
       }
 
-      openEditModal();
+      if (typeof window.openEditModal === "function") {
+        window.openEditModal();
+      } else {
+        const m = document.getElementById("editModal");
+        if (m) m.style.display = "flex";
+      }
+    });
+
+    // Record button
+    recordButton?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (recordingSessions.has(device.uid)) {
+        stopRecording(device.uid);
+      } else {
+        const currentStatus = (deviceCard.dataset.status || "").toLowerCase();
+        if (currentStatus !== "active" && currentStatus !== "running") {
+          showToast("Jalankan device terlebih dahulu sebelum merekam.", 2500, "info");
+          return;
+        }
+        startRecording(device.uid, device.name);
+      }
+    });
+
+    // Click anywhere on card (not on buttons/inputs) → focus window if running
+    deviceCard.addEventListener("click", (e) => {
+      if (e.target.closest("button, input, label, a, select")) return;
+      const currentStatus = (deviceCard.dataset.status || "").toLowerCase();
+      if (currentStatus === "active" || currentStatus === "running") {
+        window.electronAPI?.focusDevice(device.uid);
+      }
     });
 
     fragment.appendChild(deviceCard);
@@ -5852,13 +5970,19 @@ function renderDevicesAndroid(devices = []) {
 
   if (!cachedAndroidRemoteDevices.length) {
     container.innerHTML =
-      '<div style="padding: 2rem; text-align: center; color: #6b7280;">Belum ada device Android fisik. Sambungkan HP via USB/Wi-Fi lalu klik "Tambah Device".</div>';
+      '<div style="padding: 2rem; text-align: center; color: #6b7280;">Belum ada device Android. Klik "Tambah Device" untuk menambah ADB Remote atau Android Emulator.</div>';
     return;
   }
 
   const fragment = document.createDocumentFragment();
 
   cachedAndroidRemoteDevices.forEach((device) => {
+    if (device._deviceType === 'emulator') {
+      const card = buildAndroidEmulatorCard(device);
+      if (card) fragment.appendChild(card);
+      return;
+    }
+
     const serviceMeta = getAndroidRemoteServiceMeta(device.service);
     const statusMeta = formatAndroidRemoteStatus(device.status);
     const deviceCard = document.createElement("div");
@@ -5964,14 +6088,168 @@ function renderDevicesAndroid(devices = []) {
   container.appendChild(fragment);
 }
 
+function buildAndroidEmulatorCard(device) {
+  const spec = device.androidSpec || {};
+  const specLabel = spec.id === 'lite' ? '⚡ Lite' : spec.id === 'performance' ? '🚀 Performance' : '⚖️ Balanced';
+  const isRunning = device.status === 'running';
+
+  const card = document.createElement('div');
+  card.className = 'device android-remote-card';
+  card.dataset.uid = device.uid;
+  card.dataset.service = 'android';
+  card.dataset.status = device.status || 'stopped';
+  card.style.setProperty('--device-accent', '#3ddc84');
+
+  card.innerHTML = `
+    <div class="device-header">
+      <div class="device-meta">
+        <h3>${device.name || 'Android Emulator'}</h3>
+        <span class="device-service-name">Android Emulator</span>
+      </div>
+      <span class="status-badge ${isRunning ? 'active' : 'inactive'}">${isRunning ? 'Running' : 'Stopped'}</span>
+    </div>
+    <div class="device-body android-remote-body">
+      <p><strong>Preset:</strong> ${specLabel}</p>
+      <p><strong>RAM:</strong> ${spec.memoryMb || 1536} MB &nbsp;·&nbsp; <strong>CPU:</strong> ${spec.cores || 2} Core</p>
+      <p><strong>Resolusi:</strong> ${spec.resolution || '720x1280'}</p>
+    </div>
+    <div id="emuProgress-${device.uid}" style="display:none;padding:8px 12px 0">
+      <div style="font-size:11px;color:#888;margin-bottom:4px" id="emuProgressLabel-${device.uid}">Mempersiapkan...</div>
+      <div style="height:4px;background:#1a1a2e;border-radius:4px;overflow:hidden">
+        <div id="emuProgressBar-${device.uid}" style="height:100%;width:0%;background:linear-gradient(90deg,#3ddc84,#25d366);transition:width .3s"></div>
+      </div>
+    </div>
+    <div class="device-footer">
+      <div class="device-actions">
+        <button class="emu-start-btn ${isRunning ? 'secondary' : ''}">
+          <i class="bi bi-${isRunning ? 'stop-fill' : 'play-fill'}"></i>
+          <span>${isRunning ? 'Stop' : 'Start'}</span>
+        </button>
+        <button class="emu-fix-btn">
+          <i class="bi bi-tools"></i>
+          <span>Fix</span>
+        </button>
+        <button class="delete">
+          <i class="bi bi-trash-fill"></i>
+          <span>Hapus</span>
+        </button>
+      </div>
+    </div>
+  `;
+
+  card.querySelector('.emu-start-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (isRunning) stopAndroidEmulatorCard(device.uid);
+    else startAndroidEmulatorCard(device.uid, card);
+  });
+
+  card.querySelector('.emu-fix-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    fixAndroidEmulatorCard(device.uid);
+  });
+
+  card.querySelector('.delete')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    deleteAndroidEmulatorCard(device.uid, device.name);
+  });
+
+  return card;
+}
+
+async function startAndroidEmulatorCard(uid, cardEl) {
+  const setProgress = (label, pct) => {
+    const prog = document.getElementById('emuProgress-' + uid);
+    const bar = document.getElementById('emuProgressBar-' + uid);
+    const lbl = document.getElementById('emuProgressLabel-' + uid);
+    if (prog) prog.style.display = pct !== null ? 'block' : 'none';
+    if (bar && pct !== null) bar.style.width = pct + '%';
+    if (lbl && label) lbl.textContent = label;
+  };
+
+  try {
+    const check = await window.electronAPI.android.checkInstallation();
+    if (!check?.installed) {
+      setProgress('Mengunduh Android SDK (~800MB)...', 0);
+      showToast('📥 Mengunduh Android SDK (~800MB)...', 5000, 'info');
+      window.electronAPI.android.onDownloadProgress((data) => {
+        const pct = Math.round((data.downloaded / (data.total || 1)) * 100) || 0;
+        setProgress(`Mengunduh SDK: ${pct}% — ${data.phase || ''}`, pct);
+      });
+      await window.electronAPI.android.download(uid);
+    }
+
+    setProgress('Memulai emulator...', 5);
+    window.electronAPI.android.onStartProgress((data) => {
+      const pct = data.phase === 'booted' ? 100 : data.phase === 'wait-boot' ? 50 : 20;
+      setProgress(data.message || data.phase || 'Memulai...', pct);
+    });
+
+    const result = await window.electronAPI.android.start(uid);
+    setProgress(null, null);
+
+    if (result?.success) {
+      showToast('✅ Emulator Android berjalan!', 3000, 'success');
+      await loadAllDevicesAndroid();
+    } else {
+      showToast('Gagal start emulator: ' + (result?.message || result?.error || ''), 5000, 'error');
+    }
+  } catch (err) {
+    setProgress(null, null);
+    showToast('Error: ' + (err?.message || err), 5000, 'error');
+  }
+}
+
+async function stopAndroidEmulatorCard(uid) {
+  try {
+    await window.electronAPI.android.stop(uid);
+    showToast('Emulator dihentikan.', 2000, 'info');
+    await loadAllDevicesAndroid();
+  } catch (err) {
+    showToast('Error stop: ' + (err?.message || err), 4000, 'error');
+  }
+}
+
+async function fixAndroidEmulatorCard(uid) {
+  try {
+    showToast('🔧 Memperbaiki Android...', 3000, 'info');
+    await window.electronAPI.android.fixIssues(uid);
+    showToast('Fix selesai.', 2000, 'success');
+    await loadAllDevicesAndroid();
+  } catch (err) {
+    showToast('Error fix: ' + (err?.message || err), 4000, 'error');
+  }
+}
+
+async function deleteAndroidEmulatorCard(uid, name) {
+  const ok = await Swal.fire({
+    title: window.t('dialog.delete_emulator.title'),
+    text: `"${name}" akan dihapus permanen.`,
+    icon: 'warning', showCancelButton: true,
+    confirmButtonText: window.t('dialog.delete_emulator.confirm'),
+    cancelButtonText: window.t('dialog.delete_emulator.cancel'),
+    confirmButtonColor: '#ef4444',
+  });
+  if (!ok.isConfirmed) return;
+  try {
+    await window.electronAPI.deleteDevice(uid);
+    showToast(window.t('toast.emulator.deleted'), 2000, 'success');
+    await loadAllDevicesAndroid();
+  } catch (err) {
+    showToast(window.t('toast.emulator.delete_error') + (err?.message || err), 4000, 'error');
+  }
+}
+
 async function loadAllDevicesAndroid() {
   try {
-    const result = await window.electronAPI.androidRemote.getDevices();
-    const devices = result?.devices || [];
-    // if (window.__IS_DEV_BUILD__ && console && console.log) {
-    //   console.log("📱 [ADB] devices snapshot:", devices);
-    // }
-    renderDevicesAndroid(devices);
+    const [adbResult, allDevicesResult] = await Promise.all([
+      window.electronAPI.androidRemote.getDevices(),
+      window.electronAPI.loadDevices(),
+    ]);
+    const adbDevices = (adbResult?.devices || []).map(d => ({ ...d, _deviceType: 'adb' }));
+    const emulatorDevices = (allDevicesResult?.devices || [])
+      .filter(d => (d.service || '').toLowerCase() === 'android')
+      .map(d => ({ ...d, _deviceType: 'emulator' }));
+    renderDevicesAndroid([...emulatorDevices, ...adbDevices]);
   } catch (err) {
     console.error("⚠️ Gagal memuat Android devices:", err);
   }
@@ -5997,15 +6275,15 @@ function stopDevice(uid) {
 
 function deleteDevice(uid) {
   Swal.fire({
-    title: "Anda Yakin?",
-    text: "Device akan dihapus secara permanen dan tidak bisa dikembalikan!",
+    title: window.t('dialog.delete_device.title'),
+    text: window.t('dialog.delete_device.text'),
     icon: "warning",
     showCancelButton: true,
     // Praktik UX yang baik: tombol konfirmasi untuk aksi berbahaya berwarna merah
     confirmButtonColor: "#ef4444",
     cancelButtonColor: "#6b7280",
-    confirmButtonText: "Ya, Hapus Saja!",
-    cancelButtonText: "Batal",
+    confirmButtonText: window.t('dialog.delete_device.confirm'),
+    cancelButtonText: window.t('dialog.delete_device.cancel'),
   }).then((result) => {
     if (result.isConfirmed) {
       // Panggil API dan harapkan respons berupa objek { success, message }
@@ -6013,11 +6291,11 @@ function deleteDevice(uid) {
         .deleteDevice(uid)
         .then((response) => {
           if (response.success) {
-            showToast("Device berhasil dihapus.", 3000, "success");
+            showToast(window.t('toast.device.deleted'), 3000, "success");
             loadAllDevices(); // Muat ulang daftar
           } else {
             showToast(
-              response.message || "Gagal menghapus device.",
+              response.message || window.t('toast.device.delete_error'),
               3000,
               "error"
             );
@@ -6026,7 +6304,7 @@ function deleteDevice(uid) {
         .catch((err) => {
           console.error("IPC Error saat memanggil deleteDevice:", err);
           showToast(
-            "Terjadi kesalahan komunikasi saat mencoba menghapus device.",
+            window.t('toast.device.comm_error'),
             3000,
             "error"
           );
@@ -7210,6 +7488,13 @@ window.addEventListener("DOMContentLoaded", () => {
   syncThemeSelector();
   syncServiceAvailability();
 
+  // Re-apply i18n translations and reload device lists when language changes
+  document.addEventListener('langchange', () => {
+    if (typeof window.applyI18n === 'function') window.applyI18n();
+    loadAllDevices();
+    if (typeof loadAllDevicesAndroid === 'function') loadAllDevicesAndroid();
+  });
+
   // Update status otomatis
   window.electronAPI.onDeviceStatusUpdated((uid) => {
     console.log("📶 Status device berubah:", uid);
@@ -7308,6 +7593,7 @@ window.openVmModal = function (vm = null) {
   const modal = document.getElementById("vmModal");
   if (!modal) return;
   modal.style.display = "flex";
+  populateCachedIsos();
 
   const vmId = document.getElementById("vmId");
   const vmName = document.getElementById("vmName");
@@ -7393,98 +7679,232 @@ window.saveVm = async function () {
     }
     closeVmModal();
     await loadVmList();
-    showToast("OS Virtual tersimpan.", 2500, "success");
+    showToast(window.t('toast.vm.saved'), 2500, "success");
   } catch (err) {
-    showToast(err?.message || "Gagal menyimpan VM.", 3500, "error");
+    showToast(err?.message || window.t('toast.vm.save_error'), 3500, "error");
   }
 };
 
 async function deleteVm(id) {
   if (!id) return;
   const confirm = await Swal.fire({
-    title: "Hapus OS?",
-    text: "Data konfigurasi OS virtual akan dihapus.",
+    title: window.t('dialog.delete_vm.title'),
+    text: window.t('dialog.delete_vm.text'),
     icon: "warning",
     showCancelButton: true,
-    confirmButtonText: "Ya, hapus",
-    cancelButtonText: "Batal",
+    confirmButtonText: window.t('dialog.delete_vm.confirm'),
+    cancelButtonText: window.t('dialog.delete_vm.cancel'),
   });
   if (!confirm.isConfirmed) return;
   const result = await window.electronAPI.virtualOS.delete(id);
   if (!result?.success) {
-    showToast(result?.message || "Gagal menghapus VM.", 3500, "error");
+    showToast(result?.message || window.t('toast.vm.delete_error'), 3500, "error");
     return;
   }
   await loadVmList();
-  showToast("OS Virtual dihapus.", 2500, "success");
+  showToast(window.t('toast.vm.deleted'), 2500, "success");
+}
+
+async function checkQemuStatus() {
+  const banner = document.getElementById('qemuMissingBanner');
+  if (!banner) return;
+  try {
+    const r = await window.electronAPI.virtualOS.checkQemu();
+    banner.style.display = r.available ? 'none' : 'flex';
+  } catch {
+    banner.style.display = 'none';
+  }
+}
+
+async function installQemu() {
+  const btn = document.getElementById('installQemuBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Menginstall...'; }
+
+  let unsubscribe = null;
+  try {
+    const swalInst = Swal.fire({
+      title: 'Install QEMU',
+      html: `<div style="text-align:left;max-height:240px;overflow-y:auto;font-size:0.85rem;font-family:monospace;background:#111;padding:8px;border-radius:6px;" id="qemuInstallLog">Memulai instalasi...</div>`,
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+    });
+
+    unsubscribe = window.electronAPI.virtualOS.onQemuInstallProgress((data) => {
+      const log = document.getElementById('qemuInstallLog');
+      if (log && data.message) {
+        const line = document.createElement('div');
+        line.textContent = data.message;
+        log.appendChild(line);
+        log.scrollTop = log.scrollHeight;
+      }
+      if (data.done || data.error) {
+        Swal.close();
+      }
+    });
+
+    const result = await window.electronAPI.virtualOS.installQemu();
+    if (unsubscribe) unsubscribe();
+
+    if (result.success) {
+      await Swal.fire({ icon: 'success', title: 'QEMU Terinstall', text: 'QEMU berhasil diinstall. Silakan coba jalankan VM.', confirmButtonText: 'OK' });
+      await checkQemuStatus();
+    } else {
+      const opts = { icon: 'error', title: 'Gagal Install QEMU', text: result.message || 'Terjadi kesalahan.', confirmButtonText: 'OK' };
+      if (result.manualUrl) opts.footer = `<a href="${result.manualUrl}" target="_blank">Download Manual</a>`;
+      await Swal.fire(opts);
+    }
+  } catch (err) {
+    if (unsubscribe) unsubscribe();
+    Swal.fire({ icon: 'error', title: 'Error', text: err.message, confirmButtonText: 'OK' });
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Install QEMU'; }
+  }
 }
 
 async function loadVmList() {
   const container = document.getElementById("vm-list");
   if (!container) return;
-  container.innerHTML = "Loading...";
+  container.innerHTML = `<div class="osv-empty"><i class="bi bi-arrow-repeat"></i><h3>Memuat daftar VM...</h3></div>`;
+  checkQemuStatus();
   try {
     const result = await window.electronAPI.virtualOS.list();
     if (!result?.success) {
-      container.innerHTML = `<p style="color:#ef4444;">${
-        result?.message || "Gagal memuat VM"
-      }</p>`;
+      container.innerHTML = `<div class="osv-empty"><i class="bi bi-exclamation-triangle"></i><h3>Gagal memuat VM</h3><p>${result?.message || ""}</p></div>`;
       return;
     }
     const items = Array.isArray(result.items) ? result.items : [];
     vmListCache = items;
     if (!items.length) {
-      container.innerHTML =
-        '<div class="wa-empty-state"><p>Belum ada OS Virtual. Klik "Tambah OS".</p></div>';
+      container.innerHTML = `<div class="osv-empty"><i class="bi bi-display"></i><h3>Belum ada OS Virtual</h3><p>Klik "Tambah VM" untuk membuat mesin virtual baru.</p></div>`;
       return;
     }
-    container.innerHTML = items
-      .map(
-        (vm) => `
-      <div class="device-card">
-        <div class="device-header">
-          <h4>${vm.name || "Tanpa nama"}</h4>
-          <span class="chip">${(vm.osType || "OS").toUpperCase()}</span>
-        </div>
-        <div class="device-body">
-          <p><strong>CPU:</strong> ${vm.cpu || 1} core • <strong>RAM:</strong> ${
-        vm.memoryMb || 0
-      } MB • <strong>Storage:</strong> ${vm.storageGb || 0} GB</p>
-          <p><strong>Network:</strong> ${vm.networkMode || "nat"}</p>
-          <p><strong>VNC:</strong> 127.0.0.1:${vm.vncPort || 5901}</p>
-          ${
-            vm.autostart
-              ? '<span class="chip success">Autostart</span>'
-              : '<span class="chip">Manual</span>'
-          }
-            ${vm.notes ? `<p style="color:#cbd5e1;">${vm.notes}</p>` : ""}
+
+    const osIcons = {
+      linux: { icon: "bi-ubuntu", color: "#e95420" },
+      windows: { icon: "bi-windows", color: "#0078d7" },
+      macos: { icon: "bi-apple", color: "#a2aaad" },
+      android: { icon: "bi-android2", color: "#3ddc84" },
+      freebsd: { icon: "bi-hdd-network", color: "#ab2b28" },
+      other: { icon: "bi-cpu", color: "#7c3aed" },
+    };
+
+    container.innerHTML = items.map((vm) => {
+      const osKey = (vm.osType || "linux").toLowerCase();
+      const osInfo = osIcons[osKey] || osIcons.other;
+      const isRunning = vm.status === "running";
+      const isStarting = vm.status === "starting";
+      const statusLabel = isRunning ? "Running" : isStarting ? "Starting..." : "Stopped";
+      const statusCls = isRunning ? "running" : isStarting ? "starting" : "stopped";
+      const ramGb = vm.memoryMb >= 1024 ? (vm.memoryMb / 1024).toFixed(1) + " GB" : (vm.memoryMb || 0) + " MB";
+
+      return `
+        <div class="osv-card" data-vm-id="${vm.id}">
+          <div class="osv-card-head">
+            <div class="osv-os-icon" style="background:${osInfo.color}22; color:${osInfo.color}">
+              <i class="bi ${osInfo.icon}"></i>
+            </div>
+            <div class="osv-card-name">
+              <h4>${vm.name || "Tanpa nama"}</h4>
+              <span>${(vm.osType || "linux").toUpperCase()}</span>
+            </div>
+            <span class="osv-status-badge ${statusCls}">
+              <span class="dot"></span>${statusLabel}
+            </span>
           </div>
-          <div class="device-actions">
-            <button class="btn-outline" onclick=\"openVmModalById('${vm.id}')\"><i class=\"bi bi-pencil\"></i> Edit</button>
-            <button class="btn-success" onclick="startVm('${vm.id}')"><i class="bi bi-play-fill"></i> Start</button>
-            <button class="btn-warning" onclick="restartVm('${vm.id}')"><i class="bi bi-arrow-repeat"></i> Restart</button>
-            <button class="btn-danger" onclick="stopVm('${vm.id}')"><i class="bi bi-stop-fill"></i> Stop</button>
-            <button class="btn-secondary" onclick="snapshotVm('${vm.id}')"><i class="bi bi-camera"></i> Snapshot</button>
-            <button class="btn-danger" onclick="deleteVm('${vm.id}')"><i class="bi bi-trash"></i> Hapus</button>
+          <div class="osv-specs">
+            <div class="osv-spec"><div class="osv-spec-val">${vm.cpu || 1}</div><div class="osv-spec-key">vCPU</div></div>
+            <div class="osv-spec"><div class="osv-spec-val">${ramGb}</div><div class="osv-spec-key">RAM</div></div>
+            <div class="osv-spec"><div class="osv-spec-val">${vm.storageGb || 0} GB</div><div class="osv-spec-key">Disk</div></div>
+            <div class="osv-spec"><div class="osv-spec-val">:${vm.vncPort || 5901}</div><div class="osv-spec-key">VNC</div></div>
+          </div>
+          <div class="osv-info">
+            <span><i class="bi bi-diagram-3"></i> ${(vm.networkMode || "nat").toUpperCase()}</span>
+            ${vm.autostart ? '<span><i class="bi bi-lightning-fill" style="color:#f0a040"></i> Autostart</span>' : ""}
+            ${vm.isoPath ? `<span title="${vm.isoPath}"><i class="bi bi-disc"></i> ISO</span>` : ""}
+          </div>
+          ${vm.notes ? `<div class="osv-notes">${vm.notes}</div>` : ""}
+          <div class="osv-actions">
+            <button class="osv-btn start" onclick="startVm('${vm.id}')" title="Start"><i class="bi bi-play-fill"></i> Start</button>
+            <button class="osv-btn restart" onclick="restartVm('${vm.id}')" title="Restart"><i class="bi bi-arrow-repeat"></i></button>
+            <button class="osv-btn stop" onclick="stopVm('${vm.id}')" title="Stop"><i class="bi bi-stop-fill"></i> Stop</button>
+            <button class="osv-btn" style="border-color:rgba(239,68,68,0.4);color:#f87171" onclick="forceStopVm('${vm.id}')" title="Stop Paksa (SIGKILL) — gunakan jika Stop biasa tidak mempan"><i class="bi bi-lightning-fill"></i></button>
+            <button class="osv-btn" onclick="snapshotVm('${vm.id}')" title="Snapshot"><i class="bi bi-camera"></i></button>
+            <button class="osv-btn" onclick="openVmModalById('${vm.id}')" title="Edit"><i class="bi bi-pencil"></i></button>
+            <button class="osv-btn danger" onclick="deleteVm('${vm.id}')" title="Hapus"><i class="bi bi-trash"></i></button>
           </div>
         </div>
-      `
-      )
-      .join("");
+      `;
+    }).join("");
   } catch (err) {
-    container.innerHTML = `<p style="color:#ef4444;">${err?.message || "Gagal memuat VM"}</p>`;
+    container.innerHTML = `<div class="osv-empty"><i class="bi bi-exclamation-triangle"></i><h3>Error</h3><p>${err?.message || "Gagal memuat VM"}</p></div>`;
   }
 }
 
+window.openVmModalById = function (id) {
+  if (!id || !vmListCache) return;
+  const vm = vmListCache.find((v) => v.id === id);
+  if (vm) window.openVmModal(vm);
+};
+
+async function killAllQemu() {
+  const confirm = await Swal.fire({
+    title: window.t('dialog.kill_qemu.title'),
+    text: window.t('dialog.kill_qemu.text'),
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonColor: "#f0a040",
+    confirmButtonText: window.t('dialog.kill_qemu.confirm'),
+    cancelButtonText: window.t('dialog.kill_qemu.cancel'),
+  });
+  if (!confirm.isConfirmed) return;
+  const result = await window.electronAPI.virtualOS.killAllQemu();
+  if (result?.success) {
+    showToast(window.t('toast.qemu.killed'), 2500, "success");
+  } else {
+    showToast(result?.message || "Gagal.", 3000, "error");
+  }
+  await loadVmList();
+}
+
 async function startVm(id) {
-  const result = await window.electronAPI.virtualOS.start(id);
-  if (!result?.success) {
-    showToast(result?.message || "Gagal start VM.", 3500, "error");
+  // If already running, just focus the VNC window
+  const card = document.querySelector(`.osv-card[data-vm-id="${id}"]`);
+  const statusBadge = card?.querySelector(".osv-status-badge");
+  if (statusBadge?.classList.contains("running")) {
+    await window.electronAPI.virtualOS.focusVncWindow(id);
     return;
   }
-  showToast("VM dijalankan (QEMU).", 2000, "info");
+
+  showToast(window.t('toast.vm.starting'), 1500, "info");
+  const vmName = card?.querySelector("h4")?.textContent || id;
+  const result = await window.electronAPI.virtualOS.start(id);
+  if (!result?.success) {
+    const msg = result?.message || "Gagal start VM.";
+    const isLocked = msg.includes("terkunci") || msg.includes("locked") || msg.includes("image");
+    await Swal.fire({
+      title: window.t('dialog.vm_start_fail'),
+      html: msg.replace(/\n/g, "<br>") +
+        (isLocked ? `<br><br>${window.t('dialog.vm_start_fail_tip')}` : ""),
+      icon: "error",
+      confirmButtonText: window.t('common.close'),
+    });
+    await loadVmList();
+    return;
+  }
+  showToast(window.t('toast.vm.started'), 2000, "success");
   if (result.wsPort) {
-    openVncViewer(result.wsPort);
+    await openVncViewer(result.wsPort, id, vmName);
+  }
+  await loadVmList();
+}
+
+async function forceStopVm(id) {
+  const result = await window.electronAPI.virtualOS.forceStop(id);
+  if (!result?.success) {
+    showToast(result?.message || window.t('toast.vm.force_stop_error'), 3000, "error");
+  } else {
+    showToast(window.t('toast.vm.force_stopped'), 2000, "success");
   }
   await loadVmList();
 }
@@ -7492,17 +7912,17 @@ async function startVm(id) {
 async function stopVm(id) {
   const result = await window.electronAPI.virtualOS.stop(id);
   if (!result?.success) {
-    showToast(result?.message || "Gagal stop VM.", 3500, "error");
+    showToast(result?.message || window.t('toast.vm.stop_error'), 3500, "error");
     return;
   }
-  showToast("VM dihentikan.", 2000, "info");
+  showToast(window.t('toast.vm.stopped'), 2000, "info");
   await loadVmList();
 }
 
 async function restartVm(id) {
   const result = await window.electronAPI.virtualOS.restart(id);
   if (!result?.success) {
-    showToast(result?.message || "Gagal restart VM.", 3500, "error");
+    showToast(result?.message || window.t('toast.vm.restart_error'), 3500, "error");
     return;
   }
   showToast("VM direstart.", 2000, "info");
@@ -7532,10 +7952,9 @@ async function snapshotVm(id) {
   showToast("Snapshot dibuat.", 2000, "success");
 }
 
-function openVncViewer(port) {
+async function openVncViewer(port, vmId, vmName) {
   if (!port) return;
-  const url = `vnc-viewer.html?host=127.0.0.1&port=${port}`;
-  window.open(url, "_blank", "width=1024,height=768");
+  await window.electronAPI.virtualOS.openVncWindow({ vmId, wsPort: port, vmName });
 }
 
 async function browseVmIsoFile() {
@@ -7552,16 +7971,83 @@ async function browseVmIsoFile() {
   }
 }
 
-function applyQuickIso() {
+async function populateCachedIsos() {
+  const group = document.getElementById("vmCachedIsoGroup");
+  if (!group) return;
+  try {
+    const cached = await window.electronAPI.virtualOS.listCachedIsos();
+    group.innerHTML = "";
+    cached.forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = "__cached__" + c.localPath;
+      opt.textContent = `✓ ${c.filename}${c.sizeMb ? ` (${c.sizeMb}MB)` : ""}`;
+      group.appendChild(opt);
+    });
+    group.style.display = cached.length > 0 ? "" : "none";
+  } catch (_) {
+    if (group) group.style.display = "none";
+  }
+}
+
+async function applyQuickIso() {
   const select = document.getElementById("vmQuickIso");
   const isoInput = document.getElementById("vmIso");
-  const url = select?.value || "";
-  if (!url) {
-    showToast("Pilih OS ringan terlebih dahulu.", 2500, "info");
+  const progressEl = document.getElementById("vmIsoDownloadProgress");
+  let url = select?.value || "";
+  if (!url) return;
+
+  // Cached ISO: just set the path directly without downloading
+  if (url.startsWith("__cached__")) {
+    const localPath = url.slice("__cached__".length);
+    if (isoInput) isoInput.value = localPath;
+    showToast("ISO dipilih dari cache lokal", 2000, "success");
+    select.value = "";
     return;
   }
-  isoInput.value = url;
-  showToast("URL ISO diisi. Download manual atau salin ke disk lokal.", 3000, "info");
+
+  const filename = url.split("/").pop() || "os.iso";
+
+  // Show progress UI
+  if (progressEl) {
+    progressEl.style.display = "flex";
+    progressEl.querySelector(".iso-dl-label").textContent = `Mengunduh ${filename}...`;
+    progressEl.querySelector(".iso-dl-bar-inner").style.width = "0%";
+    progressEl.querySelector(".iso-dl-pct").textContent = "0%";
+  }
+
+  // Listen to progress
+  const unsubProgress = window.electronAPI.virtualOS.onIsoDownloadProgress((data) => {
+    if (data.filename !== filename) return;
+    const pct = data.pct >= 0 ? data.pct : 0;
+    if (progressEl) {
+      progressEl.querySelector(".iso-dl-bar-inner").style.width = pct + "%";
+      progressEl.querySelector(".iso-dl-pct").textContent = data.pct >= 0 ? pct + "%" : "...";
+      const mb = (data.downloaded / 1024 / 1024).toFixed(1);
+      const total = data.total > 0 ? ` / ${(data.total / 1024 / 1024).toFixed(1)} MB` : "";
+      progressEl.querySelector(".iso-dl-label").textContent = `${filename}: ${mb} MB${total}`;
+    }
+  });
+
+  try {
+    const result = await window.electronAPI.virtualOS.downloadIso({ url, filename });
+    unsubProgress();
+    if (progressEl) progressEl.style.display = "none";
+
+    if (!result?.success) {
+      showToast("Gagal download ISO: " + (result?.message || ""), 4000, "error");
+      select.value = "";
+      return;
+    }
+    isoInput.value = result.localPath;
+    showToast(result.cached ? `ISO sudah ada: ${filename}` : `ISO berhasil diunduh: ${filename}`, 2500, "success");
+    select.value = "";
+    populateCachedIsos();
+  } catch (err) {
+    unsubProgress();
+    if (progressEl) progressEl.style.display = "none";
+    showToast("Error download ISO: " + (err?.message || ""), 4000, "error");
+    select.value = "";
+  }
 }
 
 window.openVersionInfoDialog =
@@ -7758,9 +8244,31 @@ window.closeAdbTutorialModal = function () {
 };
 
 // Modal functions for Android
+window.switchAndroidAddType = function(type) {
+  _androidAddType = type;
+  const adbForm = document.getElementById('androidFormTypeAdb');
+  const emuForm = document.getElementById('androidFormTypeEmulator');
+  const btnAdb = document.getElementById('btnAndroidTypeAdb');
+  const btnEmu = document.getElementById('btnAndroidTypeEmu');
+  if (adbForm) adbForm.style.display = type === 'adb' ? '' : 'none';
+  if (emuForm) emuForm.style.display = type === 'emulator' ? '' : 'none';
+  if (btnAdb) { btnAdb.style.background = type === 'adb' ? 'rgba(61,220,132,0.15)' : 'transparent'; btnAdb.style.color = type === 'adb' ? '#3ddc84' : '#888'; }
+  if (btnEmu) { btnEmu.style.background = type === 'emulator' ? 'rgba(61,220,132,0.15)' : 'transparent'; btnEmu.style.color = type === 'emulator' ? '#3ddc84' : '#888'; }
+};
+
+window.selectEmuSpec = function(spec) {
+  document.querySelectorAll('[id^="emuSpec"]').forEach(el => {
+    el.style.borderColor = el.id === 'emuSpec' + spec.charAt(0).toUpperCase() + spec.slice(1)
+      ? 'rgba(61,220,132,0.4)' : '#30363d';
+  });
+};
+
 window.openModalAndroid = async function () {
   const modal = document.getElementById("addModalAndroid");
   if (!modal) return;
+
+  _androidAddType = 'adb';
+  window.switchAndroidAddType('adb');
 
   const nameInput = document.getElementById("deviceNameAndroid");
   if (nameInput) nameInput.value = "";
@@ -7783,6 +8291,7 @@ window.openModalAndroid = async function () {
 };
 
 window.closeModalAndroid = function () {
+  _androidAddType = 'adb';
   const modal = document.getElementById("addModalAndroid");
   if (!modal) return;
   modal.style.display = "none";
@@ -7803,7 +8312,35 @@ window.closeModalAndroid = function () {
   if (whatsappFields) whatsappFields.style.display = "none";
 };
 
+async function submitEmulatorDeviceForm() {
+  const name = document.getElementById('deviceNameAndroid')?.value.trim();
+  if (!name) { showToast('Nama device wajib diisi.', 3000, 'warning'); return; }
+  const specRadio = document.querySelector('input[name="emuSpec"]:checked');
+  const specId = specRadio?.value || 'balanced';
+  const SPEC_MAP = {
+    lite:        { id: 'lite',        memoryMb: 1024, cores: 1, resolution: '540x960',   density: 213 },
+    balanced:    { id: 'balanced',    memoryMb: 1536, cores: 2, resolution: '720x1280',  density: 265 },
+    performance: { id: 'performance', memoryMb: 2048, cores: 4, resolution: '1080x1920', density: 420 },
+  };
+  const androidSpec = SPEC_MAP[specId] || SPEC_MAP.balanced;
+  try {
+    const result = await window.electronAPI.addDevice({ name, service: 'android', androidSpec });
+    if (result?.success) {
+      showToast('✅ Android Emulator ditambahkan!', 3000, 'success');
+      closeModalAndroid();
+      await loadAllDevicesAndroid();
+    } else {
+      showToast(result?.message || 'Gagal menambah emulator.', 4000, 'error');
+    }
+  } catch (err) {
+    showToast('Error: ' + (err?.message || err), 4000, 'error');
+  }
+}
+
 window.submitAndroidDevice = async function () {
+  // Route to emulator submit if that type is selected
+  if (_androidAddType === 'emulator') { submitEmulatorDeviceForm(); return; }
+
   const name = document.getElementById("deviceNameAndroid").value.trim();
   const adbSelect = document.getElementById("androidAdbDeviceSelect");
   const serviceSelect = document.getElementById("androidRemoteServiceSelect");
@@ -8292,6 +8829,20 @@ window.switchPage = async function (page) {
     }
   } else if (page === "os-virtual") {
     await loadVmList();
+  } else if (page === "remox") {
+    if (typeof window.initRemoxPage === "function") window.initRemoxPage();
+  } else if (page === "resource-monitor") {
+    if (typeof window.rmStartPolling === "function") window.rmStartPolling();
+    else setTimeout(() => { if (typeof window.rmStartPolling === "function") window.rmStartPolling(); }, 100);
+  } else if (page === "cron") {
+    if (typeof window.loadCronJobs === "function") window.loadCronJobs();
+  } else if (page === "starcapture") {
+    if (typeof window.scInitPage === "function") window.scInitPage();
+  }
+
+  // Stop resource monitor polling when leaving that page
+  if (page !== "resource-monitor") {
+    if (typeof window.rmStopPolling === "function") window.rmStopPolling();
   }
 
   // Refresh iklan per halaman (hit ulang per menu)
@@ -8425,3 +8976,2200 @@ if (document.readyState === "loading") {
 } else {
   initRemoteStatusUI();
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CCTV Module
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _cctvCameras    = [];
+let _cctvLayout     = 4;       // 1, 4, 9, 16
+let _cctvStreaming  = new Map(); // uid → { port, type, refreshTimer }
+let _hlsInstances  = new Map(); // uid → Hls instance
+
+let _cctvAutoConnectDone = false;
+
+async function cctvInit() {
+  await cctvCheckFfmpeg();
+  await cctvLoadCameras();
+  cctvRenderGrid();
+  // First access this session: auto-connect all registered cameras
+  if (!_cctvAutoConnectDone && _cctvCameras.length > 0) {
+    _cctvAutoConnectDone = true;
+    for (const cam of _cctvCameras) {
+      if (!_cctvStreaming.has(cam.uid)) {
+        cctvConnect(cam.uid);
+      }
+    }
+  }
+}
+
+async function cctvCheckFfmpeg() {
+  const dot  = document.getElementById('cctvStatusDot');
+  const text = document.getElementById('cctvStatusText');
+  const btn  = document.getElementById('cctvInstallFfmpegBtn');
+  try {
+    const r = await window.electronAPI.cctv.checkFfmpeg();
+    if (r.available) {
+      if (dot)  dot.style.background  = '#22c55e';
+      if (text) text.textContent = 'ffmpeg tersedia';
+      if (btn)  btn.style.display = 'none';
+    } else {
+      if (dot)  dot.style.background  = '#f59e0b';
+      if (text) text.textContent = 'ffmpeg tidak ditemukan';
+      // Show install button on Windows only
+      if (btn) btn.style.display = (process.platform === 'win32') ? 'inline-flex' : 'none';
+    }
+  } catch {
+    if (dot)  dot.style.background = '#666';
+    if (text) text.textContent = '';
+    if (btn)  btn.style.display = 'none';
+  }
+}
+
+async function cctvInstallFfmpeg() {
+  const btn = document.getElementById('cctvInstallFfmpegBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Menginstall...'; }
+
+  let unsubscribe = null;
+  try {
+    let progressHtml = '<div style="text-align:left;max-height:200px;overflow-y:auto;font-size:0.85rem;" id="ffmpegInstallLog"></div>';
+    const swalInst = Swal.fire({
+      title: 'Install FFmpeg',
+      html: `<p style="margin-bottom:8px;">Mengunduh FFmpeg portable untuk Windows...</p>${progressHtml}`,
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      showCancelButton: false,
+    });
+
+    unsubscribe = window.electronAPI.cctv.onFfmpegInstallProgress((data) => {
+      const log = document.getElementById('ffmpegInstallLog');
+      if (log) {
+        const line = document.createElement('div');
+        line.textContent = data.message || '';
+        log.appendChild(line);
+        log.scrollTop = log.scrollHeight;
+      }
+    });
+
+    const result = await window.electronAPI.cctv.installFfmpeg();
+    if (unsubscribe) unsubscribe();
+
+    if (result.success) {
+      Swal.fire({ icon: 'success', title: 'FFmpeg Terinstall', text: 'FFmpeg berhasil diinstall. CCTV RTSP siap digunakan.', confirmButtonText: 'OK' });
+      await cctvCheckFfmpeg();
+    } else {
+      Swal.fire({ icon: 'error', title: 'Gagal Install FFmpeg', text: result.message || 'Terjadi kesalahan.', confirmButtonText: 'OK' });
+    }
+  } catch (err) {
+    if (unsubscribe) unsubscribe();
+    Swal.fire({ icon: 'error', title: 'Error', text: err.message, confirmButtonText: 'OK' });
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Install FFmpeg'; }
+  }
+}
+
+async function cctvLoadCameras() {
+  try {
+    const r = await window.electronAPI.cctv.getCameras();
+    _cctvCameras = r.cameras || [];
+  } catch (e) {
+    console.error('[CCTV] load cameras error', e);
+    _cctvCameras = [];
+  }
+}
+
+function cctvSetLayout(n) {
+  _cctvLayout = n;
+  const grid = document.getElementById('cctvGrid');
+  if (grid) {
+    grid.className = `cctv-grid cctv-grid-${n}`;
+  }
+  [1,4,9,16].forEach(x => {
+    const btn = document.getElementById(`cctvLayout${x}`);
+    if (btn) btn.classList.toggle('active', x === n);
+  });
+  cctvRenderGrid();
+}
+
+function cctvRenderGrid() {
+  const grid = document.getElementById('cctvGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  grid.className = `cctv-grid cctv-grid-${_cctvLayout}`;
+
+  const totalCells = _cctvLayout;
+  for (let i = 0; i < totalCells; i++) {
+    const cam = _cctvCameras[i] || null;
+    grid.appendChild(cam ? cctvBuildCell(cam) : cctvBuildEmptyCell(i));
+  }
+
+  // If more cameras than cells, show the rest as extra cells below
+  if (_cctvCameras.length > totalCells) {
+    for (let i = totalCells; i < _cctvCameras.length; i++) {
+      grid.appendChild(cctvBuildCell(_cctvCameras[i]));
+    }
+  }
+}
+
+function cctvBuildEmptyCell(idx) {
+  const div = document.createElement('div');
+  div.className = 'cctv-cell';
+  div.innerHTML = `
+    <div class="cctv-empty-cell">
+      <i class="bi bi-camera-video-off"></i>
+      <span>Slot ${idx + 1}</span>
+    </div>`;
+  return div;
+}
+
+function cctvBuildCell(cam) {
+  const div = document.createElement('div');
+  div.className = 'cctv-cell';
+  div.id = `cctvCell_${cam.uid}`;
+  div.setAttribute('data-uid', cam.uid);
+
+  const streamInfo = _cctvStreaming.get(cam.uid);
+  const isStreaming = !!streamInfo;
+
+  if (isStreaming) {
+    div.classList.add('streaming');
+    if (cam.type === 'hls') {
+      div.innerHTML = `
+        <video id="cctvVideo_${cam.uid}" autoplay muted playsinline style="width:100%;height:100%;object-fit:contain;background:#000;"></video>
+        <span class="cctv-live-badge">● LIVE</span>`;
+    } else if (cam.type === 'snapshot') {
+      const src = cam.url + (cam.url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+      div.innerHTML = `
+        <img id="cctvImg_${cam.uid}" src="${src}" style="width:100%;height:100%;object-fit:contain;background:#000;" alt="${cam.name}">
+        <span class="cctv-live-badge">● LIVE</span>`;
+    } else if (cam.type === 'http-mjpeg') {
+      div.innerHTML = `
+        <canvas id="cctvCanvas_${cam.uid}" style="width:100%;height:100%;object-fit:contain;background:#000;display:block;"></canvas>
+        <div id="cctvStreamStatus_${cam.uid}" style="display:none;"></div>
+        <span id="cctvLiveBadge_${cam.uid}" class="cctv-live-badge">● LIVE</span>`;
+    } else {
+      // RTSP proxy via localhost — use canvas reader
+      div.innerHTML = `
+        <canvas id="cctvCanvas_${cam.uid}" style="width:100%;height:100%;object-fit:contain;background:#000;display:block;"></canvas>
+        <div id="cctvStreamStatus_${cam.uid}" style="display:none;"></div>
+        <span id="cctvLiveBadge_${cam.uid}" class="cctv-live-badge">● LIVE</span>`;
+    }
+  } else {
+    div.innerHTML = `
+      <div class="cctv-placeholder">
+        <i class="bi bi-camera-video" style="color:#222;"></i>
+        <span style="font-size:0.8rem;color:#444;">${cam.name}</span>
+        <button onclick="cctvConnect('${cam.uid}')" style="background:var(--color-primary);color:#fff;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.8rem;">
+          <i class="bi bi-play-fill"></i> Hubungkan
+        </button>
+      </div>`;
+  }
+
+  const hasPtz = !!(cam.onvifIp && cam.onvifToken);
+
+  // Overlay
+  div.innerHTML += `
+    <div class="cctv-overlay">
+      <span class="cctv-label">${cam.name}</span>
+      <div class="cctv-actions">
+        ${isStreaming ? `<button onclick="cctvDisconnect('${cam.uid}')">⏹ Stop</button>` : `<button onclick="cctvConnect('${cam.uid}')">▶ Live</button>`}
+        ${isStreaming ? `<button onclick="cctvReload('${cam.uid}')" title="Reload stream">↺</button>` : ''}
+        ${hasPtz ? `<button onclick="cctvOpenPtz('${cam.uid}')" title="PTZ Control" style="background:#7c3aed;">🎮 PTZ</button>` : ''}
+        <button onclick="cctvSnapshot('${cam.uid}')">📷</button>
+        <button onclick="cctvFullscreen('${cam.uid}')">⛶</button>
+        <button onclick="cctvOpenEditModal('${cam.uid}')">✏</button>
+        <button onclick="cctvDeleteCamera('${cam.uid}')" style="color:#fca5a5;">🗑</button>
+      </div>
+    </div>`;
+
+  // Double click → fullscreen
+  div.addEventListener('dblclick', () => cctvFullscreen(cam.uid));
+
+  // If HLS, init after DOM insert
+  if (isStreaming && cam.type === 'hls') {
+    setTimeout(() => cctvInitHls(cam), 50);
+  }
+
+  // If snapshot, start refresh timer
+  if (isStreaming && cam.type === 'snapshot') {
+    cctvStartSnapshotRefresh(cam);
+  }
+
+  // If RTSP proxy or direct MJPEG, start canvas reader
+  if (isStreaming && (cam.type === 'rtsp' || cam.type === 'http-mjpeg')) {
+    setTimeout(() => cctvStartCanvasStream(cam), 50);
+  }
+
+  return div;
+}
+
+// ── Connect / Disconnect ─────────────────────────────────────────────────────
+
+async function cctvConnect(uid) {
+  const cam = _cctvCameras.find(c => c.uid === uid);
+  if (!cam) return;
+
+  const cell = document.getElementById(`cctvCell_${uid}`);
+  if (cell) {
+    cell.innerHTML = `<div class="cctv-placeholder"><i class="bi bi-arrow-repeat" style="color:var(--color-primary);animation:spin 1s linear infinite;font-size:2rem;"></i><span style="font-size:0.8rem;color:#888;">Menghubungkan...</span></div>`;
+  }
+
+  try {
+    if (cam.type === 'http-mjpeg') {
+      // Direct MJPEG — no proxy needed
+      _cctvStreaming.set(uid, { port: null, type: 'http-mjpeg' });
+    } else if (cam.type === 'snapshot') {
+      _cctvStreaming.set(uid, { port: null, type: 'snapshot' });
+    } else if (cam.type === 'hls') {
+      _cctvStreaming.set(uid, { port: null, type: 'hls' });
+    } else {
+      // RTSP → ffmpeg proxy
+      const r = await window.electronAPI.cctv.startStream(cam);
+      if (!r.success) throw new Error(r.message || 'Gagal memulai stream');
+      _cctvStreaming.set(uid, { port: r.port, type: 'rtsp' });
+    }
+    cctvRenderGrid();
+  } catch (err) {
+    _cctvStreaming.delete(uid);
+    if (cell) {
+      cell.innerHTML = `
+        <div class="cctv-placeholder">
+          <i class="bi bi-exclamation-triangle" style="color:#ef4444;font-size:2rem;"></i>
+          <span style="font-size:0.75rem;color:#ef4444;text-align:center;padding:0 10px;">${err.message}</span>
+          <button onclick="cctvConnect('${uid}')" style="background:#ef4444;color:#fff;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:0.78rem;">Coba Lagi</button>
+        </div>`;
+    }
+    console.error('[CCTV] connect error', err);
+  }
+}
+
+async function cctvReload(uid) {
+  const info = _cctvStreaming.get(uid);
+  if (!info) { return cctvConnect(uid); }
+  // Abort current stream so reconnect loop restarts immediately
+  if (info.abortCtrl) { try { info.abortCtrl.abort(); } catch (_e) {} }
+}
+
+async function cctvDisconnect(uid) {
+  const info = _cctvStreaming.get(uid);
+  if (info && info.refreshTimer) clearInterval(info.refreshTimer);
+  if (info && info.abortCtrl) { try { info.abortCtrl.abort(); } catch (_e) {} }
+  // destroy HLS instance
+  const hls = _hlsInstances.get(uid);
+  if (hls) { try { hls.destroy(); } catch (_e) {} _hlsInstances.delete(uid); }
+  _cctvStreaming.delete(uid);
+  await window.electronAPI.cctv.stopStream(uid);
+  cctvRenderGrid();
+}
+
+// ── HLS ──────────────────────────────────────────────────────────────────────
+
+function cctvInitHls(cam) {
+  const video = document.getElementById(`cctvVideo_${cam.uid}`);
+  if (!video) return;
+
+  if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+    const hls = new Hls();
+    hls.loadSource(cam.url);
+    hls.attachMedia(video);
+    _hlsInstances.set(cam.uid, hls);
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = cam.url;
+  }
+}
+
+// ── Snapshot refresh ─────────────────────────────────────────────────────────
+
+function cctvStartSnapshotRefresh(cam) {
+  const info = _cctvStreaming.get(cam.uid);
+  if (!info) return;
+  const intervalSec = cam.refreshSec || 5;
+  const timer = setInterval(() => {
+    const img = document.getElementById(`cctvImg_${cam.uid}`);
+    if (!img) { clearInterval(timer); return; }
+    img.src = cam.url + (cam.url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+  }, intervalSec * 1000);
+  info.refreshTimer = timer;
+}
+
+// ── Canvas MJPEG reader ───────────────────────────────────────────────────────
+
+function _classifyStreamError(err) {
+  if (!err) return 'Stream terputus';
+  const msg = (err.message || '').toLowerCase();
+  if (msg === 'read_timeout')                    return 'Timeout / RTO (tdk ada data)';
+  if (msg.includes('failed to fetch') ||
+      msg.includes('err_connection_refused') ||
+      msg.includes('econnrefused'))              return 'Koneksi ditolak (ECONNREFUSED)';
+  if (msg.includes('timed_out') ||
+      msg.includes('err_connection_timed_out'))  return 'Koneksi timeout (RTO)';
+  if (msg.includes('http 401'))                  return 'Autentikasi gagal (401)';
+  if (msg.includes('http 403'))                  return 'Akses ditolak (403)';
+  if (msg.includes('http 404'))                  return 'Stream tdk ditemukan (404)';
+  if (msg.includes('http 5'))                    return `Error server (${err.message})`;
+  if (msg.includes('network'))                   return 'Jaringan terputus';
+  return (err.message || 'Stream terputus').slice(0, 50);
+}
+
+function cctvSetStreamStatus(uid, msg, type) {
+  const el = document.getElementById(`cctvStreamStatus_${uid}`);
+  if (!el) return;
+  if (!msg) { el.style.display = 'none'; return; }
+  const bg = type === 'error' ? 'rgba(239,68,68,0.88)' : 'rgba(30,27,46,0.88)';
+  const ic = type === 'error' ? '⚠ ' : type === 'connecting' ? '↻ ' : '';
+  el.style.cssText = `position:absolute;bottom:28px;left:0;right:0;text-align:center;padding:4px 8px;background:${bg};color:#fff;font-size:0.68rem;font-weight:600;display:block;z-index:3;pointer-events:none;letter-spacing:0.01em;`;
+  el.textContent = ic + msg;
+}
+
+// Returns { stopped: bool, error? }
+// stopped=true  → AbortError from user disconnect, do NOT reconnect
+// stopped=false → stream ended/error, reconnect is OK
+async function cctvDrawCanvasFromUrl(canvas, url, outerAbortCtrl, uid) {
+  const ctx = canvas.getContext('2d');
+  const JPEG_SOI = 0xFF, JPEG_EOI_BYTE = 0xD9, JPEG_START = 0xD8;
+  const FREEZE_TIMEOUT_MS = 15000; // abort stream if no data for 15s
+
+  let lastFrameTs = Date.now();
+  let frameCount  = 0;
+
+  // Watchdog: if no data for FREEZE_TIMEOUT_MS, abort the fetch
+  let freezeTimer = setTimeout(() => outerAbortCtrl.abort('freeze'), FREEZE_TIMEOUT_MS);
+  const resetFreeze = () => {
+    clearTimeout(freezeTimer);
+    freezeTimer = setTimeout(() => outerAbortCtrl.abort('freeze'), FREEZE_TIMEOUT_MS);
+  };
+
+  // Live badge — update every second
+  const badgeTimer = setInterval(() => {
+    const badge = document.getElementById(`cctvLiveBadge_${uid}`);
+    if (!badge) { clearInterval(badgeTimer); return; }
+    const idle = Math.round((Date.now() - lastFrameTs) / 1000);
+    if (idle < 3) {
+      badge.textContent = '● LIVE';
+      badge.style.color = '#22c55e';
+    } else {
+      badge.textContent = `⚠ ${idle}s idle`;
+      badge.style.color = '#f59e0b';
+    }
+  }, 1000);
+
+  const cleanup = () => {
+    clearInterval(badgeTimer);
+    clearTimeout(freezeTimer);
+  };
+
+  try {
+    const resp = await fetch(url, { signal: outerAbortCtrl.signal });
+    if (!resp.ok) { cleanup(); return { error: new Error(`HTTP ${resp.status}`), stopped: false }; }
+
+    const reader = resp.body.getReader();
+    let buf = new Uint8Array(0);
+
+    const append = (chunk) => {
+      const merged = new Uint8Array(buf.length + chunk.length);
+      merged.set(buf);
+      merged.set(chunk, buf.length);
+      buf = merged;
+    };
+
+    const findFrame = () => {
+      let start = -1;
+      for (let i = 0; i < buf.length - 1; i++) {
+        if (buf[i] === JPEG_SOI && buf[i + 1] === JPEG_START) { start = i; break; }
+      }
+      if (start < 0) { buf = new Uint8Array(0); return null; }
+      for (let i = start + 2; i < buf.length - 1; i++) {
+        if (buf[i] === JPEG_SOI && buf[i + 1] === JPEG_EOI_BYTE) {
+          const frame = buf.slice(start, i + 2);
+          buf = buf.slice(i + 2);
+          return frame;
+        }
+      }
+      if (start > 0) buf = buf.slice(start);
+      return null;
+    };
+
+    while (true) {
+      const { value, done } = await reader.read(); // AbortSignal cancels this properly
+      if (done) { cleanup(); return { error: new Error('Stream terputus oleh server'), stopped: false }; }
+      resetFreeze();
+      append(value);
+      let frame;
+      while ((frame = findFrame()) !== null) {
+        try {
+          const blob = new Blob([frame], { type: 'image/jpeg' });
+          const bmp  = await createImageBitmap(blob);
+          canvas.width  = bmp.width;
+          canvas.height = bmp.height;
+          ctx.drawImage(bmp, 0, 0);
+          bmp.close();
+          frameCount++;
+          lastFrameTs = Date.now();
+          if (frameCount === 1) cctvSetStreamStatus(uid, '', '');
+        } catch (_e) { /* skip bad frame */ }
+      }
+    }
+  } catch (err) {
+    cleanup();
+    if (err.name === 'AbortError') {
+      // Distinguish freeze-abort vs user-disconnect-abort
+      const isFrozen = outerAbortCtrl.signal.reason === 'freeze';
+      if (isFrozen) return { error: new Error('Stream beku (15s tdk ada data)'), stopped: false };
+      return { stopped: true }; // user disconnected
+    }
+    return { error: err, stopped: false };
+  }
+}
+
+async function cctvStartCanvasStream(cam) {
+  const RETRY_DELAYS = [3000, 5000, 8000, 10000, 15000];
+  let attempt = 0;
+
+  while (_cctvStreaming.has(cam.uid)) {
+    const info = _cctvStreaming.get(cam.uid);
+    if (!info) return;
+
+    // ── For RTSP: restart ffmpeg proxy on every attempt ──────────────────────
+    if (cam.type === 'rtsp') {
+      cctvSetStreamStatus(cam.uid, attempt > 0 ? `↻ Memulai ulang stream (${attempt})...` : 'Memulai ffmpeg...', 'connecting');
+      try {
+        const r = await window.electronAPI.cctv.startStream(cam);
+        if (!r.success) throw new Error(r.message || 'Gagal memulai proxy');
+        info.port = r.port; // update port in case it changed
+      } catch (err) {
+        attempt++;
+        const delay = RETRY_DELAYS[Math.min(attempt - 1, RETRY_DELAYS.length - 1)];
+        for (let i = Math.round(delay / 1000); i > 0; i--) {
+          if (!_cctvStreaming.has(cam.uid)) return;
+          cctvSetStreamStatus(cam.uid, `ffmpeg gagal: ${err.message} — retry ${i}s`, 'error');
+          await new Promise(r => setTimeout(r, 1000));
+        }
+        continue;
+      }
+      // Small delay to let ffmpeg initialize before we fetch
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    const url    = cam.type === 'http-mjpeg' ? cam.url : `http://127.0.0.1:${info.port}/`;
+    const canvas = document.getElementById(`cctvCanvas_${cam.uid}`);
+    if (!canvas) return;
+
+    // Create a fresh AbortController for this attempt
+    const abortCtrl = new AbortController();
+    info.abortCtrl  = abortCtrl;
+
+    cctvSetStreamStatus(cam.uid, attempt > 0 ? `Menghubungkan ulang (${attempt})...` : 'Menghubungkan...', 'connecting');
+
+    const { error, stopped } = await cctvDrawCanvasFromUrl(canvas, url, abortCtrl, cam.uid);
+
+    if (stopped || !_cctvStreaming.has(cam.uid)) return;
+
+    // Stream ended / errored — check ffmpeg log for details, then reconnect
+    attempt++;
+    let errMsg = _classifyStreamError(error);
+
+    // Try to get ffmpeg error log from proxy
+    try {
+      const st = await window.electronAPI.cctv.streamStatus(cam.uid);
+      if (st && st.ffmpegLog) {
+        const log = st.ffmpegLog.slice(-300); // last 300 chars
+        if (log.includes('Connection refused'))      errMsg = 'RTSP: Koneksi ditolak';
+        else if (log.includes('401 Unauthorized'))   errMsg = 'RTSP: Auth gagal (401)';
+        else if (log.includes('No route to host'))   errMsg = 'RTSP: Host tidak terjangkau';
+        else if (log.includes('Connection timed out')) errMsg = 'RTSP: Timeout';
+        else if (log.includes('Invalid data'))       errMsg = 'RTSP: URL/format tidak valid';
+        else if (log.includes('No such file'))       errMsg = 'ffmpeg tidak ditemukan';
+      }
+    } catch {}
+
+    const delay    = RETRY_DELAYS[Math.min(attempt - 1, RETRY_DELAYS.length - 1)];
+    const delaySec = Math.round(delay / 1000);
+    console.warn(`[CCTV] ${cam.name} — ${errMsg}, retry in ${delaySec}s (attempt ${attempt})`);
+
+    for (let i = delaySec; i > 0; i--) {
+      if (!_cctvStreaming.has(cam.uid)) return;
+      cctvSetStreamStatus(cam.uid, `${errMsg} — reconnect ${i}s`, 'error');
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+}
+
+// ── Snapshot save ─────────────────────────────────────────────────────────────
+
+async function cctvSnapshot(uid) {
+  const cam = _cctvCameras.find(c => c.uid === uid);
+  if (!cam) return;
+  try {
+    const r = await window.electronAPI.cctv.snapshot(cam);
+    if (r.success) {
+      cctvToast(`Screenshot disimpan ke: ${r.path}`, 'success');
+    } else if (!r.canceled) {
+      cctvToast(`Gagal: ${r.message}`, 'error');
+    }
+  } catch (err) {
+    cctvToast(`Error: ${err.message}`, 'error');
+  }
+}
+
+// ── Fullscreen ────────────────────────────────────────────────────────────────
+
+function cctvFullscreen(uid) {
+  const cam = _cctvCameras.find(c => c.uid === uid);
+  if (!cam) return;
+  const info = _cctvStreaming.get(uid);
+  const fsEl    = document.getElementById('cctvFullscreen');
+  const fsImg   = document.getElementById('cctvFsImg');
+  const fsVid   = document.getElementById('cctvFsVideo');
+  const fsTitle = document.getElementById('cctvFsTitle');
+
+  if (fsTitle) fsTitle.textContent = cam.name;
+  fsImg.style.display  = 'none';
+  fsVid.style.display  = 'none';
+
+  if (!info) {
+    fsEl.style.display = 'flex';
+    return;
+  }
+
+  if (cam.type === 'hls') {
+    fsVid.style.display = 'block';
+    if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(cam.url);
+      hls.attachMedia(fsVid);
+    } else {
+      fsVid.src = cam.url;
+    }
+  } else if (cam.type === 'snapshot') {
+    fsImg.src = cam.url + (cam.url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+    fsImg.style.display = 'block';
+  } else {
+    // RTSP proxy or direct MJPEG — use canvas
+    let fsCanvas = document.getElementById('cctvFsCanvas');
+    if (!fsCanvas) {
+      fsCanvas = document.createElement('canvas');
+      fsCanvas.id = 'cctvFsCanvas';
+      fsCanvas.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;background:#000;';
+      fsImg.parentNode.insertBefore(fsCanvas, fsImg);
+    }
+    fsCanvas.style.display = 'block';
+    const streamUrl = cam.type === 'http-mjpeg' ? cam.url : `http://127.0.0.1:${info.port}/`;
+    // abort any previous fs stream
+    if (window._cctvFsAbort) { try { window._cctvFsAbort.abort(); } catch (_e) {} }
+    window._cctvFsAbort = new AbortController();
+    cctvDrawCanvasFromUrl(fsCanvas, streamUrl, window._cctvFsAbort.signal, '__fs__');
+  }
+
+  fsEl.style.display = 'flex';
+}
+
+function cctvCloseFullscreen() {
+  const fsEl     = document.getElementById('cctvFullscreen');
+  const fsVid    = document.getElementById('cctvFsVideo');
+  const fsImg    = document.getElementById('cctvFsImg');
+  const fsCanvas = document.getElementById('cctvFsCanvas');
+  if (fsVid) { fsVid.pause(); fsVid.src = ''; }
+  if (fsImg) { fsImg.src = ''; fsImg.style.display = 'none'; }
+  if (fsCanvas)  fsCanvas.style.display = 'none';
+  if (window._cctvFsAbort) { try { window._cctvFsAbort.abort(); } catch (_e) {} window._cctvFsAbort = null; }
+  if (fsEl)  fsEl.style.display = 'none';
+}
+
+// ── Add / Edit Modal ──────────────────────────────────────────────────────────
+
+function cctvOpenAddModal() {
+  document.getElementById('cctvModalTitle').textContent = 'Tambah Kamera';
+  document.getElementById('cctvEditUid').value = '';
+  document.getElementById('cctvName').value     = '';
+  document.getElementById('cctvType').value     = 'rtsp';
+  document.getElementById('cctvUrl').value      = '';
+  document.getElementById('cctvUsername').value = '';
+  document.getElementById('cctvPassword').value = '';
+  document.getElementById('cctvFps').value      = '15';
+  document.getElementById('cctvRefreshSec').value = '5';
+  document.getElementById('cctvNotes').value    = '';
+  const onvifIpEl2 = document.getElementById('cctvOnvifIp');
+  if (onvifIpEl2) onvifIpEl2.value = '';
+  const onvifPortEl2 = document.getElementById('cctvOnvifPort');
+  if (onvifPortEl2) onvifPortEl2.value = '';
+  const onvifTokenEl2 = document.getElementById('cctvOnvifToken');
+  if (onvifTokenEl2) onvifTokenEl2.value = '';
+  cctvOnTypeChange();
+  document.getElementById('cctvModal').style.display = 'flex';
+}
+
+function cctvOpenEditModal(uid) {
+  const cam = _cctvCameras.find(c => c.uid === uid);
+  if (!cam) return;
+  document.getElementById('cctvModalTitle').textContent = 'Edit Kamera';
+  document.getElementById('cctvEditUid').value = cam.uid;
+  document.getElementById('cctvName').value     = cam.name || '';
+  document.getElementById('cctvType').value     = cam.type || 'rtsp';
+  document.getElementById('cctvUrl').value      = cam.url || '';
+  document.getElementById('cctvUsername').value = cam.username || '';
+  document.getElementById('cctvPassword').value = cam.password || '';
+  document.getElementById('cctvFps').value      = String(cam.fps || 15);
+  document.getElementById('cctvRefreshSec').value = String(cam.refreshSec || 5);
+  document.getElementById('cctvNotes').value    = cam.notes || '';
+  const onvifIpEl = document.getElementById('cctvOnvifIp');
+  if (onvifIpEl) onvifIpEl.value = cam.onvifIp || '';
+  const onvifPortEl = document.getElementById('cctvOnvifPort');
+  if (onvifPortEl) onvifPortEl.value = String(cam.onvifPort || '');
+  const onvifTokenEl = document.getElementById('cctvOnvifToken');
+  if (onvifTokenEl) onvifTokenEl.value = cam.onvifToken || '';
+  cctvOnTypeChange();
+  document.getElementById('cctvModal').style.display = 'flex';
+}
+
+function cctvCloseModal() {
+  document.getElementById('cctvModal').style.display = 'none';
+}
+
+// Auto-fill ONVIF IP from stream URL
+function cctvAutoFillOnvif() {
+  const url  = (document.getElementById('cctvUrl') || {}).value || '';
+  const ipEl  = document.getElementById('cctvOnvifIp');
+  const portEl = document.getElementById('cctvOnvifPort');
+  const tokenEl = document.getElementById('cctvOnvifToken');
+
+  // Extract IP from rtsp://user:pass@IP:PORT/... or http://IP:PORT/...
+  const m = url.match(/(?:rtsp|http|https):\/\/(?:[^@]+@)?(\d{1,3}(?:\.\d{1,3}){3})(?::(\d+))?/i);
+  if (m && ipEl) {
+    if (!ipEl.value) ipEl.value = m[1];
+    // Only pre-fill port if ONVIF port field is default 80 (don't overwrite if user set it)
+    if (portEl && (portEl.value === '80' || !portEl.value)) {
+      portEl.value = '80'; // ONVIF port is separate from RTSP port — keep 80 as default
+    }
+  }
+  if (tokenEl && !tokenEl.value) tokenEl.value = 'MainStream';
+  if (ipEl && !ipEl.value) { cctvToast('Tidak bisa deteksi IP dari URL — isi manual', 'error'); }
+}
+
+function cctvOnTypeChange() {
+  const type = document.getElementById('cctvType').value;
+  const brandHelper = document.getElementById('cctvBrandHelper');
+  const credFields  = document.getElementById('cctvCredFields');
+  const fpsField    = document.getElementById('cctvFpsField');
+  const snapField   = document.getElementById('cctvSnapshotInterval');
+  const urlHint     = document.getElementById('cctvUrlHint');
+
+  const hints = {
+    'rtsp':       'Contoh: rtsp://192.168.1.100:554/stream1',
+    'http-mjpeg': 'Contoh: http://192.168.1.100/mjpeg',
+    'hls':        'Contoh: http://192.168.1.100/stream.m3u8',
+    'snapshot':   'Contoh: http://192.168.1.100/snapshot.jpg',
+  };
+  if (urlHint) urlHint.textContent = hints[type] || '';
+
+  if (brandHelper) brandHelper.style.display = type === 'rtsp' ? 'block' : 'none';
+  if (credFields)  credFields.style.display  = (type === 'rtsp' || type === 'http-mjpeg') ? 'flex' : 'none';
+  if (fpsField)    fpsField.style.display    = type === 'rtsp' ? 'block' : 'none';
+  if (snapField)   snapField.style.display   = type === 'snapshot' ? 'block' : 'none';
+}
+
+function cctvApplyTemplate(tpl) {
+  if (!tpl) return;
+  document.getElementById('cctvUrl').value = tpl;
+}
+
+async function cctvSaveCamera() {
+  const name = (document.getElementById('cctvName').value || '').trim();
+  const url  = (document.getElementById('cctvUrl').value  || '').trim();
+  if (!name) { cctvToast('Nama kamera wajib diisi', 'error'); return; }
+  if (!url)  { cctvToast('URL stream wajib diisi', 'error'); return; }
+
+  const existingUid = document.getElementById('cctvEditUid').value;
+  const camera = {
+    uid:          existingUid || crypto.randomUUID(),
+    name,
+    type:         document.getElementById('cctvType').value,
+    url,
+    username:     document.getElementById('cctvUsername').value,
+    password:     document.getElementById('cctvPassword').value,
+    fps:          parseInt(document.getElementById('cctvFps').value) || 15,
+    refreshSec:   parseInt(document.getElementById('cctvRefreshSec').value) || 5,
+    notes:        document.getElementById('cctvNotes').value,
+    onvifIp:      (document.getElementById('cctvOnvifIp')    || {}).value || '',
+    onvifPort:    parseInt((document.getElementById('cctvOnvifPort') || {}).value) || 0,
+    onvifToken:   (document.getElementById('cctvOnvifToken') || {}).value || '',
+  };
+
+  try {
+    await window.electronAPI.cctv.saveCamera(camera);
+    if (existingUid) {
+      const idx = _cctvCameras.findIndex(c => c.uid === existingUid);
+      if (idx >= 0) _cctvCameras[idx] = camera;
+    } else {
+      _cctvCameras.push(camera);
+    }
+    cctvCloseModal();
+    cctvRenderGrid();
+    cctvToast(`Kamera "${name}" disimpan`, 'success');
+  } catch (err) {
+    cctvToast(`Gagal simpan: ${err.message}`, 'error');
+  }
+}
+
+async function cctvDeleteCamera(uid) {
+  const cam = _cctvCameras.find(c => c.uid === uid);
+  if (!cam) return;
+  if (!confirm(`Hapus kamera "${cam.name}"?`)) return;
+  await cctvDisconnect(uid);
+  await window.electronAPI.cctv.deleteCamera(uid);
+  _cctvCameras = _cctvCameras.filter(c => c.uid !== uid);
+  cctvRenderGrid();
+  cctvToast(`Kamera "${cam.name}" dihapus`, 'success');
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+
+function cctvToast(msg, type = 'info') {
+  const colors = { success: '#22c55e', error: '#ef4444', info: '#6366f1' };
+  const el = document.createElement('div');
+  el.textContent = msg;
+  el.style.cssText = `position:fixed;bottom:24px;right:24px;background:${colors[type]||colors.info};color:#fff;padding:10px 18px;border-radius:8px;font-size:0.85rem;z-index:99999;box-shadow:0 4px 16px rgba(0,0,0,0.3);max-width:340px;`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+// ── Lifecycle ─────────────────────────────────────────────────────────────────
+
+// Hook into switchPage
+(function() {
+  const _origSwitchPage = window.switchPage;
+  if (typeof _origSwitchPage === 'function') {
+    window.switchPage = async function(page, ...args) {
+      await _origSwitchPage(page, ...args);
+      if (page === 'cctv') cctvInit();
+    };
+  }
+})();
+
+// ── PTZ Panel ─────────────────────────────────────────────────────────────────
+
+let _ptzCam = null;         // current camera for PTZ
+let _ptzPresets = [];       // loaded presets
+
+function cctvOpenPtz(uid) {
+  _ptzCam = _cctvCameras.find(c => c.uid === uid);
+  if (!_ptzCam) return;
+
+  let panel = document.getElementById('cctvPtzPanel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'cctvPtzPanel';
+    panel.style.cssText = `
+      position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+      z-index:10000;background:#1e1b2e;border:1px solid #4c1d95;
+      border-radius:14px;padding:20px 24px;min-width:320px;
+      box-shadow:0 8px 40px rgba(0,0,0,0.6);color:#fff;font-family:inherit;`;
+    document.body.appendChild(panel);
+  }
+
+  panel.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <span style="font-weight:700;font-size:1rem;">🎮 PTZ — ${_ptzCam.name}</span>
+      <button onclick="cctvClosePtz()" style="background:none;border:none;color:#aaa;font-size:1.3rem;cursor:pointer;line-height:1;">✕</button>
+    </div>
+
+    <!-- Speed -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:0.8rem;color:#aaa;">
+      <span>Kecepatan:</span>
+      <input id="ptzSpeed" type="range" min="1" max="10" value="5" style="flex:1;">
+      <span id="ptzSpeedVal">0.5</span>
+    </div>
+
+    <!-- D-pad + Zoom -->
+    <div style="display:flex;gap:16px;align-items:center;justify-content:center;margin-bottom:14px;">
+      <!-- D-pad -->
+      <div style="display:grid;grid-template-columns:repeat(3,44px);grid-template-rows:repeat(3,44px);gap:4px;">
+        <button class="ptz-btn" onmousedown="cctvPtzDir('ul')" onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('ul')" ontouchend="cctvPtzHalt()">↖</button>
+        <button class="ptz-btn" onmousedown="cctvPtzDir('u')"  onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('u')"  ontouchend="cctvPtzHalt()">↑</button>
+        <button class="ptz-btn" onmousedown="cctvPtzDir('ur')" onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('ur')" ontouchend="cctvPtzHalt()">↗</button>
+        <button class="ptz-btn" onmousedown="cctvPtzDir('l')"  onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('l')"  ontouchend="cctvPtzHalt()">←</button>
+        <button class="ptz-btn" onclick="cctvPtzHalt()" style="background:#3f3465;font-size:0.7rem;">■</button>
+        <button class="ptz-btn" onmousedown="cctvPtzDir('r')"  onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('r')"  ontouchend="cctvPtzHalt()">→</button>
+        <button class="ptz-btn" onmousedown="cctvPtzDir('dl')" onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('dl')" ontouchend="cctvPtzHalt()">↙</button>
+        <button class="ptz-btn" onmousedown="cctvPtzDir('d')"  onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('d')"  ontouchend="cctvPtzHalt()">↓</button>
+        <button class="ptz-btn" onmousedown="cctvPtzDir('dr')" onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('dr')" ontouchend="cctvPtzHalt()">↘</button>
+      </div>
+      <!-- Zoom -->
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <button class="ptz-btn" style="height:60px;font-size:1.1rem;" onmousedown="cctvPtzDir('zi')" onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('zi')" ontouchend="cctvPtzHalt()">🔍+</button>
+        <button class="ptz-btn" style="height:60px;font-size:1.1rem;" onmousedown="cctvPtzDir('zo')" onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('zo')" ontouchend="cctvPtzHalt()">🔍−</button>
+      </div>
+    </div>
+
+    <!-- Presets -->
+    <div id="ptzPresetArea" style="border-top:1px solid #3f3465;padding-top:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <span style="font-size:0.82rem;color:#aaa;">Preset Posisi</span>
+        <button onclick="cctvPtzLoadPresets()" style="background:#4c1d95;border:none;color:#fff;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:0.75rem;">🔄 Muat</button>
+      </div>
+      <div id="ptzPresetList" style="display:flex;flex-wrap:wrap;gap:6px;min-height:30px;">
+        <span style="font-size:0.75rem;color:#666;">Klik "Muat" untuk daftar preset kamera</span>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px;">
+        <input id="ptzNewPresetName" type="text" placeholder="Nama preset baru..." style="flex:1;background:#2d2446;border:1px solid #4c1d95;color:#fff;padding:5px 8px;border-radius:6px;font-size:0.78rem;">
+        <button onclick="cctvPtzSavePreset()" style="background:#7c3aed;border:none;color:#fff;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem;white-space:nowrap;">💾 Simpan</button>
+      </div>
+    </div>
+
+    <div id="ptzStatus" style="font-size:0.72rem;color:#aaa;margin-top:8px;text-align:center;min-height:16px;"></div>`;
+
+  // Speed label sync
+  const speedInput = panel.querySelector('#ptzSpeed');
+  if (speedInput) {
+    speedInput.addEventListener('input', () => {
+      document.getElementById('ptzSpeedVal').textContent = (speedInput.value / 10).toFixed(1);
+    });
+  }
+
+  // Add PTZ button styles if not already added
+  if (!document.getElementById('ptzBtnStyle')) {
+    const s = document.createElement('style');
+    s.id = 'ptzBtnStyle';
+    s.textContent = `.ptz-btn{width:44px;height:44px;background:#2d2446;border:1px solid #4c1d95;color:#fff;border-radius:8px;cursor:pointer;font-size:1.1rem;display:flex;align-items:center;justify-content:center;transition:background 0.1s;user-select:none;} .ptz-btn:active,.ptz-btn:hover{background:#6d28d9;}`;
+    document.head.appendChild(s);
+  }
+
+  panel.style.display = 'block';
+}
+
+function cctvClosePtz() {
+  cctvPtzHalt();
+  const panel = document.getElementById('cctvPtzPanel');
+  if (panel) panel.style.display = 'none';
+  _ptzCam = null;
+}
+
+function _ptzParams() {
+  return { ip: _ptzCam.onvifIp, port: _ptzCam.onvifPort || 80, username: _ptzCam.username || '', password: _ptzCam.password || '', profileToken: _ptzCam.onvifToken };
+}
+
+function _ptzStatus(msg) {
+  const el = document.getElementById('ptzStatus');
+  if (el) el.textContent = msg;
+}
+
+async function cctvPtzDir(dir) {
+  if (!_ptzCam) return;
+  const speed = parseFloat((document.getElementById('ptzSpeed') || { value: '5' }).value) / 10;
+  const dirMap = {
+    u:  [0,  speed, 0],  d:  [0, -speed, 0],
+    l:  [-speed, 0, 0],  r:  [speed,  0, 0],
+    ul: [-speed, speed, 0], ur: [speed, speed, 0],
+    dl: [-speed,-speed, 0], dr: [speed,-speed, 0],
+    zi: [0, 0,  speed],  zo: [0, 0, -speed],
+  };
+  const [pan, tilt, zoom] = dirMap[dir] || [0, 0, 0];
+  try {
+    const r = await window.electronAPI.cctv.ptzMove({ ..._ptzParams(), pan, tilt, zoom });
+    if (!r.success) _ptzStatus(`Error: ${r.message}`);
+    else _ptzStatus('');
+  } catch (err) { _ptzStatus(`Error: ${err.message}`); }
+}
+
+async function cctvPtzHalt() {
+  if (!_ptzCam) return;
+  try {
+    await window.electronAPI.cctv.ptzStop(_ptzParams());
+  } catch {}
+}
+
+async function cctvPtzLoadPresets() {
+  if (!_ptzCam) return;
+  _ptzStatus('Memuat preset...');
+  const listEl = document.getElementById('ptzPresetList');
+  if (listEl) listEl.innerHTML = '<span style="font-size:0.75rem;color:#aaa;">Memuat...</span>';
+  try {
+    const r = await window.electronAPI.cctv.ptzPresets(_ptzParams());
+    if (!r.success) { _ptzStatus(`Gagal: ${r.message}`); return; }
+    _ptzPresets = r.presets || [];
+    _ptzStatus(_ptzPresets.length ? `${_ptzPresets.length} preset` : 'Tidak ada preset');
+    if (listEl) {
+      listEl.innerHTML = _ptzPresets.length
+        ? _ptzPresets.map(p => `<button onclick="cctvPtzGoto('${p.token}')" style="padding:4px 10px;background:#2d2446;border:1px solid #4c1d95;color:#fff;border-radius:6px;cursor:pointer;font-size:0.75rem;" title="${p.name}">${p.name}</button>`).join('')
+        : '<span style="font-size:0.75rem;color:#666;">Tidak ada preset tersimpan</span>';
+    }
+  } catch (err) { _ptzStatus(`Error: ${err.message}`); }
+}
+
+async function cctvPtzGoto(presetToken) {
+  if (!_ptzCam) return;
+  _ptzStatus('Bergerak ke preset...');
+  try {
+    const r = await window.electronAPI.cctv.ptzGotoPreset({ ..._ptzParams(), presetToken });
+    _ptzStatus(r.success ? '✓ Posisi preset diterapkan' : `Gagal: ${r.message}`);
+  } catch (err) { _ptzStatus(`Error: ${err.message}`); }
+}
+
+async function cctvPtzSavePreset() {
+  if (!_ptzCam) return;
+  const name = (document.getElementById('ptzNewPresetName') || {}).value || '';
+  _ptzStatus('Menyimpan preset...');
+  try {
+    const r = await window.electronAPI.cctv.ptzSetPreset({ ..._ptzParams(), presetName: name });
+    if (r.success) {
+      _ptzStatus(`✓ Preset "${name || r.token}" disimpan`);
+      if (document.getElementById('ptzNewPresetName')) document.getElementById('ptzNewPresetName').value = '';
+      cctvPtzLoadPresets();
+    } else {
+      _ptzStatus(`Gagal: ${r.message}`);
+    }
+  } catch (err) { _ptzStatus(`Error: ${err.message}`); }
+}
+
+// Expose globally
+window.cctvSetLayout       = cctvSetLayout;
+window.cctvConnect         = cctvConnect;
+window.cctvReload          = cctvReload;
+window.cctvDisconnect      = cctvDisconnect;
+window.cctvSnapshot        = cctvSnapshot;
+window.cctvFullscreen      = cctvFullscreen;
+window.cctvCloseFullscreen = cctvCloseFullscreen;
+window.cctvOpenAddModal    = cctvOpenAddModal;
+window.cctvOpenEditModal   = cctvOpenEditModal;
+window.cctvCloseModal      = cctvCloseModal;
+window.cctvAutoFillOnvif   = cctvAutoFillOnvif;
+window.cctvOnTypeChange    = cctvOnTypeChange;
+window.cctvApplyTemplate   = cctvApplyTemplate;
+window.cctvSaveCamera      = cctvSaveCamera;
+window.cctvDeleteCamera    = cctvDeleteCamera;
+
+// ── ONVIF Scan ────────────────────────────────────────────────────────────────
+
+let _cctvScanUnlisten = null;
+let _cctvScanRunning  = false;
+
+function cctvOpenScanModal() {
+  document.getElementById('cctvScanModal').style.display = 'flex';
+  cctvPopulateSubnetChips();
+}
+
+function cctvPopulateSubnetChips() {
+  const chips = document.getElementById('cctvSubnetChips');
+  if (!chips) return;
+  // Show common subnet quick-pick chips
+  const commonSubnets = ['192.168.0', '192.168.1', '192.168.2', '192.168.10', '192.168.100', '10.0.0', '172.16.0'];
+  chips.innerHTML = commonSubnets.map(s =>
+    `<button onclick="cctvSetSubnet('${s}')"
+      style="padding:3px 10px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:5px;color:var(--color-muted);cursor:pointer;font-size:0.75rem;font-family:monospace;white-space:nowrap;"
+      title="Scan ${s}.1-254">${s}.x</button>`
+  ).join('');
+}
+
+function cctvSetSubnet(subnet) {
+  const input = document.getElementById('cctvScanSubnet');
+  if (input) input.value = subnet;
+  // Highlight active chip
+  document.querySelectorAll('#cctvSubnetChips button').forEach(btn => {
+    const active = btn.textContent.startsWith(subnet);
+    btn.style.background      = active ? 'var(--color-primary)' : 'var(--color-bg)';
+    btn.style.color           = active ? '#fff' : 'var(--color-muted)';
+    btn.style.borderColor     = active ? 'var(--color-primary)' : 'var(--color-border)';
+  });
+}
+
+function cctvCloseScanModal() {
+  document.getElementById('cctvScanModal').style.display = 'none';
+  if (_cctvScanUnlisten) { _cctvScanUnlisten(); _cctvScanUnlisten = null; }
+}
+
+async function cctvStartScan() {
+  if (_cctvScanRunning) return;
+  _cctvScanRunning = true;
+
+  const btn  = document.getElementById('cctvScanBtn');
+  const prog = document.getElementById('cctvScanProgress');
+  const msg  = document.getElementById('cctvScanMsg');
+  const pct  = document.getElementById('cctvScanPct');
+  const bar  = document.getElementById('cctvScanBar');
+  const res  = document.getElementById('cctvScanResults');
+  const empty = document.getElementById('cctvScanEmpty');
+
+  const username    = (document.getElementById('cctvScanUser').value   || '').trim();
+  const password    = document.getElementById('cctvScanPass').value   || '';
+  const subnetInput = (document.getElementById('cctvScanSubnet').value || '').trim();
+
+  if (btn)   { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Scanning...'; }
+  if (prog)  prog.style.display = 'block';
+  if (empty) empty.style.display = 'none';
+  if (res)   res.innerHTML = '';
+
+  // Listen for progress events
+  if (_cctvScanUnlisten) _cctvScanUnlisten();
+  _cctvScanUnlisten = window.electronAPI.cctv.onScanProgress((data) => {
+    if (msg) msg.textContent = data.message || '';
+    if (data.progress != null) {
+      if (pct) pct.textContent = data.progress + '%';
+      if (bar) bar.style.width = data.progress + '%';
+    }
+  });
+
+  try {
+    const r = await window.electronAPI.cctv.scanOnvif({ username, password, subnetInput });
+    const devices = r.devices || [];
+
+    if (devices.length === 0) {
+      if (res) res.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px;color:var(--color-muted);gap:8px;">
+          <i class="bi bi-camera-video-off" style="font-size:2rem;"></i>
+          <span style="font-size:0.85rem;">Tidak ada perangkat ONVIF ditemukan di jaringan ini</span>
+          <span style="font-size:0.75rem;opacity:.7;">Pastikan kamera dan komputer dalam satu subnet</span>
+        </div>`;
+    } else {
+      if (res) res.innerHTML = devices.map(d => cctvBuildScanResultCard(d, username, password)).join('');
+    }
+  } catch (err) {
+    if (res) res.innerHTML = `<div style="padding:16px;color:#ef4444;font-size:0.85rem;">Error: ${err.message}</div>`;
+  } finally {
+    _cctvScanRunning = false;
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-search"></i> Scan Lagi'; }
+    if (_cctvScanUnlisten) { _cctvScanUnlisten(); _cctvScanUnlisten = null; }
+  }
+}
+
+function cctvBuildScanResultCard(d, username, password) {
+  const info  = d.info || {};
+  const label = [info.manufacturer, info.model].filter(Boolean).join(' ') || 'ONVIF Device';
+  const rtsp  = d.streamUri || '';
+
+  return `<div style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border-radius:8px;background:var(--color-bg);margin-bottom:8px;border:1px solid var(--color-border);">
+    <div style="padding:8px;background:var(--color-primary)22;border-radius:8px;flex-shrink:0;">
+      <i class="bi bi-camera-video-fill" style="color:var(--color-primary);font-size:1.1rem;"></i>
+    </div>
+    <div style="flex:1;min-width:0;">
+      <div style="font-weight:700;font-size:0.9rem;">${label}</div>
+      <div style="font-size:0.75rem;color:var(--color-muted);margin-top:2px;">${d.ip}:${d.port} · ${d.source === 'ws-discovery' ? 'WS-Discovery' : 'TCP Scan'}</div>
+      ${info.firmware ? `<div style="font-size:0.72rem;color:var(--color-muted);">FW: ${info.firmware}${info.serial ? ' · S/N: ' + info.serial : ''}</div>` : ''}
+      ${rtsp ? `<div style="font-size:0.72rem;color:#22c55e;margin-top:3px;font-family:monospace;word-break:break-all;">${rtsp}</div>` : '<div style="font-size:0.72rem;color:#f59e0b;margin-top:3px;">Stream URI tidak tersedia (coba dengan credentials)</div>'}
+    </div>
+    <button onclick="cctvAddFromScan('${d.ip}',${d.port},'${encodeURIComponent(rtsp)}','${encodeURIComponent(label)}','${encodeURIComponent(username)}','${encodeURIComponent(password)}','${encodeURIComponent(d.profileToken||'')}')"
+      style="flex-shrink:0;padding:6px 14px;background:var(--color-primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.8rem;font-weight:600;">
+      + Tambah
+    </button>
+  </div>`;
+}
+
+function cctvAddFromScan(ip, port, rtspEnc, labelEnc, userEnc, passEnc, profileTokenEnc) {
+  const rtsp  = decodeURIComponent(rtspEnc);
+  const label = decodeURIComponent(labelEnc);
+  const user  = decodeURIComponent(userEnc);
+  const pass  = decodeURIComponent(passEnc);
+  const token = profileTokenEnc ? decodeURIComponent(profileTokenEnc) : '';
+
+  // Pre-fill add modal
+  document.getElementById('cctvModalTitle').textContent = 'Tambah Kamera ONVIF';
+  document.getElementById('cctvEditUid').value       = '';
+  document.getElementById('cctvName').value          = label || `Kamera ${ip}`;
+  document.getElementById('cctvType').value          = 'rtsp';
+  document.getElementById('cctvUrl').value           = rtsp || `rtsp://${ip}:554/stream1`;
+  document.getElementById('cctvUsername').value      = user;
+  document.getElementById('cctvPassword').value      = pass;
+  document.getElementById('cctvFps').value           = '15';
+  document.getElementById('cctvRefreshSec').value    = '5';
+  document.getElementById('cctvNotes').value         = `ONVIF ${ip}:${port}`;
+  // Store ONVIF metadata for PTZ
+  const onvifIpEl = document.getElementById('cctvOnvifIp');
+  if (onvifIpEl) { onvifIpEl.value = ip; }
+  const onvifPortEl = document.getElementById('cctvOnvifPort');
+  if (onvifPortEl) { onvifPortEl.value = port; }
+  const onvifTokenEl = document.getElementById('cctvOnvifToken');
+  if (onvifTokenEl) { onvifTokenEl.value = token; }
+  cctvOnTypeChange();
+
+  // Close scan modal, open add modal
+  cctvCloseScanModal();
+  document.getElementById('cctvModal').style.display = 'flex';
+}
+
+window.cctvOpenScanModal   = cctvOpenScanModal;
+window.cctvCloseScanModal  = cctvCloseScanModal;
+window.cctvStartScan       = cctvStartScan;
+window.cctvAddFromScan     = cctvAddFromScan;
+window.cctvSetSubnet       = cctvSetSubnet;
+
+function cctvToggleScanPass(btn) {
+  const input = document.getElementById('cctvScanPass');
+  if (!input) return;
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  const icon = btn.querySelector('i');
+  if (icon) { icon.className = show ? 'bi bi-eye-slash' : 'bi bi-eye'; }
+}
+window.cctvToggleScanPass  = cctvToggleScanPass;
+window.cctvOpenPtz         = cctvOpenPtz;
+window.cctvClosePtz        = cctvClosePtz;
+window.cctvPtzDir          = cctvPtzDir;
+window.cctvPtzHalt         = cctvPtzHalt;
+window.cctvPtzLoadPresets  = cctvPtzLoadPresets;
+window.cctvPtzGoto         = cctvPtzGoto;
+window.cctvPtzSavePreset   = cctvPtzSavePreset;
+
+// ════════════════════════════════════════════════════════════════
+// CRON JOB MANAGER – UI Logic
+// ════════════════════════════════════════════════════════════════
+
+(function () {
+  // ── State ─────────────────────────────────────────────────────
+  let cronJobs = [];
+  let editingCronId = null;
+  let openHistoryId = null;
+
+  // ── Schedule Visual Builder ───────────────────────────────────
+  const CYCLES = ['every_minute','n_minutes','hourly','n_hours','daily','n_days','weekly','monthly'];
+  const WEEKDAY_KEYS = ['sun','mon','tue','wed','thu','fri','sat'];
+
+  function t(key) { return window.t ? window.t(key) : key.split('.').pop(); }
+  function pad2(n) { return String(n).padStart(2,'0'); }
+
+  function buildCycleSelect() {
+    const sel = document.getElementById('cronCycle');
+    if (!sel) return;
+    const cur = sel.value || 'daily';
+    sel.innerHTML = CYCLES.map(c =>
+      `<option value="${c}"${c===cur?' selected':''}>${t('cron.cycle.'+c)}</option>`
+    ).join('');
+  }
+
+  window.cronBuilderChange = function () {
+    buildCycleSelect();
+    const cycle = document.getElementById('cronCycle')?.value || 'daily';
+    const fields = document.getElementById('cronBuilderFields');
+    if (!fields) return;
+
+    // Preserve existing values before wiping fields
+    const prevN    = document.getElementById('cronBuildN')?.value || '5';
+    const prevMin  = document.getElementById('cronBuildMin')?.value || '0';
+    const prevTime = document.getElementById('cronBuildTime')?.value || '01:30';
+    const prevWd   = document.getElementById('cronBuildWeekday')?.value || '1';
+    const prevDay  = document.getElementById('cronBuildDay')?.value || '1';
+
+    const inputCls  = 'cron-builder-num';
+    const timeCls   = 'cron-builder-time';
+    const selCls    = 'cron-builder-sel';
+    const lblCls    = 'cron-builder-lbl';
+
+    let html = '';
+    switch (cycle) {
+      case 'every_minute':
+        break;
+      case 'n_minutes':
+        html = `<input type="number" id="cronBuildN" class="${inputCls}" min="1" max="59" value="${prevN}" onchange="cronBuilderSync()">
+                <span class="${lblCls}">${t('cron.builder.minutes')}</span>`;
+        break;
+      case 'hourly':
+        html = `<span class="${lblCls}">${t('cron.builder.at_minute')}</span>
+                <input type="number" id="cronBuildMin" class="${inputCls}" min="0" max="59" value="${prevMin}" onchange="cronBuilderSync()">`;
+        break;
+      case 'n_hours':
+        html = `<input type="number" id="cronBuildN" class="${inputCls}" min="1" max="23" value="${prevN}" onchange="cronBuilderSync()">
+                <span class="${lblCls}">${t('cron.builder.hours_at_min')}</span>
+                <input type="number" id="cronBuildMin" class="${inputCls}" min="0" max="59" value="${prevMin}" onchange="cronBuilderSync()">`;
+        break;
+      case 'daily':
+        html = `<span class="${lblCls}">${t('cron.builder.at')}</span>
+                <input type="time" id="cronBuildTime" class="${timeCls}" value="${prevTime}" onchange="cronBuilderSync()">`;
+        break;
+      case 'n_days':
+        html = `<input type="number" id="cronBuildN" class="${inputCls}" min="1" max="31" value="${prevN}" onchange="cronBuilderSync()">
+                <span class="${lblCls}">${t('cron.builder.days_at')}</span>
+                <input type="time" id="cronBuildTime" class="${timeCls}" value="${prevTime}" onchange="cronBuilderSync()">`;
+        break;
+      case 'weekly': {
+        const opts = WEEKDAY_KEYS.map((k,i) =>
+          `<option value="${i}"${i===parseInt(prevWd)?' selected':''}>${t('cron.day.'+k)}</option>`
+        ).join('');
+        html = `<span class="${lblCls}">${t('cron.builder.on')}</span>
+                <select id="cronBuildWeekday" class="${selCls}" onchange="cronBuilderSync()">${opts}</select>
+                <span class="${lblCls}">${t('cron.builder.at')}</span>
+                <input type="time" id="cronBuildTime" class="${timeCls}" value="${prevTime}" onchange="cronBuilderSync()">`;
+        break;
+      }
+      case 'monthly':
+        html = `<span class="${lblCls}">${t('cron.builder.day')}</span>
+                <input type="number" id="cronBuildDay" class="${inputCls}" min="1" max="31" value="${prevDay}" onchange="cronBuilderSync()">
+                <span class="${lblCls}">${t('cron.builder.at')}</span>
+                <input type="time" id="cronBuildTime" class="${timeCls}" value="${prevTime}" onchange="cronBuilderSync()">`;
+        break;
+    }
+    fields.innerHTML = html;
+    cronBuilderSync();
+  };
+
+  window.cronBuilderSync = function () {
+    const cycle = document.getElementById('cronCycle')?.value || 'daily';
+    const n       = parseInt(document.getElementById('cronBuildN')?.value) || 5;
+    const min     = parseInt(document.getElementById('cronBuildMin')?.value) || 0;
+    const time    = document.getElementById('cronBuildTime')?.value || '01:30';
+    const [h, m]  = time.split(':').map(Number);
+    const weekday = parseInt(document.getElementById('cronBuildWeekday')?.value) || 1;
+    const dom     = parseInt(document.getElementById('cronBuildDay')?.value) || 1;
+
+    // Build cron expression
+    let expr = '*/5 * * * *';
+    switch (cycle) {
+      case 'every_minute': expr = '* * * * *';                   break;
+      case 'n_minutes':    expr = `*/${Math.max(1,n)} * * * *`;  break;
+      case 'hourly':       expr = `${min} * * * *`;               break;
+      case 'n_hours':      expr = `${min} */${Math.max(1,n)} * * *`; break;
+      case 'daily':        expr = `${m} ${h} * * *`;              break;
+      case 'n_days':       expr = `${m} ${h} */${Math.max(1,n)} * *`; break;
+      case 'weekly':       expr = `${m} ${h} * * ${weekday}`;    break;
+      case 'monthly':      expr = `${m} ${h} ${dom} * *`;         break;
+    }
+    const schedEl = document.getElementById('cronJobSchedule');
+    if (schedEl) schedEl.value = expr;
+
+    // Build human-readable description
+    const dayName = t('cron.day.' + WEEKDAY_KEYS[weekday]);
+    const descMap = {
+      every_minute: t('cron.desc.every_minute'),
+      n_minutes:    t('cron.desc.n_minutes').replace('{n}', n),
+      hourly:       t('cron.desc.hourly').replace('{min}', pad2(min)),
+      n_hours:      t('cron.desc.n_hours').replace('{n}', n).replace('{min}', pad2(min)),
+      daily:        t('cron.desc.daily').replace('{time}', time),
+      n_days:       t('cron.desc.n_days').replace('{n}', n).replace('{time}', time),
+      weekly:       t('cron.desc.weekly').replace('{day}', dayName).replace('{time}', time),
+      monthly:      t('cron.desc.monthly').replace('{day}', dom).replace('{time}', time),
+    };
+    const descEl = document.getElementById('cronBuilderDesc');
+    if (descEl) descEl.innerHTML = `<i class="bi bi-arrow-repeat"></i>${descMap[cycle] || expr}`;
+  };
+
+  // Parse raw cron expr → set builder state (for edit mode / advanced panel)
+  window.cronParseRaw = function () {
+    const expr = document.getElementById('cronJobSchedule')?.value?.trim() || '';
+    const parts = expr.split(/\s+/);
+    if (parts.length < 5) return;
+    const [min, hour, dom, month, dow] = parts;
+
+    let cycle = 'daily';
+    if (min==='*' && hour==='*' && dom==='*' && month==='*' && dow==='*')               cycle='every_minute';
+    else if (min.startsWith('*/') && hour==='*' && dom==='*' && month==='*' && dow==='*') cycle='n_minutes';
+    else if (!min.includes('*') && !min.includes('/') && hour==='*' && dom==='*' && month==='*' && dow==='*') cycle='hourly';
+    else if (!min.includes('*') && !min.includes('/') && hour.startsWith('*/') && dom==='*' && month==='*' && dow==='*') cycle='n_hours';
+    else if (!min.includes('*') && !min.includes('/') && dom==='*' && month==='*' && dow!=='*' && !dow.includes('/')) cycle='weekly';
+    else if (!min.includes('*') && !min.includes('/') && !dom.includes('*') && !dom.includes('/') && month==='*' && dow==='*') cycle='monthly';
+    else if (dom.startsWith('*/') && month==='*' && dow==='*') cycle='n_days';
+    else if (dom==='*' && month==='*' && dow==='*') cycle='daily';
+
+    const cycleEl = document.getElementById('cronCycle');
+    if (cycleEl) cycleEl.value = cycle;
+    window.cronBuilderChange();
+
+    setTimeout(() => {
+      const pNum = s => parseInt(s.replace('*/','')) || 0;
+      const mm = parseInt(min)||0, hh = parseInt(hour)||0;
+      const timeFmt = `${pad2(hh)}:${pad2(mm)}`;
+      if (cycle==='n_minutes' && document.getElementById('cronBuildN')) document.getElementById('cronBuildN').value = pNum(min);
+      if (cycle==='hourly' && document.getElementById('cronBuildMin')) document.getElementById('cronBuildMin').value = mm;
+      if (cycle==='n_hours') {
+        if (document.getElementById('cronBuildN')) document.getElementById('cronBuildN').value = pNum(hour);
+        if (document.getElementById('cronBuildMin')) document.getElementById('cronBuildMin').value = mm;
+      }
+      if (['daily','n_days','weekly','monthly'].includes(cycle) && document.getElementById('cronBuildTime'))
+        document.getElementById('cronBuildTime').value = timeFmt;
+      if (cycle==='n_days' && document.getElementById('cronBuildN')) document.getElementById('cronBuildN').value = pNum(dom);
+      if (cycle==='weekly' && document.getElementById('cronBuildWeekday')) document.getElementById('cronBuildWeekday').value = parseInt(dow)||1;
+      if (cycle==='monthly' && document.getElementById('cronBuildDay')) document.getElementById('cronBuildDay').value = parseInt(dom)||1;
+      cronBuilderSync();
+    }, 0);
+  };
+
+  window.cronToggleAdvanced = function () {
+    const panel = document.getElementById('cronAdvancedPanel');
+    const btn   = document.getElementById('cronAdvToggle');
+    if (!panel) return;
+    const showing = panel.style.display !== 'none';
+    panel.style.display = showing ? 'none' : '';
+    if (btn) btn.classList.toggle('active', !showing);
+  };
+
+  // ── Helpers ───────────────────────────────────────────────────
+  function fmtDate(iso) {
+    if (!iso) return t('cron.never');
+    return new Date(iso).toLocaleString();
+  }
+
+  function fmtDuration(ms) {
+    if (ms == null) return '-';
+    if (ms < 1000) return ms + 'ms';
+    return (ms / 1000).toFixed(1) + 's';
+  }
+
+  // ── Load & Render ─────────────────────────────────────────────
+  window.loadCronJobs = async function () {
+    const list = document.getElementById('cronJobList');
+    if (!list) return;
+    list.innerHTML = `<div class="cron-empty"><i class="bi bi-hourglass-split"></i><h3>${window.t ? window.t('cron.loading') : 'Loading...'}</h3></div>`;
+    try {
+      cronJobs = await window.electronAPI.cron.loadJobs();
+      renderCronJobs();
+    } catch (e) {
+      list.innerHTML = `<div class="cron-empty"><i class="bi bi-exclamation-circle"></i><h3>Error loading jobs</h3></div>`;
+    }
+  };
+
+  function renderCronJobs() {
+    const list = document.getElementById('cronJobList');
+    if (!list) return;
+    if (!cronJobs || cronJobs.length === 0) {
+      list.innerHTML = `
+        <div class="cron-empty">
+          <i class="bi bi-clock-history"></i>
+          <h3>${window.t ? window.t('cron.empty') : 'No scheduled jobs yet'}</h3>
+          <p style="margin:4px 0 0;font-size:13px;color:#555">${window.t ? window.t('cron.empty_desc') : 'Click "Add Job" to create your first cron task.'}</p>
+        </div>`;
+      return;
+    }
+    list.innerHTML = cronJobs.map(renderCronJobCard).join('');
+    // Re-open history panel if it was open
+    if (openHistoryId) {
+      const panel = document.querySelector(`[data-history-id="${openHistoryId}"]`);
+      if (panel) panel.classList.add('open');
+    }
+  }
+
+  function renderCronJobCard(job) {
+    const statusClass = job.lastStatus === 'success' ? 'success' : job.lastStatus === 'failed' ? 'failed' : 'pending';
+    const statusLabel = job.lastStatus
+      ? (window.t ? window.t(`cron.${job.lastStatus}`) : job.lastStatus)
+      : (window.t ? window.t('cron.never') : 'Never');
+    const toggleClass = job.enabled ? 'on' : '';
+    const cardClass = job.enabled ? '' : 'cron-disabled';
+    const nextRun = job.nextRun ? fmtDate(job.nextRun) : '-';
+    const lastRun = fmtDate(job.lastRun);
+
+    return `
+    <div class="cron-job-card ${cardClass}" id="cron-card-${job.id}">
+      <div class="cron-card-header" onclick="cronToggleHistory('${job.id}')">
+        <button class="cron-toggle ${toggleClass}" title="${job.enabled ? (window.t ? window.t('cron.enabled') : 'Active') : (window.t ? window.t('cron.disabled') : 'Paused')}"
+          onclick="event.stopPropagation();cronToggleJobEnabled('${job.id}',${!job.enabled})"></button>
+        <span class="cron-card-name">${escapeHtml(job.name)}</span>
+        <span class="cron-card-schedule">${escapeHtml(job.schedule)}</span>
+        <span class="cron-card-status ${statusClass}">${statusLabel}</span>
+        <div class="cron-card-actions" onclick="event.stopPropagation()">
+          <button class="cron-act-btn" onclick="cronRunNow('${job.id}')" title="${window.t ? window.t('cron.run_now') : 'Run Now'}">
+            <i class="bi bi-play-fill"></i>
+          </button>
+          <button class="cron-act-btn" onclick="openEditCronModal('${job.id}')" title="${window.t ? window.t('cron.edit') : 'Edit'}">
+            <i class="bi bi-pencil"></i>
+          </button>
+          <button class="cron-act-btn danger" onclick="cronDeleteJob('${job.id}')" title="${window.t ? window.t('cron.delete') : 'Delete'}">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+        <i class="bi bi-chevron-down" style="color:#555;font-size:12px;margin-left:4px"></i>
+      </div>
+      <div class="cron-card-meta">
+        <div class="cron-meta-item">${window.t ? window.t('cron.last_run') : 'Last run'}: <span>${lastRun}</span></div>
+        <div class="cron-meta-item">${window.t ? window.t('cron.next_run') : 'Next run'}: <span>${nextRun}</span></div>
+        <div class="cron-meta-item">HTTP: <span>${escapeHtml(job.method || 'GET')}</span></div>
+      </div>
+      <div class="cron-card-url">
+        <a href="#" onclick="return false;" title="${escapeHtml(job.url)}">${escapeHtml(job.url)}</a>
+      </div>
+      <!-- History Panel -->
+      <div class="cron-history-panel ${openHistoryId === job.id ? 'open' : ''}" data-history-id="${job.id}">
+        <div class="cron-history-header">
+          <h4><i class="bi bi-list-ul" style="margin-right:5px"></i>${window.t ? window.t('cron.history.title') : 'Execution History'}</h4>
+          <button class="cron-act-btn" onclick="cronClearHistory('${job.id}')" style="font-size:11px">${window.t ? window.t('cron.clear_history') : 'Clear History'}</button>
+        </div>
+        <div id="cron-history-${job.id}">${renderCronHistory(job.history)}</div>
+      </div>
+    </div>`;
+  }
+
+  function renderCronHistory(history) {
+    if (!history || !history.length) {
+      return `<p style="padding:12px 16px;color:#555;font-size:12px;margin:0">${window.t ? window.t('cron.history.empty') : 'No execution history yet.'}</p>`;
+    }
+    return `<table class="cron-history-table">
+      <thead><tr>
+        <th>${window.t ? window.t('cron.history.run_at') : 'Run At'}</th>
+        <th>${window.t ? window.t('cron.history.status') : 'Status'}</th>
+        <th>${window.t ? window.t('cron.history.http') : 'HTTP'}</th>
+        <th>${window.t ? window.t('cron.history.duration') : 'Duration'}</th>
+        <th>${window.t ? window.t('cron.history.response') : 'Response'}</th>
+      </tr></thead>
+      <tbody>${history.slice(0, 50).map(e => `
+        <tr>
+          <td style="white-space:nowrap">${fmtDate(e.runAt)}${e.manual ? ` <span style="font-size:10px;color:#888">(${window.t ? window.t('cron.history.manual') : 'Manual'})</span>` : ''}</td>
+          <td><span class="cron-status-dot ${e.status}"></span>${e.status}</td>
+          <td style="font-family:monospace">${e.httpStatus || '-'}</td>
+          <td>${fmtDuration(e.duration)}</td>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(e.response || e.error || '')}">${escapeHtml((e.response || e.error || '-').substring(0, 80))}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Toggle History Panel ──────────────────────────────────────
+  window.cronToggleHistory = function (id) {
+    const panel = document.querySelector(`[data-history-id="${id}"]`);
+    if (!panel) return;
+    const isOpen = panel.classList.contains('open');
+    // Close all
+    document.querySelectorAll('.cron-history-panel.open').forEach(p => p.classList.remove('open'));
+    openHistoryId = null;
+    if (!isOpen) {
+      panel.classList.add('open');
+      openHistoryId = id;
+    }
+  };
+
+  // ── Toggle Enable/Disable ─────────────────────────────────────
+  window.cronToggleJobEnabled = async function (id, enabled) {
+    try {
+      await window.electronAPI.cron.toggleJob(id, enabled);
+      const job = cronJobs.find(j => j.id === id);
+      if (job) job.enabled = enabled;
+      const card = document.getElementById(`cron-card-${id}`);
+      if (card) {
+        card.classList.toggle('cron-disabled', !enabled);
+        const toggle = card.querySelector('.cron-toggle');
+        if (toggle) {
+          toggle.classList.toggle('on', enabled);
+          toggle.title = enabled ? (window.t ? window.t('cron.enabled') : 'Active') : (window.t ? window.t('cron.disabled') : 'Paused');
+        }
+      }
+    } catch (e) {
+      console.error('cronToggleJobEnabled error', e);
+    }
+  };
+
+  // ── Run Now ───────────────────────────────────────────────────
+  window.cronRunNow = async function (id) {
+    try {
+      const result = await window.electronAPI.cron.runNow(id);
+      if (result.ok) {
+        const job = cronJobs.find(j => j.id === id);
+        if (job) {
+          job.lastRun = result.entry.runAt;
+          job.lastStatus = result.entry.status;
+          if (!job.history) job.history = [];
+          job.history.unshift(result.entry);
+        }
+        renderCronJobs();
+        const st = result.entry.status;
+        const key = st === 'success' ? 'toast.cron.run_success' : 'toast.cron.run_failed';
+        if (typeof showToast === 'function') showToast(window.t ? window.t(key) : st, st === 'success' ? 'success' : 'warning');
+      } else {
+        if (typeof showToast === 'function') showToast(window.t ? window.t('toast.cron.run_error') : 'Error running job', 'error');
+      }
+    } catch (e) {
+      if (typeof showToast === 'function') showToast(window.t ? window.t('toast.cron.run_error') : 'Error running job', 'error');
+    }
+  };
+
+  // ── Delete Job ────────────────────────────────────────────────
+  window.cronDeleteJob = async function (id) {
+    const job = cronJobs.find(j => j.id === id);
+    const confirmed = await Swal.fire({
+      title: window.t ? window.t('dialog.delete_cron.title') : 'Delete this job?',
+      text: window.t ? window.t('dialog.delete_cron.text') : 'Execution history will also be deleted.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      confirmButtonText: window.t ? window.t('dialog.delete_cron.confirm') : 'Yes, Delete',
+      cancelButtonText: window.t ? window.t('dialog.delete_cron.cancel') : 'Cancel',
+      background: '#161b22',
+      color: '#e0e0e0',
+    });
+    if (!confirmed.isConfirmed) return;
+    try {
+      const result = await window.electronAPI.cron.deleteJob(id);
+      if (result.ok) {
+        cronJobs = cronJobs.filter(j => j.id !== id);
+        renderCronJobs();
+        if (typeof showToast === 'function') showToast(window.t ? window.t('toast.cron.deleted') : 'Job deleted.', 'success');
+      }
+    } catch (e) {
+      if (typeof showToast === 'function') showToast(window.t ? window.t('toast.cron.delete_error') : 'Failed to delete job.', 'error');
+    }
+  };
+
+  // ── Clear History ─────────────────────────────────────────────
+  window.cronClearHistory = async function (id) {
+    try {
+      await window.electronAPI.cron.clearHistory(id);
+      const job = cronJobs.find(j => j.id === id);
+      if (job) job.history = [];
+      const histEl = document.getElementById(`cron-history-${id}`);
+      if (histEl) histEl.innerHTML = renderCronHistory([]);
+      if (typeof showToast === 'function') showToast(window.t ? window.t('toast.cron.history_cleared') : 'History cleared.', 'success');
+    } catch (e) {}
+  };
+
+  // ── Modal ─────────────────────────────────────────────────────
+  function openCronModalCommon() {
+    // Reset advanced panel
+    const advPanel = document.getElementById('cronAdvancedPanel');
+    const advBtn   = document.getElementById('cronAdvToggle');
+    if (advPanel) advPanel.style.display = 'none';
+    if (advBtn)   advBtn.classList.remove('active');
+    cronToggleBody();
+    // Build cycle select then trigger builder
+    buildCycleSelect();
+    window.cronBuilderChange();
+    document.getElementById('cronModal').classList.add('open');
+    if (typeof window.applyI18n === 'function') window.applyI18n();
+  }
+
+  window.openCronModal = function () {
+    editingCronId = null;
+    document.getElementById('cronJobId').value = '';
+    document.getElementById('cronJobName').value = '';
+    document.getElementById('cronJobUrl').value = '';
+    document.getElementById('cronJobMethod').value = 'GET';
+    document.getElementById('cronJobBody').value = '';
+    document.getElementById('cronJobEnabled').checked = true;
+    const titleEl = document.getElementById('cronModalTitle');
+    if (titleEl) titleEl.textContent = t('cron.modal.add');
+    // Default cycle: daily 01:30
+    const cycleEl = document.getElementById('cronCycle');
+    if (cycleEl) cycleEl.value = 'daily';
+    openCronModalCommon();
+  };
+
+  window.openEditCronModal = function (id) {
+    const job = cronJobs.find(j => j.id === id);
+    if (!job) return;
+    editingCronId = id;
+    document.getElementById('cronJobId').value = job.id;
+    document.getElementById('cronJobName').value = job.name || '';
+    document.getElementById('cronJobUrl').value = job.url || '';
+    document.getElementById('cronJobMethod').value = job.method || 'GET';
+    document.getElementById('cronJobBody').value = typeof job.body === 'object' ? JSON.stringify(job.body) : (job.body || '');
+    document.getElementById('cronJobEnabled').checked = job.enabled !== false;
+    const titleEl = document.getElementById('cronModalTitle');
+    if (titleEl) titleEl.textContent = t('cron.modal.edit');
+    // Parse existing schedule into builder
+    const schedEl = document.getElementById('cronJobSchedule');
+    if (schedEl) schedEl.value = job.schedule || '*/5 * * * *';
+    window.cronParseRaw();
+    document.getElementById('cronModal').classList.add('open');
+    if (typeof window.applyI18n === 'function') window.applyI18n();
+  };
+
+  window.closeCronModal = function () {
+    document.getElementById('cronModal').classList.remove('open');
+  };
+
+  window.cronToggleBody = function () {
+    const method = document.getElementById('cronJobMethod')?.value || 'GET';
+    const bodyField = document.getElementById('cronBodyField');
+    if (bodyField) bodyField.style.display = ['POST','PUT','PATCH'].includes(method) ? '' : 'none';
+  };
+
+  window.submitCronJob = async function () {
+    const name = document.getElementById('cronJobName')?.value?.trim();
+    // Always sync builder → hidden field before reading
+    cronBuilderSync();
+    const schedule = document.getElementById('cronJobSchedule')?.value?.trim();
+    const url = document.getElementById('cronJobUrl')?.value?.trim();
+    const method = document.getElementById('cronJobMethod')?.value || 'GET';
+    const body = document.getElementById('cronJobBody')?.value?.trim() || '';
+    const enabled = document.getElementById('cronJobEnabled')?.checked !== false;
+
+    if (!url) {
+      if (typeof showToast === 'function') showToast('URL is required', 'warning');
+      return;
+    }
+
+    const payload = { name: name || 'Untitled', schedule: schedule || '*/5 * * * *', url, method, body, enabled };
+
+    try {
+      if (editingCronId) {
+        const result = await window.electronAPI.cron.editJob(editingCronId, payload);
+        if (result.ok) {
+          const idx = cronJobs.findIndex(j => j.id === editingCronId);
+          if (idx !== -1) cronJobs[idx] = result.job;
+          if (typeof showToast === 'function') showToast(window.t ? window.t('toast.cron.saved') : 'Job saved.', 'success');
+        }
+      } else {
+        const newJob = await window.electronAPI.cron.addJob(payload);
+        cronJobs.push(newJob);
+        if (typeof showToast === 'function') showToast(window.t ? window.t('toast.cron.saved') : 'Job saved.', 'success');
+      }
+      closeCronModal();
+      renderCronJobs();
+    } catch (e) {
+      if (typeof showToast === 'function') showToast(window.t ? window.t('toast.cron.save_error') : 'Failed to save job.', 'error');
+    }
+  };
+
+  // ── Live update from main process ─────────────────────────────
+  if (window.electronAPI?.cron?.onJobExecuted) {
+    window.electronAPI.cron.onJobExecuted(({ jobId, entry }) => {
+      const job = cronJobs.find(j => j.id === jobId);
+      if (job) {
+        job.lastRun = entry.runAt;
+        job.lastStatus = entry.status;
+        if (!job.history) job.history = [];
+        job.history.unshift(entry);
+        // Update card in place if cron page is visible
+        const activePage = window.currentActivePage || '';
+        if (activePage === 'cron') renderCronJobs();
+      }
+    });
+  }
+})();
+
+// ════════════════════════════════════════════════════════════════
+// STARCAPTURE – Screenshot & Screen Recording UI
+// ════════════════════════════════════════════════════════════════
+
+(function () {
+  // ── State ─────────────────────────────────────────────────────
+  let scCurrentDataUrl = null;  // current screenshot dataURL
+  let scCurrentType    = 'screenshot'; // 'screenshot' | 'video'
+  let scMediaRecorder  = null;
+  let scRecChunks      = [];
+  let scRecStream      = null;
+  let scRecInterval    = null;
+  let scRecSeconds     = 0;
+  let scRecPaused      = false;
+  let scAreaRect       = null;   // for area recording
+  let scCropCanvas     = null;
+  let scCropCtx        = null;
+  let scCropVideo      = null;
+  let scCropAnim       = null;
+
+  // ── Helpers ───────────────────────────────────────────────────
+  function t(k) { return window.t ? window.t(k) : k.split('.').pop(); }
+  function showToastSC(msg, type) { if (typeof showToast === 'function') showToast(msg, type); }
+
+  function scImgSize(dataUrl) {
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => resolve(`${img.naturalWidth} × ${img.naturalHeight} px`);
+      img.onerror = () => resolve('');
+      img.src = dataUrl;
+    });
+  }
+
+  // ── Shortcut customization ────────────────────────────────────
+  async function scLoadShortcutsUI() {
+    try {
+      const s = await window.electronAPI.starCapture.getShortcuts();
+      const inp1 = document.getElementById('scKbScreenshot');
+      const inp2 = document.getElementById('scKbRecord');
+      if (inp1) inp1.value = s.screenshot || '';
+      if (inp2) inp2.value = s.record || '';
+    } catch {}
+  }
+
+  window.scSaveShortcuts = async function () {
+    const inp1 = document.getElementById('scKbScreenshot');
+    const inp2 = document.getElementById('scKbRecord');
+    const shortcuts = { screenshot: inp1?.value?.trim() || '', record: inp2?.value?.trim() || '' };
+    try {
+      const r = await window.electronAPI.starCapture.setShortcuts(shortcuts);
+      const status = document.getElementById('scShortcutStatus');
+      if (status) { status.style.display = ''; setTimeout(() => { status.style.display = 'none'; }, 2500); }
+      if (!r.ok) showToastSC('Gagal menyimpan pintasan: ' + r.error, 'error');
+    } catch (e) { showToastSC('Error: ' + e.message, 'error'); }
+  };
+
+  window.scResetShortcuts = async function () {
+    const inp1 = document.getElementById('scKbScreenshot');
+    const inp2 = document.getElementById('scKbRecord');
+    if (inp1) inp1.value = 'CommandOrControl+Shift+S';
+    if (inp2) inp2.value = 'CommandOrControl+Shift+R';
+    await window.scSaveShortcuts();
+  };
+
+  window.scSetShortcutFromInput = function (type) { window.scSaveShortcuts(); };
+
+  // ── Page init ─────────────────────────────────────────────────
+  window.scInitPage = function () {
+    // Register shortcut listener once
+    if (window._scShortcutRegistered) return;
+    window._scShortcutRegistered = true;
+    if (window.electronAPI?.starCapture?.onShortcut) {
+      window.electronAPI.starCapture.onShortcut(mode => {
+        // 'screenshot' shortcut is now handled fully in main process (overlay flow)
+        // Only record shortcut still goes through renderer
+        if (mode === 'record') scStartRecord('full');
+      });
+    }
+    if (window.electronAPI?.starCapture?.onCancelled) {
+      window.electronAPI.starCapture.onCancelled(() => {
+        scClosePreview();
+        showToastSC(t('sc.toast.cancelled'), 'info');
+      });
+    }
+    scLoadShortcutsUI();
+  };
+
+  // Register shortcuts immediately on load (not just when page opens)
+  document.addEventListener('DOMContentLoaded', () => {
+    if (!window._scShortcutRegistered) window.scInitPage();
+  });
+
+  // ── Annotation System ─────────────────────────────────────────
+  const scAnnotation = (() => {
+    let canvas, ctx, baseImg;
+    let annotations = [];
+    let activeTool  = 'arrow';
+    let activeColor = '#ef4444';
+    let activeWidth = 2;
+    let isDrawing   = false;
+    let startX = 0, startY = 0;
+    let pencilPoints = [];
+    let eventsBound  = false;
+    let hasImage     = false;
+
+    function coords(e) {
+      const r = canvas.getBoundingClientRect();
+      return { x: (e.clientX - r.left) * (canvas.width / r.width), y: (e.clientY - r.top) * (canvas.height / r.height) };
+    }
+
+    function redraw(preview) {
+      if (!ctx || !baseImg) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(baseImg, 0, 0);
+      annotations.forEach(a => drawOne(a));
+      if (preview) drawOne(preview);
+    }
+
+    function drawOne(a) {
+      ctx.save();
+      ctx.strokeStyle = a.color; ctx.fillStyle = a.color;
+      ctx.lineWidth = a.width; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      switch (a.type) {
+        case 'arrow':   drawArrow(a); break;
+        case 'rect':    drawRect(a);  break;
+        case 'ellipse': drawEllipse(a); break;
+        case 'pencil':  drawPencil(a);  break;
+        case 'text':    drawText(a);  break;
+        case 'blur':    drawBlur(a);  break;
+      }
+      ctx.restore();
+    }
+
+    function drawArrow({x1,y1,x2,y2,color,width}) {
+      const dx=x2-x1,dy=y2-y1,len=Math.sqrt(dx*dx+dy*dy);
+      if(len<2)return;
+      const hl=Math.max(12,width*3.5), ang=Math.atan2(dy,dx);
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2-hl*0.55*Math.cos(ang), y2-hl*0.55*Math.sin(ang)); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x2,y2);
+      ctx.lineTo(x2-hl*Math.cos(ang-Math.PI/6),y2-hl*Math.sin(ang-Math.PI/6));
+      ctx.lineTo(x2-hl*Math.cos(ang+Math.PI/6),y2-hl*Math.sin(ang+Math.PI/6));
+      ctx.closePath(); ctx.fill();
+    }
+    function drawRect({x1,y1,x2,y2}) { ctx.strokeRect(Math.min(x1,x2),Math.min(y1,y2),Math.abs(x2-x1),Math.abs(y2-y1)); }
+    function drawEllipse({x1,y1,x2,y2}) {
+      const cx=(x1+x2)/2,cy=(y1+y2)/2,rx=Math.abs(x2-x1)/2,ry=Math.abs(y2-y1)/2;
+      if(rx<1||ry<1)return;
+      ctx.beginPath(); ctx.ellipse(cx,cy,rx,ry,0,0,2*Math.PI); ctx.stroke();
+    }
+    function drawPencil({points}) {
+      if(!points||points.length<2)return;
+      ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y);
+      for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y);
+      ctx.stroke();
+    }
+    function drawText({x,y,text,color,width}) {
+      const fs=Math.max(14,width*6);
+      ctx.font=`bold ${fs}px -apple-system,sans-serif`;
+      ctx.fillStyle=color;
+      ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=3;
+      ctx.fillText(text,x,y);
+      ctx.shadowBlur=0;
+    }
+    function drawBlur({x1,y1,x2,y2}) {
+      const rx=Math.min(x1,x2),ry=Math.min(y1,y2),rw=Math.abs(x2-x1),rh=Math.abs(y2-y1);
+      if(rw<4||rh<4)return;
+      const BLOCK=Math.max(8,Math.round(Math.min(rw,rh)/14));
+      try {
+        const imgData=ctx.getImageData(rx,ry,rw,rh), d=imgData.data;
+        for(let by=0;by<rh;by+=BLOCK) for(let bx=0;bx<rw;bx+=BLOCK) {
+          const idx=(by*rw+bx)*4, r=d[idx],g=d[idx+1],b=d[idx+2];
+          for(let fy=by;fy<Math.min(by+BLOCK,rh);fy++) for(let fx=bx;fx<Math.min(bx+BLOCK,rw);fx++) {
+            const fi=(fy*rw+fx)*4; d[fi]=r;d[fi+1]=g;d[fi+2]=b;d[fi+3]=255;
+          }
+        }
+        ctx.putImageData(imgData,rx,ry);
+      } catch(e){}
+    }
+
+    function onDown(e) {
+      if(!hasImage||e.button!==0)return;
+      isDrawing=true;
+      const {x,y}=coords(e); startX=x; startY=y;
+      if(activeTool==='pencil') pencilPoints=[{x,y}];
+      if(activeTool==='text') {
+        isDrawing=false;
+        const txt=prompt('Masukkan teks:');
+        if(txt){annotations.push({type:'text',x,y,text:txt,color:activeColor,width:activeWidth});redraw();}
+      }
+    }
+    function onMove(e) {
+      if(!isDrawing)return;
+      const {x,y}=coords(e);
+      if(activeTool==='pencil'){pencilPoints.push({x,y});redraw({type:'pencil',points:[...pencilPoints],color:activeColor,width:activeWidth});}
+      else if(activeTool!=='text'){redraw({type:activeTool,x1:startX,y1:startY,x2:x,y2:y,color:activeColor,width:activeWidth});}
+    }
+    function onUp(e) {
+      if(!isDrawing)return; isDrawing=false;
+      const {x,y}=coords(e);
+      if(activeTool==='pencil'){
+        if(pencilPoints.length>1) annotations.push({type:'pencil',points:[...pencilPoints],color:activeColor,width:activeWidth});
+      } else if(activeTool!=='text'){
+        if(Math.abs(x-startX)>2||Math.abs(y-startY)>2) annotations.push({type:activeTool,x1:startX,y1:startY,x2:x,y2:y,color:activeColor,width:activeWidth});
+      }
+      pencilPoints=[]; redraw();
+    }
+
+    function bindEvents() {
+      if(eventsBound)return; eventsBound=true;
+      canvas.addEventListener('mousedown',onDown);
+      canvas.addEventListener('mousemove',onMove);
+      canvas.addEventListener('mouseup',onUp);
+      canvas.addEventListener('mouseleave',onUp);
+    }
+
+    return {
+      init(dataUrl) {
+        canvas=document.getElementById('scAnnotateCanvas');
+        if(!canvas)return;
+        ctx=canvas.getContext('2d');
+        annotations=[]; hasImage=false;
+        bindEvents();
+        const img=new Image();
+        img.onload=()=>{
+          canvas.width=img.naturalWidth; canvas.height=img.naturalHeight;
+          baseImg=img; hasImage=true;
+          redraw();
+          canvas.style.display='block';
+          const tb=document.getElementById('scAnnotateToolbar');
+          if(tb) tb.classList.add('visible');
+        };
+        img.src=dataUrl;
+      },
+      setTool(tool) {
+        activeTool=tool;
+        document.querySelectorAll('.sc-annot-tool').forEach(b=>b.classList.remove('active'));
+        const id='scTool'+tool.charAt(0).toUpperCase()+tool.slice(1);
+        const btn=document.getElementById(id); if(btn) btn.classList.add('active');
+        if(canvas) canvas.style.cursor=tool==='text'?'text':tool==='blur'?'cell':'crosshair';
+      },
+      setColor(color) {
+        activeColor=color;
+        const dot=document.getElementById('scAnnotColorDot'); if(dot) dot.style.background=color;
+      },
+      setWidth(w, btn) {
+        activeWidth=w;
+        document.querySelectorAll('.sc-annot-sz').forEach(b=>b.classList.remove('active'));
+        if(btn) btn.classList.add('active');
+      },
+      undo() { annotations.pop(); redraw(); },
+      clear() { annotations=[]; redraw(); },
+      getDataUrl() { return canvas&&hasImage?canvas.toDataURL('image/png'):null; },
+      reset() {
+        hasImage=false; annotations=[];
+        if(canvas){ canvas.style.display='none'; canvas.width=0; canvas.height=0; }
+        const tb=document.getElementById('scAnnotateToolbar'); if(tb) tb.classList.remove('visible');
+      },
+    };
+  })();
+  window.scAnnotation = scAnnotation;
+
+  // ── Screenshot ────────────────────────────────────────────────
+  window.scTakeScreenshot = async function (mode) {
+    // For area mode: don't show loading — main window is minimized during overlay
+    if (mode !== 'area') scShowPreviewLoading(t('sc.preview.title'));
+    try {
+      let dataUrl = null;
+      if (mode === 'full') {
+        dataUrl = await window.electronAPI.starCapture.screenshotFull();
+      } else if (mode === 'area') {
+        dataUrl = await window.electronAPI.starCapture.screenshotArea();
+      } else if (mode === 'window') {
+        dataUrl = await window.electronAPI.starCapture.screenshotWindow();
+      }
+      if (!dataUrl) { scClosePreview(); return; }
+      await scShowScreenshotPreview(dataUrl);
+    } catch (e) {
+      scClosePreview();
+      showToastSC(t('sc.toast.capture_error'), 'error');
+    }
+  };
+
+  async function scShowScreenshotPreview(dataUrl) {
+    scCurrentDataUrl = dataUrl;
+    scCurrentType    = 'screenshot';
+    const size = await scImgSize(dataUrl);
+    const vid     = document.getElementById('scPreviewVideo');
+    const loading = document.getElementById('scPreviewLoading');
+    const meta    = document.getElementById('scPreviewMeta');
+    const icon    = document.getElementById('scPreviewIcon');
+    const title   = document.getElementById('scPreviewTitle');
+    const btnCopy = document.getElementById('scBtnCopy');
+    const btnBoth = document.getElementById('scBtnBoth');
+
+    if (vid)     vid.style.display = 'none';
+    if (loading) loading.style.display = 'none';
+    if (meta)    meta.textContent = size;
+    if (icon)    { icon.className = 'bi bi-image'; icon.style.color = '#7c6fe0'; }
+    if (title)   title.textContent = t('sc.preview.title');
+    if (btnCopy) btnCopy.style.display = '';
+    if (btnBoth) btnBoth.style.display = '';
+
+    scAnnotation.init(dataUrl);
+
+    const overlay = document.getElementById('scPreviewOverlay');
+    if (overlay) overlay.classList.add('open');
+  }
+
+  // ── Copy / Save ───────────────────────────────────────────────
+  function scGetCurrentDataUrl() {
+    if (scCurrentType === 'screenshot') return scAnnotation.getDataUrl() || scCurrentDataUrl;
+    return scCurrentDataUrl;
+  }
+
+  window.scCopyToClipboard = async function () {
+    const dataUrl = scGetCurrentDataUrl();
+    if (!dataUrl) return;
+    try {
+      const result = await window.electronAPI.starCapture.copyImage(dataUrl);
+      if (result.ok) showToastSC(t('sc.toast.copied'), 'success');
+      else showToastSC(t('sc.toast.copy_error'), 'error');
+    } catch { showToastSC(t('sc.toast.copy_error'), 'error'); }
+  };
+
+  window.scSaveFile = async function () {
+    if (scCurrentType === 'screenshot') {
+      await scSaveScreenshot();
+    } else {
+      await scSaveVideoFile();
+    }
+  };
+
+  window.scSaveBoth = async function () {
+    await scCopyToClipboard();
+    await scSaveFile();
+  };
+
+  async function scSaveScreenshot() {
+    const dataUrl = scGetCurrentDataUrl();
+    if (!dataUrl) return;
+    try {
+      const result = await window.electronAPI.starCapture.saveImage({
+        dataUrl,
+        defaultName: `screenshot-${Date.now()}.png`,
+      });
+      if (result.ok) {
+        showToastSC(t('sc.toast.saved') + (result.filePath ? ': ' + result.filePath.split(/[\\/]/).pop() : ''), 'success');
+        scClosePreview();
+      }
+    } catch { showToastSC(t('sc.toast.save_error'), 'error'); }
+  }
+
+  async function scSaveVideoFile() {
+    if (!scRecChunks.length) return;
+    try {
+      const blob = new Blob(scRecChunks, { type: 'video/webm' });
+      const buffer = await blob.arrayBuffer();
+      const result = await window.electronAPI.starCapture.saveVideo({
+        buffer: new Uint8Array(buffer),
+        format: 'webm',
+        defaultName: `recording-${Date.now()}.webm`,
+      });
+      if (result.ok) {
+        showToastSC(t('sc.toast.video_saved') + (result.filePath ? ': ' + result.filePath.split(/[\\/]/).pop() : ''), 'success');
+        scClosePreview();
+      }
+    } catch (e) { showToastSC(t('sc.toast.save_error'), 'error'); }
+  }
+
+  // ── Preview helpers ───────────────────────────────────────────
+  function scShowPreviewLoading(title) {
+    const overlay  = document.getElementById('scPreviewOverlay');
+    const loading  = document.getElementById('scPreviewLoading');
+    const canvas   = document.getElementById('scAnnotateCanvas');
+    const vid      = document.getElementById('scPreviewVideo');
+    const titleEl  = document.getElementById('scPreviewTitle');
+    if (loading) loading.style.display = '';
+    if (canvas) canvas.style.display = 'none';
+    if (vid)    vid.style.display = 'none';
+    if (titleEl && title) titleEl.textContent = title;
+    if (overlay) overlay.classList.add('open');
+  }
+
+  window.scClosePreview = function () {
+    const overlay = document.getElementById('scPreviewOverlay');
+    if (overlay) overlay.classList.remove('open');
+    const vid = document.getElementById('scPreviewVideo');
+    if (vid) { vid.src = ''; vid.style.display = 'none'; }
+    scAnnotation.reset();
+    scCurrentDataUrl = null;
+  };
+
+  // Escape to close preview
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      const overlay = document.getElementById('scPreviewOverlay');
+      if (overlay?.classList.contains('open')) { scClosePreview(); e.stopPropagation(); }
+    }
+  });
+
+  // ── Screen Recording ──────────────────────────────────────────
+  window.scStartRecord = async function (mode) {
+    if (scMediaRecorder && scMediaRecorder.state !== 'inactive') return;
+    scRecChunks = [];
+    scAreaRect  = null;
+
+    try {
+      let sourceId, constraints;
+
+      if (mode === 'area') {
+        const rect = await window.electronAPI.starCapture.getAreaForRecord();
+        if (!rect) return;
+        scAreaRect = rect;
+      }
+
+      // Get screen source
+      const sources = await window.electronAPI.starCapture.getScreenSources();
+      if (!sources || !sources.length) { showToastSC(t('sc.toast.no_source'), 'error'); return; }
+      sourceId = sources[0].id;
+
+      // getUserMedia stream
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: sourceId,
+            minWidth: 1, maxWidth: 7680,
+            minHeight: 1, maxHeight: 4320,
+          }
+        }
+      });
+
+      let recordStream = stream;
+
+      // If area mode — crop via canvas
+      if (scAreaRect) {
+        const { displayX: x, displayY: y, displayW: w, displayH: h } = scAreaRect;
+        scCropVideo = document.createElement('video');
+        scCropVideo.srcObject = stream;
+        scCropVideo.muted = true;
+        await scCropVideo.play();
+
+        scCropCanvas = document.createElement('canvas');
+        scCropCanvas.width  = w;
+        scCropCanvas.height = h;
+        scCropCtx = scCropCanvas.getContext('2d');
+
+        const dpr = window.devicePixelRatio || 1;
+        function drawFrame() {
+          if (!scCropCtx || !scCropVideo) return;
+          scCropCtx.drawImage(scCropVideo, x * dpr, y * dpr, w * dpr, h * dpr, 0, 0, w, h);
+          scCropAnim = requestAnimationFrame(drawFrame);
+        }
+        drawFrame();
+        recordStream = scCropCanvas.captureStream(30);
+      }
+
+      scRecStream = stream;
+      scMediaRecorder = new MediaRecorder(recordStream, { mimeType: 'video/webm;codecs=vp8' });
+      scMediaRecorder.ondataavailable = e => { if (e.data.size > 0) scRecChunks.push(e.data); };
+      scMediaRecorder.onstop = scOnRecordStop;
+      scMediaRecorder.start(500);
+
+      scRecSeconds = 0;
+      scRecPaused  = false;
+      scRecInterval = setInterval(() => {
+        if (!scRecPaused) {
+          scRecSeconds++;
+          const m = String(Math.floor(scRecSeconds / 60)).padStart(2, '0');
+          const s = String(scRecSeconds % 60).padStart(2, '0');
+          const timeEl = document.getElementById('scRecordTime');
+          if (timeEl) timeEl.textContent = `${m}:${s}`;
+        }
+      }, 1000);
+
+      const bar = document.getElementById('scRecordBar');
+      if (bar) bar.classList.add('open');
+
+      showToastSC(t('sc.toast.recording_started'), 'success');
+    } catch (e) {
+      console.error('StarCapture recording error:', e);
+      showToastSC(t('sc.toast.record_error') + ': ' + (e.message || e), 'error');
+    }
+  };
+
+  window.scPauseRecord = function () {
+    if (!scMediaRecorder) return;
+    const btn = document.getElementById('scBtnPause');
+    if (scRecPaused) {
+      scMediaRecorder.resume();
+      scRecPaused = false;
+      if (btn) btn.textContent = t('sc.rec.pause');
+    } else {
+      scMediaRecorder.pause();
+      scRecPaused = true;
+      if (btn) btn.textContent = t('sc.rec.resume');
+    }
+  };
+
+  window.scStopRecord = function () {
+    if (!scMediaRecorder) return;
+    clearInterval(scRecInterval);
+    scMediaRecorder.stop();
+    const bar = document.getElementById('scRecordBar');
+    if (bar) bar.classList.remove('open');
+  };
+
+  async function scOnRecordStop() {
+    // Clean up area crop animation
+    if (scCropAnim) { cancelAnimationFrame(scCropAnim); scCropAnim = null; }
+    if (scCropVideo) { scCropVideo.pause(); scCropVideo.srcObject = null; scCropVideo = null; }
+    scCropCanvas = null; scCropCtx = null;
+    // Stop original stream
+    if (scRecStream) { scRecStream.getTracks().forEach(t => t.stop()); scRecStream = null; }
+
+    if (!scRecChunks.length) return;
+    scCurrentType = 'video';
+    scCurrentDataUrl = null;
+
+    const blob = new Blob(scRecChunks, { type: 'video/webm' });
+    const url  = URL.createObjectURL(blob);
+
+    const vid     = document.getElementById('scPreviewVideo');
+    const canvas  = document.getElementById('scAnnotateCanvas');
+    const loading = document.getElementById('scPreviewLoading');
+    const meta    = document.getElementById('scPreviewMeta');
+    const icon    = document.getElementById('scPreviewIcon');
+    const title   = document.getElementById('scPreviewTitle');
+    const btnCopy = document.getElementById('scBtnCopy');
+    const btnBoth = document.getElementById('scBtnBoth');
+
+    if (vid)    { vid.src = url; vid.style.display = 'block'; }
+    if (canvas) canvas.style.display = 'none';
+    if (loading) loading.style.display = 'none';
+    const dur = `${String(Math.floor(scRecSeconds/60)).padStart(2,'0')}:${String(scRecSeconds%60).padStart(2,'0')}`;
+    if (meta) meta.textContent = `WebM · ${dur}`;
+    if (icon) { icon.className = 'bi bi-camera-video'; icon.style.color = '#ef4444'; }
+    if (title) title.textContent = t('sc.rec.preview_title');
+    if (btnCopy) btnCopy.style.display = 'none';
+    if (btnBoth) btnBoth.style.display = 'none';
+
+    const overlay = document.getElementById('scPreviewOverlay');
+    if (overlay) overlay.classList.add('open');
+
+    showToastSC(t('sc.toast.recording_done'), 'success');
+  }
+})();

@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   check: () => '✅ Preload berhasil',
-  loadDevices: () => ipcRenderer.invoke('load-devices'),
+  loadDevices: (dbType) => ipcRenderer.invoke('load-devices', dbType),
   addDevice: (payload) => ipcRenderer.invoke('add-device', payload),
   deleteDevice: (uid) => ipcRenderer.invoke('delete-device', uid),
   runDevice: (uid, service) => ipcRenderer.send('run-device', uid, service),
@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendWhatsappMessages: (uid, messages, options) =>
     ipcRenderer.invoke('send-whatsapp-messages', uid, messages, options),
   focusDevice: (uid) => ipcRenderer.send('focus-device', uid),
+  getDeviceSourceId: (uid) => ipcRenderer.invoke('get-device-source-id', uid),
+  showSaveDialogRecording: (name) => ipcRenderer.invoke('show-save-dialog-recording', name),
   saveConfig: (config) => ipcRenderer.send('save-config', config),
   loadConfig: () => ipcRenderer.sendSync('load-config'),
   invoke: ipcRenderer.invoke,
@@ -210,6 +212,35 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
 
+  // Remox – SSH / Telnet Terminal Manager
+  remox: {
+    loadConnections: () => ipcRenderer.invoke('remox:load-connections'),
+    saveConnection: (conn) => ipcRenderer.invoke('remox:save-connection', conn),
+    deleteConnection: (id) => ipcRenderer.invoke('remox:delete-connection', id),
+    connect: (opts) => ipcRenderer.invoke('remox:connect', opts),
+    sendData: (opts) => ipcRenderer.send('remox:send-data', opts),
+    resize: (opts) => ipcRenderer.send('remox:resize', opts),
+    disconnect: (sessionId) => ipcRenderer.invoke('remox:disconnect', sessionId),
+    ping: (opts) => ipcRenderer.invoke('remox:ping', opts),
+    launchRdp: (opts) => ipcRenderer.invoke('remox:launch-rdp', opts),
+    onData: (cb) => {
+      const listener = (_e, d) => cb(d);
+      ipcRenderer.on('remox:data', listener);
+      return () => ipcRenderer.removeListener('remox:data', listener);
+    },
+    onStatus: (cb) => {
+      const listener = (_e, d) => cb(d);
+      ipcRenderer.on('remox:status', listener);
+      return () => ipcRenderer.removeListener('remox:status', listener);
+    },
+  },
+
+  resourceMonitor: {
+    get: () => ipcRenderer.invoke('resource-monitor-get'),
+    getProcesses: (limit) => ipcRenderer.invoke('resource-monitor-processes', limit),
+    killProcess: (pid) => ipcRenderer.invoke('resource-monitor-kill', pid),
+  },
+
   resolveAssetUrl: (assetName) =>
     ipcRenderer.invoke('resolve-asset-url', assetName),
   getCountryCodes: () => ipcRenderer.invoke('get-country-codes'),
@@ -235,6 +266,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     restart: (id) => ipcRenderer.invoke('os-vm-restart', id),
     snapshot: (id, name) => ipcRenderer.invoke('os-vm-snapshot', id, name),
     browseIsoFile: () => ipcRenderer.invoke('browse-iso-file'),
+    downloadIso: (opts) => ipcRenderer.invoke('download-iso', opts),
+    listCachedIsos: () => ipcRenderer.invoke('list-cached-isos'),
+    onIsoDownloadProgress: (cb) => {
+      const l = (_e, d) => cb(d);
+      ipcRenderer.on('iso-download-progress', l);
+      return () => ipcRenderer.removeListener('iso-download-progress', l);
+    },
+    forceStop: (id) => ipcRenderer.invoke('os-vm-force-stop', id),
+    killAllQemu: () => ipcRenderer.invoke('os-vm-kill-all-qemu'),
+    checkQemu: () => ipcRenderer.invoke('os-vm-check-qemu'),
+    installQemu: () => ipcRenderer.invoke('os-vm-install-qemu'),
+    onQemuInstallProgress: (cb) => {
+      if (typeof cb !== 'function') return () => {};
+      const fn = (_e, data) => cb(data);
+      ipcRenderer.on('qemu-install-progress', fn);
+      return () => ipcRenderer.removeListener('qemu-install-progress', fn);
+    },
+    openVncWindow: (opts) => ipcRenderer.invoke('open-vnc-window', opts),
+    focusVncWindow: (vmId) => ipcRenderer.invoke('focus-vnc-window', vmId),
   },
 
   // Logs API
@@ -243,7 +293,84 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clear: () => ipcRenderer.invoke('clear-logs')
   },
 
+  // Cron Job Manager API
+  cron: {
+    loadJobs: () => ipcRenderer.invoke('cron-load-jobs'),
+    addJob: (job) => ipcRenderer.invoke('cron-add-job', job),
+    editJob: (id, updates) => ipcRenderer.invoke('cron-edit-job', { id, updates }),
+    deleteJob: (id) => ipcRenderer.invoke('cron-delete-job', id),
+    toggleJob: (id, enabled) => ipcRenderer.invoke('cron-toggle-job', { id, enabled }),
+    runNow: (id) => ipcRenderer.invoke('cron-run-now', id),
+    getHistory: (id) => ipcRenderer.invoke('cron-get-history', id),
+    clearHistory: (id) => ipcRenderer.invoke('cron-clear-history', id),
+    validateExpr: (expr) => ipcRenderer.invoke('cron-validate-expr', expr),
+    onJobExecuted: (cb) => {
+      if (typeof cb !== 'function') return () => {};
+      const fn = (_e, data) => cb(data);
+      ipcRenderer.on('cron-job-executed', fn);
+      return () => ipcRenderer.removeListener('cron-job-executed', fn);
+    },
+  },
+
+  // StarCapture – Screenshot & Screen Recording
+  starCapture: {
+    screenshotFull:     ()            => ipcRenderer.invoke('starcapture:screenshot-full'),
+    screenshotWindow:   ()            => ipcRenderer.invoke('starcapture:screenshot-window'),
+    screenshotArea:     ()            => ipcRenderer.invoke('starcapture:screenshot-area'),
+    getScreenSources:   ()            => ipcRenderer.invoke('starcapture:get-screen-sources'),
+    getAreaForRecord:   ()            => ipcRenderer.invoke('starcapture:get-area-for-record'),
+    copyImage:          (dataUrl)     => ipcRenderer.invoke('starcapture:copy-image', dataUrl),
+    saveImage:          (opts)        => ipcRenderer.invoke('starcapture:save-image', opts),
+    saveVideo:          (opts)        => ipcRenderer.invoke('starcapture:save-video', opts),
+    openFile:           (filePath)    => ipcRenderer.invoke('starcapture:open-file', filePath),
+    getShortcuts:       ()            => ipcRenderer.invoke('starcapture:get-shortcuts'),
+    setShortcuts:       (s)           => ipcRenderer.invoke('starcapture:set-shortcuts', s),
+    onShortcut: (cb) => {
+      if (typeof cb !== 'function') return () => {};
+      const fn = (_e, mode) => cb(mode);
+      ipcRenderer.on('starcapture:shortcut', fn);
+      return () => ipcRenderer.removeListener('starcapture:shortcut', fn);
+    },
+    onCancelled: (cb) => {
+      if (typeof cb !== 'function') return () => {};
+      const fn = () => cb();
+      ipcRenderer.on('starcapture:cancelled', fn);
+      return () => ipcRenderer.removeListener('starcapture:cancelled', fn);
+    },
+  },
+
   // Remote Control API – kontrol StarBox di komputer lain
+  cctv: {
+    getCameras:   ()         => ipcRenderer.invoke('cctv-get-cameras'),
+    saveCamera:   (camera)   => ipcRenderer.invoke('cctv-save-camera', camera),
+    deleteCamera: (uid)      => ipcRenderer.invoke('cctv-delete-camera', uid),
+    startStream:  (camera)   => ipcRenderer.invoke('cctv-start-stream', camera),
+    stopStream:   (uid)      => ipcRenderer.invoke('cctv-stop-stream', uid),
+    streamStatus: (uid)      => ipcRenderer.invoke('cctv-stream-status', uid),
+    snapshot:     (camera)   => ipcRenderer.invoke('cctv-snapshot', camera),
+    checkFfmpeg:  ()         => ipcRenderer.invoke('cctv-check-ffmpeg'),
+    installFfmpeg: ()        => ipcRenderer.invoke('cctv-install-ffmpeg'),
+    onFfmpegInstallProgress: (cb) => {
+      if (typeof cb !== 'function') return () => {};
+      const fn = (_e, data) => cb(data);
+      ipcRenderer.on('cctv-ffmpeg-install-progress', fn);
+      return () => ipcRenderer.removeListener('cctv-ffmpeg-install-progress', fn);
+    },
+    scanOnvif:    (opts)     => ipcRenderer.invoke('cctv-scan-onvif', opts),
+    probeOnvif:   (ip, port, user, pass) => ipcRenderer.invoke('cctv-probe-onvif', ip, port, user, pass),
+    onScanProgress: (cb) => {
+      if (typeof cb !== 'function') return () => {};
+      const fn = (_e, data) => cb(data);
+      ipcRenderer.on('cctv-scan-progress', fn);
+      return () => ipcRenderer.removeListener('cctv-scan-progress', fn);
+    },
+    ptzMove:      (opts) => ipcRenderer.invoke('cctv-ptz-move', opts),
+    ptzStop:      (opts) => ipcRenderer.invoke('cctv-ptz-stop', opts),
+    ptzPresets:   (opts) => ipcRenderer.invoke('cctv-ptz-presets', opts),
+    ptzGotoPreset:(opts) => ipcRenderer.invoke('cctv-ptz-goto-preset', opts),
+    ptzSetPreset: (opts) => ipcRenderer.invoke('cctv-ptz-set-preset', opts),
+  },
+
   remote: {
     /** Ambil status koneksi dan daftar client online milik user yang sama */
     getClients: () => ipcRenderer.invoke('remote:get-clients'),

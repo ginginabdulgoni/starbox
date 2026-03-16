@@ -12,6 +12,9 @@ const clipboard = electron.clipboard;
 const net = electron.net;
 const dialog = electron.dialog;
 const shell = electron.shell;
+const desktopCapturer = electron.desktopCapturer;
+const globalShortcut = electron.globalShortcut;
+const nativeImage = electron.nativeImage;
 const nodeNet = require("net");
 const https = require("https");
 const WebSocket = require("ws");
@@ -90,6 +93,7 @@ if (isPackaged) {
 // Development mode - no special module resolution needed
 const AndroidManager = require("./android-manager");
 const iOSManager = require("./ios-manager");
+const CctvManager = require("./cctv-manager");
 const BaileysManager = require("./baileys-manager");
 const cronParser = require("cron-parser");
 const { version: packageVersion } = require("./package.json");
@@ -131,6 +135,7 @@ const AUTH_BASE_URL =
   process.env.STARBOX_AUTH_BASE_URL || `${DEFAULT_API_BASE_URL}/api/auth`;
 const AUTH_SESSION_STORE_KEY = "authSession";
 const GUEST_SERVICE_DEVICE_LIMIT = 2;
+const LOG_RETENTION_DAYS = 7; // auto-purge logs older than this many days
 const CHROME_VERSION_STORE_KEY = "latestChromeUserAgentVersion";
 const CHROME_VERSION_UPDATED_AT_KEY = "latestChromeUserAgentVersionUpdatedAt";
 const DEFAULT_CHROME_VERSION = "142.0.7444.176";
@@ -390,8 +395,35 @@ const MESSAGE_CACHE_EXPIRY_MS = 10 * 60 * 1000; // 10 menit
 let cachedChromeVersionUpdatedAt = 0;
 let chromeVersionFetchPromise = null;
 let OS_VM_DB_PATH = null;
+let CRON_JOBS_DB_PATH = null;
 const vmProcesses = new Map();
+
+// ── StarCapture ─────────────────────────────────────────────────
+let scOverlayWindow = null;
+let scCurrentMode   = 'screenshot'; // 'screenshot' | 'record'
+let scPendingResolve = null;        // resolves when overlay confirms/cancels
 const vmVncProxies = new Map();
+const vncWindows = new Map(); // vmId → BrowserWindow
+
+// ── Resource Monitor: rolling CPU usage sampler ────────────────────────────
+let _rmCpuCache = 0;
+function _rmGetCpuSample() {
+  return os.cpus().map(c => ({
+    total: Object.values(c.times).reduce((a, b) => a + b, 0),
+    idle: c.times.idle,
+  }));
+}
+let _rmPrevSample = _rmGetCpuSample();
+setInterval(() => {
+  const curr = _rmGetCpuSample();
+  let totalDelta = 0, idleDelta = 0;
+  for (let i = 0; i < curr.length; i++) {
+    totalDelta += curr[i].total - (_rmPrevSample[i]?.total || 0);
+    idleDelta  += curr[i].idle  - (_rmPrevSample[i]?.idle  || 0);
+  }
+  _rmCpuCache = totalDelta > 0 ? Math.round((1 - idleDelta / totalDelta) * 100) : 0;
+  _rmPrevSample = curr;
+}, 1000);
 
 // Initialize logging after app is ready
 function initializeLogging() {
@@ -407,8 +439,10 @@ function initializeLogging() {
   DB_PATH = path.join(userDataPath, "db", "devices.json");
   ANDROID_REMOTE_DB_PATH = path.join(userDataPath, "db", "adb-devices.json");
   OS_VM_DB_PATH = path.join(userDataPath, "db", "virtual-machines.json");
+  CRON_JOBS_DB_PATH = path.join(userDataPath, "db", "cron-jobs.json");
 
-  // Setup logging
+  // Setup logging — trim old entries before opening stream
+  trimStarboxLog();
   const logPath = path.join(userDataPath, "starbox.log");
   logStream = fs.createWriteStream(logPath, { flags: "a" });
 
@@ -465,6 +499,15 @@ function initializeLogging() {
   androidManager = new AndroidManager();
   iosManager = new iOSManager();
   virtualOSStorage = new VirtualOSStorage(userDataPath);
+  const cctvDbPath  = path.join(app.getPath('userData'), 'cctv-cameras.json');
+  const cctvToolsPath = path.join(app.getPath('userData'), 'tools');
+  cctvManager = new CctvManager(cctvDbPath, cctvToolsPath);
+  // Restore portable ffmpeg path if already installed
+  if (process.platform === 'win32') {
+    const portableBin = cctvManager._findPortableFfmpegWin();
+    if (portableBin) cctvManager.setFfmpegBin(portableBin);
+  }
+  startCronScheduler();
 
   console.log("✅ Paths and managers initialized");
   logConsoleOnly("   DB_PATH:", DB_PATH);
@@ -2067,6 +2110,7 @@ let ANDROID_REMOTE_DB_PATH = null;
 // Manager instances
 let androidManager = null;
 let iosManager = null;
+let cctvManager = null;
 
 const deviceWindows = {}; // Untuk melacak window yang terbuka
 const monitorWindows = {}; // Untuk melacak window monitor automasi
@@ -7105,6 +7149,8 @@ function createMainWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       preload: path.join(app.getAppPath(), "preload.cjs"),
+      allowRunningInsecureContent: true,
+      webSecurity: false,
     },
   });
   // mainWindow.maximize();
@@ -7321,6 +7367,164 @@ ipcMain.handle("get-country-codes", async () => {
 
 ipcMain.handle("is-dev-build", () => IS_DEV_BUILD);
 
+ipcMain.handle("download-iso", async (event, { url, filename }) => {
+  try {
+    const isoDir = path.join(app.getPath("userData"), "isos");
+    fs.mkdirSync(isoDir, { recursive: true });
+    const destPath = path.join(isoDir, filename);
+    const cacheFile = path.join(isoDir, "cache.json");
+
+    // Return immediately if already downloaded
+    if (fs.existsSync(destPath)) {
+      const stat = fs.statSync(destPath);
+      if (stat.size > 1024 * 100) {
+        return { success: true, localPath: destPath, cached: true };
+      }
+      fs.unlinkSync(destPath); // Remove corrupted/partial file
+    }
+
+    const win = BrowserWindow.fromWebContents(event.sender);
+
+    // Download with proper redirect following (up to 10 hops)
+    const doDownload = (currentUrl, redirectCount = 0) => new Promise((resolve, reject) => {
+      if (redirectCount > 10) { reject(new Error("Terlalu banyak redirect")); return; }
+      const httpMod = currentUrl.startsWith("https") ? require("https") : require("http");
+      const file = fs.createWriteStream(destPath);
+      let downloaded = 0;
+      let total = 0;
+      const req = httpMod.get(currentUrl, { timeout: 30000 }, (res) => {
+        if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
+          file.close();
+          fs.unlink(destPath, () => {});
+          const loc = res.headers.location;
+          if (!loc) { reject(new Error("Redirect tanpa header Location")); return; }
+          const nextUrl = loc.startsWith("http") ? loc : new URL(loc, currentUrl).href;
+          doDownload(nextUrl, redirectCount + 1).then(resolve).catch(reject);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          file.close();
+          fs.unlink(destPath, () => {});
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+        total = parseInt(res.headers["content-length"] || "0", 10);
+        res.pipe(file);
+        res.on("data", (chunk) => {
+          downloaded += chunk.length;
+          const pct = total > 0 ? Math.round((downloaded / total) * 100) : -1;
+          win?.webContents?.send("iso-download-progress", { pct, downloaded, total, filename });
+        });
+        file.on("finish", () => { file.close(); resolve(); });
+      });
+      req.on("error", (err) => {
+        file.close();
+        fs.unlink(destPath, () => {});
+        reject(err);
+      });
+      req.on("timeout", () => {
+        req.destroy();
+        file.close();
+        fs.unlink(destPath, () => {});
+        reject(new Error("Timeout saat download"));
+      });
+    });
+
+    await doDownload(url);
+
+    // Update cache.json
+    let cache = [];
+    try { cache = JSON.parse(fs.readFileSync(cacheFile, "utf8")); } catch (_) {}
+    if (!cache.find(c => c.filename === filename)) {
+      cache.push({ filename, localPath: destPath, url, downloadedAt: new Date().toISOString(), sizeMb: Math.round(fs.statSync(destPath).size / 1024 / 1024) });
+      fs.writeFileSync(cacheFile, JSON.stringify(cache, null, 2));
+    }
+
+    return { success: true, localPath: destPath };
+  } catch (err) {
+    return { success: false, message: err?.message || "Gagal download ISO." };
+  }
+});
+
+ipcMain.handle("list-cached-isos", () => {
+  try {
+    const cacheFile = path.join(app.getPath("userData"), "isos", "cache.json");
+    if (!fs.existsSync(cacheFile)) return [];
+    const cache = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
+    return cache.filter(c => fs.existsSync(c.localPath));
+  } catch (_) { return []; }
+});
+
+ipcMain.handle("open-vnc-window", async (_event, { vmId, wsPort, vmName }) => {
+  try {
+    // Focus existing window if already open
+    const existing = vncWindows.get(vmId);
+    if (existing && !existing.isDestroyed()) {
+      if (existing.isMinimized()) existing.restore();
+      existing.show();
+      existing.focus();
+      return { success: true, focused: true };
+    }
+
+    const vncPreloadPath = path.join(__dirname, "vnc-preload.cjs");
+    const win = new BrowserWindow({
+      width: 1024,
+      height: 768,
+      minWidth: 640,
+      minHeight: 480,
+      title: `VNC — ${vmName || vmId}`,
+      backgroundColor: "#0b1220",
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: fs.existsSync(vncPreloadPath) ? vncPreloadPath : undefined,
+      },
+    });
+
+    win.loadFile("vnc-viewer.html", {
+      query: { host: "127.0.0.1", port: String(wsPort), vmId, vmName: vmName || "" },
+    });
+
+    win.on("closed", () => {
+      vncWindows.delete(vmId);
+    });
+
+    vncWindows.set(vmId, win);
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: err?.message };
+  }
+});
+
+ipcMain.handle("focus-vnc-window", (_event, vmId) => {
+  const win = vncWindows.get(vmId);
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    return { found: true };
+  }
+  return { found: false };
+});
+
+ipcMain.handle("get-vnc-source-id", async (event) => {
+  try {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { ok: false };
+    const sources = await desktopCapturer.getSources({
+      types: ["window"],
+      thumbnailSize: { width: 0, height: 0 },
+    });
+    const title = win.getTitle();
+    const found = sources.find((s) => s.name === title) ||
+                  sources.find((s) => s.name.includes("VNC"));
+    if (!found) return { ok: false, error: "Source not found" };
+    return { ok: true, sourceId: found.id };
+  } catch (err) {
+    return { ok: false, error: err?.message };
+  }
+});
+
 ipcMain.handle("browse-iso-file", async () => {
   try {
     const result = await dialog.showOpenDialog({
@@ -7370,8 +7574,7 @@ ipcMain.handle("os-vm-delete", async (_event, id) => {
   }
 });
 
-ipcMain.handle("os-vm-start", async (_event, id) => {
-  try {
+async function doStartVm(id) {
     const vm = virtualOSStorage?.get(id);
     if (!vm) throw new Error("VM tidak ditemukan.");
 
@@ -7380,9 +7583,15 @@ ipcMain.handle("os-vm-start", async (_event, id) => {
       throw new Error("VM memerlukan ISO file atau disk image untuk boot.\n\nSilakan tambahkan ISO file terlebih dahulu.");
     }
 
-    // Check if ISO file exists
-    if (vm.isoPath && !fs.existsSync(vm.isoPath)) {
-      throw new Error(`ISO file tidak ditemukan: ${vm.isoPath}\n\nPastikan file ISO sudah ada di lokasi tersebut.`);
+    // Check if ISO file exists (skip check for URLs — QEMU handles them directly or they should be downloaded first)
+    if (vm.isoPath && !vm.isoPath.startsWith("http://") && !vm.isoPath.startsWith("https://")) {
+      if (!fs.existsSync(vm.isoPath)) {
+        throw new Error(`ISO file tidak ditemukan: ${vm.isoPath}\n\nPastikan file ISO sudah ada di lokasi tersebut.`);
+      }
+    } else if (vm.isoPath && (vm.isoPath.startsWith("http://") || vm.isoPath.startsWith("https://"))) {
+      throw new Error(
+        `ISO path berupa URL, bukan file lokal.\n\nURL: ${vm.isoPath}\n\nGunakan dropdown "Pilih OS ringan" di modal Edit VM untuk mengunduh ISO secara otomatis ke disk lokal.`
+      );
     }
 
     // Check if disk file exists (if specified)
@@ -7409,13 +7618,42 @@ ipcMain.handle("os-vm-start", async (_event, id) => {
     }
 
     if (vmProcesses.has(id)) {
-      const wsPort = await ensureVncProxy(id, "127.0.0.1", vm.vncPort || 5901);
-      return {
-        success: true,
-        vm: { ...vm, status: "running" },
-        message: "VM sudah berjalan.",
-        wsPort,
-      };
+      const existing = vmProcesses.get(id);
+      // Check if process is still actually alive
+      if (existing && !existing.killed) {
+        try {
+          process.kill(existing.pid, 0); // signal 0 = just check
+          const wsPort = await ensureVncProxy(id, "127.0.0.1", vm.vncPort || 5901);
+          return { success: true, vm: { ...vm, status: "running" }, message: "VM sudah berjalan.", wsPort };
+        } catch (_) {
+          // Process is dead but still in map — fall through to restart
+          vmProcesses.delete(id);
+          stopVncProxy(id);
+        }
+      } else {
+        vmProcesses.delete(id);
+        stopVncProxy(id);
+      }
+    }
+
+    // Kill any stale process holding the disk file (macOS/Linux)
+    if (diskPath && process.platform !== "win32") {
+      try {
+        const lsofResult = spawnSync("lsof", ["-t", diskPath], { timeout: 3000 });
+        if (!lsofResult.error && lsofResult.stdout) {
+          const pids = lsofResult.stdout.toString().trim().split("\n").filter(Boolean);
+          for (const pid of pids) {
+            try {
+              process.kill(parseInt(pid), "SIGKILL");
+              console.log(`🔪 Killed stale process ${pid} holding ${diskPath}`);
+            } catch (_) {}
+          }
+          if (pids.length > 0) {
+            // Give OS a moment to release file locks
+            await new Promise((r) => setTimeout(r, 500));
+          }
+        }
+      } catch (_) {}
     }
 
     const qemuBin = vm.qemuBinary || "qemu-system-x86_64";
@@ -7480,16 +7718,18 @@ ipcMain.handle("os-vm-start", async (_event, id) => {
 
     const child = spawn(qemuBin, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      detached: true
+      detached: false,
     });
 
-    // Capture QEMU output for debugging
+    // Collect stderr for early-exit error reporting
+    const stderrLines = [];
     child.stdout?.on("data", (data) => {
       console.log(`[QEMU ${id}] ${data.toString().trim()}`);
     });
-
     child.stderr?.on("data", (data) => {
-      console.error(`[QEMU ${id} ERR] ${data.toString().trim()}`);
+      const line = data.toString().trim();
+      console.error(`[QEMU ${id} ERR] ${line}`);
+      stderrLines.push(line);
     });
 
     child.on("error", (err) => {
@@ -7508,6 +7748,21 @@ ipcMain.handle("os-vm-start", async (_event, id) => {
 
     vmProcesses.set(id, child);
 
+    // Wait briefly and confirm process is still alive
+    await new Promise((r) => setTimeout(r, 600));
+    if (!vmProcesses.has(id) || child.killed || child.exitCode !== null) {
+      const errDetail = stderrLines.slice(-5).join(" | ") || "QEMU exited immediately.";
+      // Check for the common "image locked" error
+      const isLocked = stderrLines.some((l) =>
+        l.includes("Is another process using the image") || l.includes("Failed to get shared lock")
+      );
+      let hint = "";
+      if (isLocked) {
+        hint = "\n\nAda proses QEMU lain yang masih mengunci file disk. Klik 'Stop' terlebih dahulu atau restart aplikasi.";
+      }
+      throw new Error(`QEMU gagal start.${hint}\n\nDetail: ${errDetail}`);
+    }
+
     // Wait for VNC to be ready and create proxy
     const wsPort = await ensureVncProxy(id, "127.0.0.1", availablePort);
 
@@ -7515,12 +7770,14 @@ ipcMain.handle("os-vm-start", async (_event, id) => {
     console.log(`✅ VM ${id} started. PID: ${child.pid}, VNC WS: ${wsPort}`);
 
     return { success: true, vm: updated, pid: child.pid, wsPort };
+}
+
+ipcMain.handle("os-vm-start", async (_event, id) => {
+  try {
+    return await doStartVm(id);
   } catch (err) {
     console.error(`❌ Failed to start VM ${id}:`, err);
-    return {
-      success: false,
-      message: err?.message || "Gagal menjalankan VM."
-    };
+    return { success: false, message: err?.message || "Gagal menjalankan VM." };
   }
 });
 
@@ -7528,11 +7785,14 @@ ipcMain.handle("os-vm-stop", async (_event, id) => {
   try {
     const proc = vmProcesses.get(id);
     if (proc) {
+      // Try graceful SIGTERM first, then force SIGKILL
+      try { proc.kill("SIGTERM"); } catch (_) {}
+      await new Promise((r) => setTimeout(r, 800));
       try {
-        process.kill(-proc.pid);
-      } catch {
-        proc.kill("SIGTERM");
-      }
+        if (!proc.killed && proc.exitCode === null) {
+          proc.kill("SIGKILL");
+        }
+      } catch (_) {}
       vmProcesses.delete(id);
     }
     stopVncProxy(id);
@@ -7545,22 +7805,94 @@ ipcMain.handle("os-vm-stop", async (_event, id) => {
 
 ipcMain.handle("os-vm-restart", async (_event, id) => {
   try {
-    await ipcMain.emit("os-vm-stop", null, id);
-    const vm = virtualOSStorage?.restart(id);
-    if (vmProcesses.has(id)) {
-      const proc = vmProcesses.get(id);
-      try {
-        process.kill(-proc.pid);
-      } catch {
-        proc.kill("SIGTERM");
-      }
+    // Stop first (reuse stop logic)
+    const proc = vmProcesses.get(id);
+    if (proc) {
+      try { proc.kill("SIGTERM"); } catch (_) {}
+      await new Promise((r) => setTimeout(r, 800));
+      try { if (!proc.killed && proc.exitCode === null) proc.kill("SIGKILL"); } catch (_) {}
       vmProcesses.delete(id);
     }
     stopVncProxy(id);
-    // Reuse start logic
-    return ipcMain.handle("os-vm-start", _event, id);
+    virtualOSStorage?.stop(id);
+    // Start again using shared function
+    return await doStartVm(id);
   } catch (err) {
     return { success: false, message: err?.message || "Gagal restart VM." };
+  }
+});
+
+ipcMain.handle("os-vm-force-stop", async (_event, id) => {
+  try {
+    const proc = vmProcesses.get(id);
+    if (proc) {
+      try { proc.kill("SIGKILL"); } catch (_) {}
+      vmProcesses.delete(id);
+    }
+    stopVncProxy(id);
+    virtualOSStorage?.stop(id);
+    // Also kill by lsof on disk file (macOS/Linux)
+    const vm = virtualOSStorage?.get(id);
+    if (vm?.diskPath && process.platform !== "win32") {
+      try {
+        const lsofResult = spawnSync("lsof", ["-t", vm.diskPath], { timeout: 3000 });
+        if (!lsofResult.error && lsofResult.stdout) {
+          const pids = lsofResult.stdout.toString().trim().split("\n").filter(Boolean);
+          for (const pid of pids) {
+            try { process.kill(parseInt(pid), "SIGKILL"); } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: err?.message };
+  }
+});
+
+ipcMain.handle("os-vm-pause", async (_event, id) => {
+  try {
+    const proc = vmProcesses.get(id);
+    if (!proc) return { success: false, message: "VM tidak ditemukan / tidak berjalan." };
+    process.kill(proc.pid, "SIGSTOP");
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: err?.message };
+  }
+});
+
+ipcMain.handle("os-vm-resume", async (_event, id) => {
+  try {
+    const proc = vmProcesses.get(id);
+    if (!proc) return { success: false, message: "VM tidak ditemukan / tidak berjalan." };
+    process.kill(proc.pid, "SIGCONT");
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: err?.message };
+  }
+});
+
+ipcMain.handle("os-vm-kill-all-qemu", async () => {
+  try {
+    const killed = [];
+    // Kill all tracked QEMU processes
+    for (const [vmId, proc] of vmProcesses.entries()) {
+      try { proc.kill("SIGKILL"); } catch (_) {}
+      vmProcesses.delete(vmId);
+      stopVncProxy(vmId);
+      virtualOSStorage?.stop(vmId);
+      killed.push(vmId);
+    }
+    // Also kill any stray qemu processes by name (macOS/Linux)
+    if (process.platform !== "win32") {
+      try {
+        spawnSync("pkill", ["-9", "-f", "qemu-system"], { timeout: 3000 });
+      } catch (_) {}
+    }
+    await new Promise((r) => setTimeout(r, 500));
+    return { success: true, killed };
+  } catch (err) {
+    return { success: false, message: err?.message };
   }
 });
 
@@ -8288,6 +8620,40 @@ ipcMain.on("focus-device", (event, uid) => {
   }
 });
 
+ipcMain.handle("get-device-source-id", async (event, uid) => {
+  try {
+    const win = deviceWindows[uid];
+    if (!win || win.isDestroyed()) return { ok: false, error: "Window not found" };
+    const sources = await desktopCapturer.getSources({ types: ["window"], thumbnailSize: { width: 0, height: 0 } });
+    const winTitle = win.getTitle();
+    const found = sources.find((s) => s.name === winTitle) ||
+                  sources.find((s) => s.name.includes(winTitle.split(" ")[0]));
+    if (!found) return { ok: false, error: "Source not found" };
+    return { ok: true, sourceId: found.id };
+  } catch (err) {
+    return { ok: false, error: err?.message || "Failed" };
+  }
+});
+
+ipcMain.handle("save-recording-file", async (event, filePath, byteArray) => {
+  try {
+    const buffer = Buffer.from(byteArray);
+    fs.writeFileSync(filePath, buffer);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message };
+  }
+});
+
+ipcMain.handle("show-save-dialog-recording", async (event, defaultName) => {
+  const result = await dialog.showSaveDialog({
+    title: "Simpan Recording",
+    defaultPath: defaultName || "recording.webm",
+    filters: [{ name: "Video", extensions: ["webm"] }],
+  });
+  return result;
+});
+
 ipcMain.on("ensure-monitor-window", async (event, uid) => {
   if (!uid) return;
   const config = getDeviceConfig(uid) || {};
@@ -8588,7 +8954,7 @@ ipcMain.handle("is-device-running", (_event, uid) => {
   return deviceWindow && !deviceWindow.isDestroyed();
 });
 
-ipcMain.handle("load-devices", () => {
+ipcMain.handle("load-devices", (_event, dbType) => {
   const dbDir = path.dirname(DB_PATH);
   if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
 
@@ -8661,7 +9027,297 @@ ipcMain.handle("load-devices", () => {
     fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
   }
 
+  // Filter by dbType if specified
+  if (dbType === "web") {
+    return { devices: (data.devices || []).filter(d => (d.service || "").toLowerCase() !== "android") };
+  }
+  if (dbType === "android") {
+    return { devices: (data.devices || []).filter(d => (d.service || "").toLowerCase() === "android") };
+  }
+
   return data;
+});
+
+// ── CCTV ─────────────────────────────────────────────────────────────────────
+ipcMain.handle('cctv-get-cameras', () => {
+  return { cameras: cctvManager.getCameras() };
+});
+
+ipcMain.handle('cctv-save-camera', (_e, camera) => {
+  const saved = cctvManager.saveCamera(camera);
+  return { success: true, camera: saved };
+});
+
+ipcMain.handle('cctv-delete-camera', (_e, uid) => {
+  cctvManager.stopStream(uid);
+  cctvManager.deleteCamera(uid);
+  return { success: true };
+});
+
+ipcMain.handle('cctv-start-stream', async (_e, camera) => {
+  try {
+    const result = await cctvManager.startStream(camera);
+    return { success: true, port: result.port };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+});
+
+ipcMain.handle('cctv-stop-stream', (_e, uid) => {
+  cctvManager.stopStream(uid);
+  return { success: true };
+});
+
+ipcMain.handle('cctv-stream-status', (_e, uid) => {
+  return cctvManager.getStreamStatus(uid);
+});
+
+ipcMain.handle('cctv-snapshot', async (_e, camera) => {
+  try {
+    const result = await dialog.showSaveDialog({
+      title: 'Simpan Screenshot CCTV',
+      defaultPath: `cctv-${camera.name || 'snapshot'}-${Date.now()}.jpg`,
+      filters: [{ name: 'JPEG Image', extensions: ['jpg'] }],
+    });
+    if (result.canceled || !result.filePath) return { success: false, canceled: true };
+    const outPath = await cctvManager.takeSnapshot(camera, result.filePath);
+    return { success: true, path: outPath };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+});
+
+ipcMain.handle('cctv-check-ffmpeg', async () => {
+  return cctvManager.checkFfmpeg();
+});
+
+// ── FFmpeg auto-install (Windows portable download) ──────────────────────────
+ipcMain.handle('cctv-install-ffmpeg', async (event) => {
+  if (process.platform !== 'win32') {
+    return { success: false, message: 'Auto-install hanya tersedia di Windows.' };
+  }
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const sendProgress = (phase, pct, message) => {
+    win?.webContents?.send('cctv-ffmpeg-install-progress', { phase, pct, message });
+  };
+  try {
+    const toolsDir  = path.join(app.getPath('userData'), 'tools');
+    const ffmpegDir = path.join(toolsDir, 'ffmpeg');
+    const zipPath   = path.join(toolsDir, 'ffmpeg-download.zip');
+    fs.mkdirSync(ffmpegDir, { recursive: true });
+
+    // Check if already installed
+    const existing = cctvManager._findPortableFfmpegWin();
+    if (existing) {
+      cctvManager.setFfmpegBin(existing);
+      return { success: true, path: existing, cached: true };
+    }
+
+    const downloadUrl = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip';
+    sendProgress('download', 0, 'Memulai download FFmpeg...');
+
+    // Download with redirect following
+    await new Promise((resolve, reject) => {
+      const doGet = (url, hops = 0) => {
+        if (hops > 10) { reject(new Error('Terlalu banyak redirect')); return; }
+        const mod = url.startsWith('https') ? require('https') : require('http');
+        const file = fs.createWriteStream(zipPath);
+        let downloaded = 0, total = 0;
+        const req = mod.get(url, { timeout: 60000 }, (res) => {
+          if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
+            file.close(); fs.unlink(zipPath, () => {});
+            const loc = res.headers.location;
+            if (!loc) { reject(new Error('Redirect tanpa Location')); return; }
+            doGet(loc.startsWith('http') ? loc : new URL(loc, url).href, hops + 1);
+            return;
+          }
+          if (res.statusCode !== 200) {
+            file.close(); fs.unlink(zipPath, () => {});
+            reject(new Error(`HTTP ${res.statusCode}`)); return;
+          }
+          total = parseInt(res.headers['content-length'] || '0', 10);
+          res.pipe(file);
+          res.on('data', (chunk) => {
+            downloaded += chunk.length;
+            const pct = total > 0 ? Math.round((downloaded / total) * 100) : -1;
+            sendProgress('download', pct, `Mengunduh FFmpeg... ${pct >= 0 ? pct + '%' : ''}`);
+          });
+          file.on('finish', () => { file.close(); resolve(); });
+        });
+        req.on('error', (e) => { file.close(); fs.unlink(zipPath, () => {}); reject(e); });
+        req.on('timeout', () => { req.destroy(); file.close(); fs.unlink(zipPath, () => {}); reject(new Error('Timeout')); });
+      };
+      doGet(downloadUrl);
+    });
+
+    sendProgress('extract', 0, 'Mengekstrak FFmpeg...');
+    const extractZipLib = require('extract-zip');
+    await extractZipLib(zipPath, { dir: ffmpegDir });
+    fs.unlink(zipPath, () => {});
+
+    sendProgress('done', 100, 'FFmpeg berhasil diinstall!');
+    const binPath = cctvManager._findPortableFfmpegWin();
+    if (!binPath) throw new Error('ffmpeg.exe tidak ditemukan setelah ekstrak.');
+    cctvManager.setFfmpegBin(binPath);
+    return { success: true, path: binPath };
+  } catch (err) {
+    sendProgress('error', 0, `Gagal: ${err.message}`);
+    return { success: false, message: err.message };
+  }
+});
+
+// ── QEMU check & auto-install ─────────────────────────────────────────────────
+ipcMain.handle('os-vm-check-qemu', async () => {
+  const qemuBin = 'qemu-system-x86_64';
+  try {
+    const r = spawnSync(qemuBin, ['--version'], { timeout: 5000 });
+    if (!r.error) {
+      const ver = (r.stdout || r.stderr || '').toString().split('\n')[0].trim();
+      return { available: true, version: ver, bin: qemuBin };
+    }
+  } catch {}
+  return { available: false, platform: process.platform };
+});
+
+ipcMain.handle('os-vm-install-qemu', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const sendProgress = (message, done = false, error = false) => {
+    win?.webContents?.send('qemu-install-progress', { message, done, error });
+  };
+
+  try {
+    sendProgress('Memulai instalasi QEMU...');
+    const plat = process.platform;
+    let cmd, args;
+
+    if (plat === 'win32') {
+      // Try winget first (available on Win10 1809+ and Win11)
+      const wingetCheck = spawnSync('winget', ['--version'], { timeout: 5000 });
+      if (!wingetCheck.error) {
+        cmd = 'winget';
+        args = ['install', '--id=SoftwareFreedomConservancy.QEMU',
+                '--accept-source-agreements', '--accept-package-agreements', '--silent'];
+        sendProgress('Menginstall QEMU via winget...');
+      } else {
+        return {
+          success: false,
+          message: 'winget tidak ditemukan. Download QEMU manual di https://qemu.org/download/#windows',
+          manualUrl: 'https://qemu.org/download/#windows',
+        };
+      }
+    } else if (plat === 'darwin') {
+      const brewCheck = spawnSync('brew', ['--version'], { timeout: 5000 });
+      if (!brewCheck.error) {
+        cmd = 'brew'; args = ['install', 'qemu'];
+        sendProgress('Menginstall QEMU via Homebrew...');
+      } else {
+        return {
+          success: false,
+          message: 'Homebrew tidak ditemukan. Install homebrew dulu: https://brew.sh, lalu jalankan: brew install qemu',
+          manualUrl: 'https://brew.sh',
+        };
+      }
+    } else {
+      // Linux
+      cmd = 'sudo'; args = ['apt-get', 'install', '-y', 'qemu-system-x86'];
+      sendProgress('Menginstall QEMU via apt...');
+    }
+
+    await new Promise((resolve, reject) => {
+      const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      child.stdout.on('data', (d) => sendProgress(d.toString().trim()));
+      child.stderr.on('data', (d) => sendProgress(d.toString().trim()));
+      child.on('error', reject);
+      child.on('exit', (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`Proses keluar dengan kode ${code}`));
+      });
+    });
+
+    // Verify
+    const verCheck = spawnSync('qemu-system-x86_64', ['--version'], { timeout: 5000 });
+    if (verCheck.error) {
+      sendProgress('QEMU terinstall tapi perlu restart aplikasi agar terdeteksi.', true);
+    } else {
+      sendProgress('QEMU berhasil diinstall!', true);
+    }
+    return { success: true };
+  } catch (err) {
+    sendProgress(`Gagal: ${err.message}`, false, true);
+    return { success: false, message: err.message };
+  }
+});
+
+ipcMain.handle('cctv-scan-onvif', async (event, opts = {}) => {
+  const { username = '', password = '', subnetInput = '' } = opts;
+  const win = BrowserWindow.fromWebContents(event.sender);
+  try {
+    const results = await cctvManager.scanOnvif({
+      username, password, subnetInput,
+      onProgress: (payload) => {
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('cctv-scan-progress', payload);
+        }
+      },
+    });
+    return { success: true, devices: results };
+  } catch (err) {
+    return { success: false, message: err.message, devices: [] };
+  }
+});
+
+ipcMain.handle('cctv-probe-onvif', async (_e, ip, port, username, password) => {
+  try {
+    const result = await cctvManager.probeOnvifDevice(ip, port || 80, username || '', password || '');
+    return { success: !!result, device: result };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+});
+
+ipcMain.handle('cctv-ptz-move', async (_e, { ip, port, username, password, profileToken, pan, tilt, zoom, ptzUrl }) => {
+  try {
+    await cctvManager.ptzContinuousMove(ip, port || 80, username || '', password || '', profileToken, pan || 0, tilt || 0, zoom || 0, ptzUrl || null);
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+});
+
+ipcMain.handle('cctv-ptz-stop', async (_e, { ip, port, username, password, profileToken, ptzUrl }) => {
+  try {
+    await cctvManager.ptzStop(ip, port || 80, username || '', password || '', profileToken, ptzUrl || null);
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+});
+
+ipcMain.handle('cctv-ptz-presets', async (_e, { ip, port, username, password, profileToken, ptzUrl }) => {
+  try {
+    const presets = await cctvManager.ptzGetPresets(ip, port || 80, username || '', password || '', profileToken, ptzUrl || null);
+    return { success: true, presets };
+  } catch (err) {
+    return { success: false, message: err.message, presets: [] };
+  }
+});
+
+ipcMain.handle('cctv-ptz-goto-preset', async (_e, { ip, port, username, password, profileToken, presetToken, ptzUrl }) => {
+  try {
+    await cctvManager.ptzGotoPreset(ip, port || 80, username || '', password || '', profileToken, presetToken, ptzUrl || null);
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+});
+
+ipcMain.handle('cctv-ptz-set-preset', async (_e, { ip, port, username, password, profileToken, presetName, ptzUrl }) => {
+  try {
+    const r = await cctvManager.ptzSetPreset(ip, port || 80, username || '', password || '', profileToken, presetName || '', ptzUrl || null);
+    return { success: true, token: r.token };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
 });
 
 ipcMain.handle("android-remote-load", () => {
@@ -10741,6 +11397,8 @@ function startWAScheduleChecker() {
 
 // Cleanup interval on app quit
 app.on("will-quit", () => {
+  if (cctvManager) cctvManager.stopAll();
+
   if (waStatusCheckInterval) {
     clearInterval(waStatusCheckInterval);
     waStatusCheckInterval = null;
@@ -10803,6 +11461,7 @@ app.whenReady().then(async () => {
 
   // ✅ Buat window utama
   createMainWindow();
+  registerStarCaptureShortcuts();
   startAdbStatusMonitor().catch((err) => {
     console.warn(
       "⚠️ Gagal memulai pemantauan status ADB:",
@@ -10994,7 +11653,11 @@ function startRemoteClient() {
           if (modified) {
             fs.writeFileSync(targetPath, JSON.stringify(data, null, 2));
           }
-          return { devices: data.devices };
+          // For "web" dbType, exclude android emulator devices
+          const filtered = dbType === "web"
+            ? (data.devices || []).filter(d => (d.service || "").toLowerCase() !== "android")
+            : (data.devices || []);
+          return { devices: filtered };
         },
         "start-device": async (uid, service) => {
           startDevice(uid, service);
@@ -11232,4 +11895,1027 @@ ipcMain.handle("remote:open-monitor-window", (_, payload = {}) => {
   } catch (err) {
     return { success: false, error: err?.message || "Gagal membuka monitor window" };
   }
+});
+
+// ─── Remox – SSH / Telnet Terminal ───────────────────────────────────────────
+const { Client: SshClient } = require("ssh2");
+const REMOX_DB_PATH = path.join(app.getPath("userData"), "remox-connections.json");
+
+function loadRemoxConnections() {
+  try {
+    if (fs.existsSync(REMOX_DB_PATH)) {
+      return JSON.parse(fs.readFileSync(REMOX_DB_PATH, "utf8")).connections || [];
+    }
+  } catch {}
+  return [];
+}
+
+function saveRemoxConnections(connections) {
+  fs.writeFileSync(REMOX_DB_PATH, JSON.stringify({ connections }, null, 2), "utf8");
+}
+
+// sessionId -> { type, conn, stream, socket, winId }
+const remoxSessions = new Map();
+
+ipcMain.handle("remox:load-connections", () => loadRemoxConnections());
+
+ipcMain.handle("remox:save-connection", (_, conn) => {
+  const connections = loadRemoxConnections();
+  if (conn.id) {
+    const idx = connections.findIndex((c) => c.id === conn.id);
+    if (idx >= 0) connections[idx] = conn;
+    else connections.push(conn);
+  } else {
+    conn.id = require("uuid").v4();
+    conn.created_at = new Date().toISOString();
+    connections.push(conn);
+  }
+  saveRemoxConnections(connections);
+  return conn;
+});
+
+ipcMain.handle("remox:delete-connection", (_, id) => {
+  saveRemoxConnections(loadRemoxConnections().filter((c) => c.id !== id));
+  return { success: true };
+});
+
+ipcMain.handle("remox:connect", async (event, { sessionId, connectionId }) => {
+  const conn = loadRemoxConnections().find((c) => c.id === connectionId);
+  if (!conn) return { success: false, error: "Koneksi tidak ditemukan" };
+
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return { success: false, error: "Window tidak tersedia" };
+
+  const sendData = (data) => {
+    if (!win.isDestroyed()) win.webContents.send("remox:data", { sessionId, data });
+  };
+  const sendStatus = (status, message) => {
+    if (!win.isDestroyed()) win.webContents.send("remox:status", { sessionId, status, message });
+  };
+
+  try {
+    if (conn.type === "ssh") {
+      await new Promise((resolve, reject) => {
+        const ssh = new SshClient();
+        ssh.on("ready", () => {
+          ssh.shell({ term: "xterm-256color", rows: 24, cols: 80 }, (err, stream) => {
+            if (err) { ssh.end(); reject(err); return; }
+            remoxSessions.set(sessionId, { type: "ssh", conn: ssh, stream });
+            stream.on("data", (d) => sendData(d.toString("binary")));
+            stream.stderr.on("data", (d) => sendData(d.toString("binary")));
+            stream.on("close", () => {
+              remoxSessions.delete(sessionId);
+              sendStatus("disconnected", "Koneksi SSH ditutup");
+            });
+            sendStatus("connected");
+            resolve();
+          });
+        });
+        ssh.on("error", reject);
+        ssh.on("close", () => {
+          if (remoxSessions.has(sessionId)) {
+            remoxSessions.delete(sessionId);
+            sendStatus("disconnected", "Koneksi SSH terputus");
+          }
+        });
+        const opts = {
+          host: conn.host,
+          port: parseInt(conn.port) || 22,
+          username: conn.username,
+          readyTimeout: 20000,
+        };
+        if (conn.privateKey) opts.privateKey = conn.privateKey;
+        else opts.password = conn.password || "";
+        ssh.connect(opts);
+      });
+      return { success: true };
+
+    } else if (conn.type === "telnet") {
+      await new Promise((resolve, reject) => {
+        const socket = new nodeNet.Socket();
+        socket.setTimeout(20000);
+        socket.once("connect", () => {
+          socket.setTimeout(0);
+          remoxSessions.set(sessionId, { type: "telnet", socket });
+          sendStatus("connected");
+          resolve();
+        });
+        socket.on("data", (d) => sendData(d.toString("binary")));
+        socket.on("close", () => {
+          if (remoxSessions.has(sessionId)) {
+            remoxSessions.delete(sessionId);
+            sendStatus("disconnected", "Koneksi Telnet terputus");
+          }
+        });
+        socket.on("error", reject);
+        socket.on("timeout", () => reject(new Error("Connection timeout")));
+        socket.connect(parseInt(conn.port) || 23, conn.host);
+      });
+      return { success: true };
+
+    } else {
+      return { success: false, error: "Tipe koneksi tidak didukung" };
+    }
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.on("remox:send-data", (_, { sessionId, data }) => {
+  const s = remoxSessions.get(sessionId);
+  if (!s) return;
+  if (s.type === "ssh" && s.stream) s.stream.write(data);
+  else if (s.type === "telnet" && s.socket) s.socket.write(data);
+});
+
+ipcMain.on("remox:resize", (_, { sessionId, cols, rows }) => {
+  const s = remoxSessions.get(sessionId);
+  if (s?.type === "ssh" && s.stream) s.stream.setWindow(rows, cols, 0, 0);
+});
+
+ipcMain.handle("remox:disconnect", (_, sessionId) => {
+  const s = remoxSessions.get(sessionId);
+  if (!s) return { success: true };
+  if (s.type === "ssh") { s.stream?.end(); s.conn?.end(); }
+  else if (s.type === "telnet") { s.socket?.destroy(); }
+  remoxSessions.delete(sessionId);
+  return { success: true };
+});
+
+// Launch native RDP client
+ipcMain.handle("remox:launch-rdp", async (_, { host, port, username, password, domain }) => {
+  try {
+    const rdpPort = parseInt(port) || 3389;
+    const userField = domain ? `${domain}\\${username}` : (username || "");
+
+    // Build standard .rdp file — opened by mstsc (Win), MS Remote Desktop (mac), Remmina (Linux)
+    const rdpLines = [
+      `full address:s:${host}:${rdpPort}`,
+      `username:s:${userField}`,
+      `prompt for credentials:i:${password ? 0 : 1}`,
+      `desktopwidth:i:1280`,
+      `desktopheight:i:800`,
+      `session bpp:i:32`,
+      `compression:i:1`,
+      `connection type:i:7`,
+      `networkautodetect:i:1`,
+      `bandwidthautodetect:i:1`,
+      `authentication level:i:2`,
+      `enablecredsspsupport:i:1`,
+      `redirectclipboard:i:1`,
+      `audiomode:i:0`,
+    ];
+    const tmpDir = app.getPath("temp");
+    const rdpFile = path.join(tmpDir, `starbox_rdp_${Date.now()}.rdp`);
+    fs.writeFileSync(rdpFile, rdpLines.join("\r\n") + "\r\n", "utf8");
+
+    if (process.platform === "win32") {
+      // Windows: mstsc.exe bawaan OS
+      spawn("mstsc", [rdpFile], { detached: true, stdio: "ignore" }).unref();
+    } else if (process.platform === "darwin") {
+      // macOS: shell.openPath membuka dengan MS Remote Desktop (jika terinstall)
+      const err = await shell.openPath(rdpFile);
+      if (err) {
+        return { success: false, error: "Tidak ada aplikasi RDP. Silakan install Microsoft Remote Desktop dari App Store." };
+      }
+    } else {
+      // Linux: coba shell.openPath dulu (Remmina/GNOME), fallback ke xfreerdp
+      const err = await shell.openPath(rdpFile);
+      if (err) {
+        const args = [`/v:${host}:${rdpPort}`, `/u:${username || ""}`];
+        if (domain) args.push(`/d:${domain}`);
+        if (password) args.push(`/p:${password}`);
+        args.push("/dynamic-resolution", "/cert:ignore", "+clipboard");
+        spawn("xfreerdp", args, { detached: true, stdio: "ignore" }).unref();
+      }
+    }
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err?.message || String(err) };
+  }
+});
+
+// ── Resource Monitor ────────────────────────────────────────────────────────
+
+// List running processes (like Activity Monitor / Task Manager)
+ipcMain.handle('resource-monitor-processes', async (_, limit = 60) => {
+  return new Promise((resolve) => {
+    try {
+      let cmd, args;
+      if (process.platform === 'win32') {
+        cmd = 'wmic';
+        args = ['process', 'get', 'ProcessId,Name,WorkingSetSize,CommandLine', '/format:csv'];
+      } else {
+        // macOS / Linux: ps aux sorted by RSS memory
+        cmd = 'ps';
+        args = ['aux', '--no-headers'];
+        if (process.platform === 'darwin') args = ['aux'];
+      }
+
+      const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      child.stdout.on('data', d => { out += d.toString(); });
+      child.on('close', () => {
+        const procs = [];
+        if (process.platform === 'win32') {
+          // wmic csv: skip first 2 lines (empty, header)
+          const lines = out.split('\n').filter(l => l.trim());
+          const header = lines[0]?.split(',').map(h => h.trim());
+          for (let i = 1; i < lines.length && procs.length < limit; i++) {
+            const cols = lines[i].split(',').map(c => c.trim());
+            if (cols.length < 3) continue;
+            const pid  = parseInt(cols[header?.indexOf('ProcessId')] || cols[1]) || 0;
+            const name = (cols[header?.indexOf('Name')] || cols[2] || '').replace(/"/g, '');
+            const mem  = parseInt(cols[header?.indexOf('WorkingSetSize')] || cols[3]) || 0;
+            if (!name || pid === 0) continue;
+            procs.push({ pid, name, cpu: null, mem, user: '' });
+          }
+        } else {
+          // USER PID %CPU %MEM VSZ RSS TT STAT STARTED TIME COMMAND
+          const lines = out.split('\n');
+          for (const line of lines) {
+            if (!line.trim() || line.startsWith('USER')) continue;
+            const parts = line.trim().split(/\s+/);
+            if (parts.length < 11) continue;
+            const user = parts[0];
+            const pid  = parseInt(parts[1]);
+            const cpu  = parseFloat(parts[2]);
+            const memPct = parseFloat(parts[3]);
+            const rss  = parseInt(parts[5]) * 1024; // RSS in KB → bytes
+            const cmd  = parts.slice(10).join(' ');
+            const name = parts[10].split('/').pop().split('\\').pop().slice(0, 40);
+            if (!pid) continue;
+            procs.push({ pid, name, cpu, memPct, mem: rss, user, cmd: cmd.slice(0, 80) });
+          }
+        }
+        // sort by memory desc, limit
+        procs.sort((a, b) => (b.mem || 0) - (a.mem || 0));
+        resolve(procs.slice(0, limit));
+      });
+      child.on('error', () => resolve([]));
+      setTimeout(() => { try { child.kill(); } catch {} resolve([]); }, 5000);
+    } catch (e) {
+      resolve([]);
+    }
+  });
+});
+
+// Kill a process by PID (restricted — cannot kill StarBox itself or PID 1)
+ipcMain.handle('resource-monitor-kill', async (_, pid) => {
+  pid = parseInt(pid);
+  if (!pid || pid <= 1 || pid === process.pid) {
+    return { success: false, error: 'Proses tidak dapat dihentikan.' };
+  }
+  try {
+    process.kill(pid, 'SIGTERM');
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('resource-monitor-get', async () => {
+  const totalMem = os.totalmem();
+  const freeMem  = os.freemem();
+
+  // Disk usage (try fs.statfs → fallback df/wmic)
+  let disk = null;
+  try {
+    const fsStatfs = fs.statfsSync || null;
+    if (fsStatfs) {
+      const st = fsStatfs(app.getPath('userData'));
+      disk = {
+        total: st.blocks * st.bsize,
+        free:  st.bfree  * st.bsize,
+        used:  (st.blocks - st.bfree) * st.bsize,
+      };
+    }
+  } catch (_) {}
+  if (!disk) {
+    // best-effort: spawn df on unix, skip on windows
+    try {
+      if (process.platform !== 'win32') {
+        const { execSync } = require('child_process');
+        const raw = execSync('df -k /', { timeout: 2000 }).toString().split('\n')[1].trim().split(/\s+/);
+        if (raw.length >= 4) {
+          const total = parseInt(raw[1]) * 1024;
+          const used  = parseInt(raw[2]) * 1024;
+          const free  = parseInt(raw[3]) * 1024;
+          disk = { total, used, free };
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Running service counts
+  const webCount     = Object.keys(deviceWindows).length;
+  const androidCount = vmProcesses.size;  // QEMU VMs
+  let   cctvCount    = 0;
+  try { cctvCount = cctvManager?.streams?.size || 0; } catch (_) {}
+  let   waCount    = 0;
+  try { waCount = waDeviceCallbacks?.size || 0; } catch (_) {}
+  const adbRemoteCount = scrcpySessions.size;   // Android ADB Remote (scrcpy sessions)
+  const remoxCount     = remoxSessions.size;    // Remox SSH/Telnet sessions
+
+  const selfMem = process.memoryUsage();
+
+  return {
+    cpu:      _rmCpuCache,
+    mem:      { total: totalMem, used: totalMem - freeMem, free: freeMem },
+    disk,
+    services: {
+      webEmulator:      webCount,
+      androidEmulator:  androidCount,
+      cctvStreams:      cctvCount,
+      waGateway:        waCount,
+      adbRemote:        adbRemoteCount,
+      remox:            remoxCount,
+    },
+    selfMem: {
+      rss:        selfMem.rss,
+      heapUsed:   selfMem.heapUsed,
+      heapTotal:  selfMem.heapTotal,
+      external:   selfMem.external,
+    },
+    system: {
+      platform: os.platform(),
+      arch:     os.arch(),
+      cores:    os.cpus().length,
+      model:    os.cpus()[0]?.model || '',
+      hostname: os.hostname(),
+      uptime:   os.uptime(),
+    },
+  };
+});
+
+// TCP reachability check (ping port)
+ipcMain.handle("remox:ping", (_, { host, port }) => {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const socket = new nodeNet.Socket();
+    socket.setTimeout(5000);
+    socket.once("connect", () => {
+      const latency = Date.now() - start;
+      socket.destroy();
+      resolve({ reachable: true, latency });
+    });
+    socket.once("error", () => { socket.destroy(); resolve({ reachable: false, latency: null }); });
+    socket.once("timeout", () => { socket.destroy(); resolve({ reachable: false, latency: null }); });
+    socket.connect(parseInt(port) || 22, host);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── LOG CLEANUP ───────────────────────────────────────────────
+function trimStarboxLog() {
+  try {
+    const logPath = path.join(userDataPath, 'starbox.log');
+    if (!fs.existsSync(logPath)) return;
+    const cutoff = Date.now() - LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    const content = fs.readFileSync(logPath, 'utf-8');
+    const lines = content.split('\n');
+    // Lines format: "[LOG] 2024-01-01T00:00:00.000Z: ..."
+    // Keep lines whose timestamp is within retention window, or lines with no parseable timestamp
+    const kept = lines.filter(line => {
+      const m = line.match(/^\[(?:LOG|ERR|WARN)\] (\d{4}-\d{2}-\d{2}T[\d:.]+Z):/);
+      if (!m) return line.trim() !== ''; // keep non-empty non-timestamped lines
+      return new Date(m[1]).getTime() >= cutoff;
+    });
+    fs.writeFileSync(logPath, kept.join('\n') + (kept.length ? '\n' : ''));
+    console.log(`[LOG CLEANUP] starbox.log trimmed: kept ${kept.length} of ${lines.length} lines`);
+  } catch (e) {
+    // non-fatal
+  }
+}
+
+// ── CRON JOB MANAGER ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+const MAX_CRON_HISTORY = 100; // max history entries per job
+let cronSchedulerInterval = null;
+
+function cronDbRead() {
+  if (!CRON_JOBS_DB_PATH) return { jobs: [] };
+  const dir = path.dirname(CRON_JOBS_DB_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (!fs.existsSync(CRON_JOBS_DB_PATH)) {
+    fs.writeFileSync(CRON_JOBS_DB_PATH, JSON.stringify({ jobs: [] }, null, 2));
+    return { jobs: [] };
+  }
+  try {
+    return JSON.parse(fs.readFileSync(CRON_JOBS_DB_PATH, "utf8"));
+  } catch {
+    return { jobs: [] };
+  }
+}
+
+function cronDbWrite(data) {
+  if (!CRON_JOBS_DB_PATH) return;
+  const dir = path.dirname(CRON_JOBS_DB_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(CRON_JOBS_DB_PATH, JSON.stringify(data, null, 2));
+}
+
+function cronShouldRun(cronExpr, now) {
+  try {
+    const interval = cronParser.parseExpression(cronExpr, { currentDate: now, iterator: true });
+    const prev = interval.prev();
+    // Check if the previous scheduled time is within the current minute
+    const prevDate = prev.value.toDate();
+    return Math.abs(prevDate.getTime() - now.getTime()) < 60000;
+  } catch {
+    return false;
+  }
+}
+
+function cronNextRun(cronExpr) {
+  try {
+    const interval = cronParser.parseExpression(cronExpr);
+    return interval.next().toDate().toISOString();
+  } catch {
+    return null;
+  }
+}
+
+async function cronExecuteJob(job) {
+  const startTime = Date.now();
+  const http = require("http");
+  const https = require("https");
+  const url = new URL(job.url);
+  const isHttps = url.protocol === "https:";
+  const lib = isHttps ? https : http;
+
+  const method = (job.method || "GET").toUpperCase();
+  const headers = Object.assign({ "User-Agent": "StarBox-CronJob/1.0" }, job.headers || {});
+  let body = null;
+  if (method === "POST" && job.body) {
+    body = typeof job.body === "string" ? job.body : JSON.stringify(job.body);
+    headers["Content-Type"] = headers["Content-Type"] || "application/json";
+    headers["Content-Length"] = Buffer.byteLength(body);
+  }
+
+  return new Promise((resolve) => {
+    const options = {
+      hostname: url.hostname,
+      port: url.port || (isHttps ? 443 : 80),
+      path: url.pathname + url.search,
+      method,
+      headers,
+      timeout: 30000,
+    };
+    const req = lib.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => { data += chunk; });
+      res.on("end", () => {
+        resolve({
+          status: res.statusCode,
+          ok: res.statusCode >= 200 && res.statusCode < 300,
+          duration: Date.now() - startTime,
+          response: data.substring(0, 500),
+        });
+      });
+    });
+    req.on("error", (err) => {
+      resolve({ status: 0, ok: false, duration: Date.now() - startTime, error: err.message });
+    });
+    req.on("timeout", () => {
+      req.destroy();
+      resolve({ status: 0, ok: false, duration: Date.now() - startTime, error: "Request timeout" });
+    });
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+function startCronScheduler() {
+  if (cronSchedulerInterval) clearInterval(cronSchedulerInterval);
+  // Align to the next whole minute, then tick every 60s
+  const msToNextMinute = (60 - new Date().getSeconds()) * 1000 - new Date().getMilliseconds();
+  setTimeout(() => {
+    runDueCronJobs();
+    cronSchedulerInterval = setInterval(runDueCronJobs, 60000);
+  }, msToNextMinute);
+}
+
+async function runDueCronJobs() {
+  const db = cronDbRead();
+  if (!db.jobs || !db.jobs.length) return;
+  const now = new Date();
+  let changed = false;
+  for (const job of db.jobs) {
+    if (!job.enabled) continue;
+    if (!cronShouldRun(job.schedule, now)) continue;
+    // Run the job
+    const result = await cronExecuteJob(job).catch((err) => ({
+      status: 0, ok: false, duration: 0, error: err.message,
+    }));
+    const historyEntry = {
+      id: uuidv4(),
+      runAt: now.toISOString(),
+      status: result.ok ? "success" : "failed",
+      httpStatus: result.status,
+      duration: result.duration,
+      response: result.response || null,
+      error: result.error || null,
+    };
+    if (!job.history) job.history = [];
+    job.history.unshift(historyEntry);
+    // Prune entries older than retention window, then cap at MAX_CRON_HISTORY
+    const historyCutoff = Date.now() - LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    job.history = job.history.filter(h => new Date(h.runAt).getTime() >= historyCutoff);
+    if (job.history.length > MAX_CRON_HISTORY) job.history = job.history.slice(0, MAX_CRON_HISTORY);
+    job.lastRun = historyEntry.runAt;
+    job.lastStatus = historyEntry.status;
+    job.nextRun = cronNextRun(job.schedule);
+    changed = true;
+    console.log(`[CRON] Job "${job.name}" → ${historyEntry.status} (${result.status}) in ${result.duration}ms`);
+    // Notify renderer
+    const wins = BrowserWindow.getAllWindows();
+    if (wins.length) wins[0].webContents.send("cron-job-executed", { jobId: job.id, entry: historyEntry });
+  }
+  if (changed) cronDbWrite(db);
+}
+
+// ── IPC Handlers ──────────────────────────────────────────────
+
+ipcMain.handle("cron-load-jobs", () => {
+  const db = cronDbRead();
+  // Refresh nextRun for all jobs
+  (db.jobs || []).forEach((j) => { j.nextRun = cronNextRun(j.schedule); });
+  return db.jobs || [];
+});
+
+ipcMain.handle("cron-add-job", (_, job) => {
+  const db = cronDbRead();
+  const newJob = {
+    id: uuidv4(),
+    name: job.name || "Untitled Job",
+    schedule: job.schedule || "*/5 * * * *",
+    url: job.url || "",
+    method: job.method || "GET",
+    body: job.body || "",
+    headers: job.headers || {},
+    enabled: job.enabled !== false,
+    history: [],
+    lastRun: null,
+    lastStatus: null,
+    nextRun: cronNextRun(job.schedule || "*/5 * * * *"),
+    createdAt: new Date().toISOString(),
+  };
+  if (!db.jobs) db.jobs = [];
+  db.jobs.push(newJob);
+  cronDbWrite(db);
+  return newJob;
+});
+
+ipcMain.handle("cron-edit-job", (_, { id, updates }) => {
+  const db = cronDbRead();
+  const idx = (db.jobs || []).findIndex((j) => j.id === id);
+  if (idx === -1) return { ok: false, error: "Job not found" };
+  const job = db.jobs[idx];
+  Object.assign(job, {
+    name: updates.name ?? job.name,
+    schedule: updates.schedule ?? job.schedule,
+    url: updates.url ?? job.url,
+    method: updates.method ?? job.method,
+    body: updates.body ?? job.body,
+    headers: updates.headers ?? job.headers,
+    enabled: updates.enabled ?? job.enabled,
+  });
+  job.nextRun = cronNextRun(job.schedule);
+  cronDbWrite(db);
+  return { ok: true, job };
+});
+
+ipcMain.handle("cron-delete-job", (_, id) => {
+  const db = cronDbRead();
+  const before = (db.jobs || []).length;
+  db.jobs = (db.jobs || []).filter((j) => j.id !== id);
+  if (db.jobs.length === before) return { ok: false };
+  cronDbWrite(db);
+  return { ok: true };
+});
+
+ipcMain.handle("cron-toggle-job", (_, { id, enabled }) => {
+  const db = cronDbRead();
+  const job = (db.jobs || []).find((j) => j.id === id);
+  if (!job) return { ok: false };
+  job.enabled = enabled;
+  cronDbWrite(db);
+  return { ok: true };
+});
+
+ipcMain.handle("cron-run-now", async (_, id) => {
+  const db = cronDbRead();
+  const job = (db.jobs || []).find((j) => j.id === id);
+  if (!job) return { ok: false, error: "Job not found" };
+  const result = await cronExecuteJob(job).catch((err) => ({
+    status: 0, ok: false, duration: 0, error: err.message,
+  }));
+  const historyEntry = {
+    id: uuidv4(),
+    runAt: new Date().toISOString(),
+    status: result.ok ? "success" : "failed",
+    httpStatus: result.status,
+    duration: result.duration,
+    response: result.response || null,
+    error: result.error || null,
+    manual: true,
+  };
+  if (!job.history) job.history = [];
+  job.history.unshift(historyEntry);
+  if (job.history.length > MAX_CRON_HISTORY) job.history = job.history.slice(0, MAX_CRON_HISTORY);
+  job.lastRun = historyEntry.runAt;
+  job.lastStatus = historyEntry.status;
+  cronDbWrite(db);
+  return { ok: true, entry: historyEntry };
+});
+
+ipcMain.handle("cron-get-history", (_, id) => {
+  const db = cronDbRead();
+  const job = (db.jobs || []).find((j) => j.id === id);
+  return job ? (job.history || []) : [];
+});
+
+ipcMain.handle("cron-clear-history", (_, id) => {
+  const db = cronDbRead();
+  const job = (db.jobs || []).find((j) => j.id === id);
+  if (!job) return { ok: false };
+  job.history = [];
+  cronDbWrite(db);
+  return { ok: true };
+});
+
+ipcMain.handle("cron-validate-expr", (_, expr) => {
+  try {
+    cronParser.parseExpression(expr);
+    const next = cronNextRun(expr);
+    return { valid: true, next };
+  } catch (e) {
+    return { valid: false, error: e.message };
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── STARCAPTURE – Screenshot & Screen Recording ────────────────
+// ═══════════════════════════════════════════════════════════════
+
+// ── Global Shortcuts ─────────────────────────────────────────
+const SC_SHORTCUTS_KEY = 'starCaptureShortcuts';
+const SC_SHORTCUT_DEFAULTS = { screenshot: 'CommandOrControl+Shift+S', record: 'CommandOrControl+Shift+R' };
+
+function scGetShortcuts() {
+  try {
+    const saved = store && store.get(SC_SHORTCUTS_KEY);
+    return Object.assign({}, SC_SHORTCUT_DEFAULTS, saved || {});
+  } catch { return { ...SC_SHORTCUT_DEFAULTS }; }
+}
+
+function registerStarCaptureShortcuts() {
+  globalShortcut.unregisterAll();
+  const shortcuts = scGetShortcuts();
+  // Screenshot shortcut → direct overlay capture flow (preview stays on screen)
+  if (shortcuts.screenshot) {
+    try {
+      globalShortcut.register(shortcuts.screenshot, () => scStartOverlayCaptureFlow());
+    } catch (e) { console.warn(`⚠️ Screenshot shortcut [${shortcuts.screenshot}] failed: ${e.message}`); }
+  }
+  // Record shortcut → send to renderer as before
+  if (shortcuts.record) {
+    try {
+      globalShortcut.register(shortcuts.record, () => {
+        const wins = BrowserWindow.getAllWindows();
+        if (wins.length) wins[0].webContents.send('starcapture:shortcut', 'record');
+      });
+    } catch (e) { console.warn(`⚠️ Record shortcut [${shortcuts.record}] failed: ${e.message}`); }
+  }
+  console.log('✅ StarCapture shortcuts registered:', shortcuts);
+}
+
+// ── Multi-display capture helpers ────────────────────────────
+// Map<displayId, { image: NativeImage, bounds, scaleFactor }>
+let scPreCapturedDisplays = null;
+let scOverlayMinX = 0, scOverlayMinY = 0;
+
+async function scCaptureAllDisplaysPre() {
+  const displays = screen.getAllDisplays();
+  const result = new Map();
+  // Capture each display separately at its exact native resolution
+  // so thumbnailSize matches 1:1 and no scale correction is needed
+  for (let i = 0; i < displays.length; i++) {
+    const d = displays[i];
+    const physW = Math.round(d.bounds.width  * d.scaleFactor);
+    const physH = Math.round(d.bounds.height * d.scaleFactor);
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: physW, height: physH },
+    });
+    // Try display_id match first, then index fallback
+    let src = sources.find(s => String(s.display_id) === String(d.id));
+    if (!src && i < sources.length) src = sources[i];
+    if (!src) src = sources[0];
+    if (src) result.set(d.id, { image: src.thumbnail, bounds: d.bounds, scaleFactor: d.scaleFactor });
+  }
+  return result;
+}
+
+function scCropFromDisplayMap(rect) {
+  if (!scPreCapturedDisplays) return null;
+  // rect.displayX/Y = CSS pixels inside overlay (relative to overlay top-left)
+  const screenLogX = scOverlayMinX + rect.displayX;
+  const screenLogY = scOverlayMinY + rect.displayY;
+
+  // Find the display containing the center of selection
+  let entry = null;
+  for (const [, e] of scPreCapturedDisplays) {
+    const { bounds } = e;
+    if (screenLogX >= bounds.x && screenLogX < bounds.x + bounds.width &&
+        screenLogY >= bounds.y && screenLogY < bounds.y + bounds.height) {
+      entry = e; break;
+    }
+  }
+  if (!entry) {
+    const primary = screen.getPrimaryDisplay();
+    entry = scPreCapturedDisplays.get(primary.id) || [...scPreCapturedDisplays.values()][0];
+  }
+  if (!entry) return null;
+
+  const { image, bounds, scaleFactor } = entry;
+  const actual = image.getSize();
+
+  // Coordinates relative to this display's top-left (in logical pixels)
+  const relLogX = rect.displayX + scOverlayMinX - bounds.x;
+  const relLogY = rect.displayY + scOverlayMinY - bounds.y;
+
+  // thumbnail was captured at exact native resolution, so no scale correction needed
+  const cropX = Math.max(0, Math.round(relLogX * scaleFactor));
+  const cropY = Math.max(0, Math.round(relLogY * scaleFactor));
+  const cropW = Math.min(actual.width  - cropX, Math.round(rect.displayW * scaleFactor));
+  const cropH = Math.min(actual.height - cropY, Math.round(rect.displayH * scaleFactor));
+
+  if (cropW < 1 || cropH < 1) return null;
+  const cropped = image.crop({ x: cropX, y: cropY, width: cropW, height: cropH });
+  return scImageToBase64(cropped);
+}
+
+// ── Overlay capture flow (screenshot shortcut) ───────────────
+async function scStartOverlayCaptureFlow() {
+  if (scOverlayWindow && !scOverlayWindow.isDestroyed()) return; // already open
+  // Pre-capture ALL displays before overlay opens (no minimize — overlay appears on top)
+  scPreCapturedDisplays = await scCaptureAllDisplaysPre();
+  scCurrentMode = 'screenshot-overlay';
+  scOpenOverlayWindow();
+}
+
+let scPendingMainWins = [];
+
+function scOpenOverlayWindow() {
+  const displays = screen.getAllDisplays();
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const d of displays) {
+    minX = Math.min(minX, d.bounds.x);  minY = Math.min(minY, d.bounds.y);
+    maxX = Math.max(maxX, d.bounds.x + d.bounds.width);
+    maxY = Math.max(maxY, d.bounds.y + d.bounds.height);
+  }
+  // Store overlay origin for multi-display crop calculation
+  scOverlayMinX = minX; scOverlayMinY = minY;
+
+  scOverlayWindow = new BrowserWindow({
+    x: minX, y: minY, width: maxX - minX, height: maxY - minY,
+    frame: false, transparent: true, alwaysOnTop: true,
+    fullscreen: false, skipTaskbar: true, resizable: false,
+    movable: false, hasShadow: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'starcapture-overlay-preload.cjs'),
+      contextIsolation: true, nodeIntegration: false,
+    },
+  });
+  scOverlayWindow.setAlwaysOnTop(true, 'screen-saver');
+  scOverlayWindow.setVisibleOnAllWorkspaces(true);
+  scOverlayWindow.loadFile(path.join(__dirname, 'starcapture-overlay.html'));
+  scOverlayWindow.on('closed', () => {
+    scOverlayWindow = null;
+    scPreCapturedDisplays = null;
+    // Restore main windows when overlay closes
+    for (const w of scPendingMainWins) { try { if (!w.isDestroyed()) { w.restore(); w.focus(); } } catch {} }
+    scPendingMainWins = [];
+    if (scPendingResolve) { scPendingResolve(null); scPendingResolve = null; }
+  });
+}
+
+ipcMain.handle('starcapture:get-shortcuts', () => scGetShortcuts());
+
+ipcMain.handle('starcapture:set-shortcuts', (_, shortcuts) => {
+  try {
+    if (store) store.set(SC_SHORTCUTS_KEY, shortcuts);
+    registerStarCaptureShortcuts();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+app.on('will-quit', () => globalShortcut.unregisterAll());
+
+// ── Screenshot helpers ───────────────────────────────────────
+async function scCaptureFullScreen() {
+  const display = screen.getPrimaryDisplay();
+  const { width, height } = display.size;
+  const sf = display.scaleFactor;
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: { width: Math.round(width * sf), height: Math.round(height * sf) },
+  });
+  if (!sources.length) return null;
+  return sources[0].thumbnail; // NativeImage
+}
+
+async function scCaptureActiveWindow() {
+  const sources = await desktopCapturer.getSources({
+    types: ['window'],
+    thumbnailSize: { width: 3840, height: 2160 },
+    fetchWindowIcons: false,
+  });
+  // Prefer first non-minimized visible window (filter out StarBox itself)
+  const filtered = sources.filter(s => s.name && !s.name.includes('StarBox'));
+  const src = filtered.length ? filtered[0] : sources[0];
+  if (!src) return null;
+  return src.thumbnail;
+}
+
+function scImageToBase64(img) {
+  if (!img) return null;
+  const buf = img.toPNG();
+  return 'data:image/png;base64,' + buf.toString('base64');
+}
+
+// ── Overlay window (for page-button flows: area screenshot and area record) ──
+function scOpenOverlay(mode) {
+  return new Promise((resolve) => {
+    if (scOverlayWindow && !scOverlayWindow.isDestroyed()) scOverlayWindow.close();
+    scCurrentMode    = mode;
+    scPendingResolve = resolve;
+    scPendingMainWins = [];
+    scOpenOverlayWindow();
+  });
+}
+
+function scCloseOverlay() {
+  if (scOverlayWindow && !scOverlayWindow.isDestroyed()) scOverlayWindow.close();
+  scOverlayWindow = null;
+}
+
+// ── IPC: Overlay ──────────────────────────────────────────────
+ipcMain.handle('starcapture:overlay-get-mode', () => scCurrentMode);
+
+// Used by recording (page button) — close overlay and resolve with rect
+ipcMain.on('starcapture:area-confirmed', (_, rect) => {
+  scCloseOverlay();
+  if (scPendingResolve) { scPendingResolve(rect); scPendingResolve = null; }
+});
+
+// Used by screenshot-overlay flow — crop correct display and send image back to overlay
+ipcMain.on('starcapture:capture-confirmed', async (_, rect) => {
+  if (!scPreCapturedDisplays || !scOverlayWindow || scOverlayWindow.isDestroyed()) {
+    scCloseOverlay(); return;
+  }
+  try {
+    const dataUrl = scCropFromDisplayMap(rect);
+    if (!dataUrl) throw new Error('Failed to crop display');
+    scOverlayWindow.webContents.send('starcapture:overlay-show-image', dataUrl);
+  } catch (e) {
+    console.error('[StarCapture] crop error:', e);
+    scCloseOverlay();
+  }
+});
+
+ipcMain.on('starcapture:overlay-cancel', () => {
+  scCloseOverlay();
+  if (scPendingResolve) { scPendingResolve(null); scPendingResolve = null; }
+  const wins = BrowserWindow.getAllWindows();
+  if (wins.length) wins[0].webContents.send('starcapture:cancelled');
+});
+
+ipcMain.on('starcapture:overlay-close', () => {
+  scCloseOverlay();
+});
+
+ipcMain.handle('starcapture:overlay-copy', async (_, dataUrl) => {
+  try {
+    const img = nativeImage.createFromDataURL(dataUrl);
+    clipboard.writeImage(img);
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('starcapture:overlay-save', async (_, dataUrl) => {
+  const win = scOverlayWindow && !scOverlayWindow.isDestroyed() ? scOverlayWindow : BrowserWindow.getAllWindows()[0];
+  const result = await dialog.showSaveDialog(win, {
+    title: 'Simpan Screenshot',
+    defaultPath: path.join(app.getPath('pictures'), `screenshot-${Date.now()}.png`),
+    filters: [{ name: 'PNG Image', extensions: ['png'] }],
+  });
+  if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+  try {
+    const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+    fs.writeFileSync(result.filePath, Buffer.from(base64, 'base64'));
+    return { ok: true, filePath: result.filePath };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+// ── IPC: Screenshot ─────────────────────────────────────────
+ipcMain.handle('starcapture:screenshot-full', async () => {
+  const img = await scCaptureFullScreen();
+  return scImageToBase64(img);
+});
+
+ipcMain.handle('starcapture:screenshot-window', async () => {
+  const img = await scCaptureActiveWindow();
+  return scImageToBase64(img);
+});
+
+ipcMain.handle('starcapture:screenshot-area', async () => {
+  // Page-button area screenshot: overlay appears on top (no minimize)
+  // Pre-capture ALL displays before overlay opens
+  scPreCapturedDisplays = await scCaptureAllDisplaysPre();
+
+  const rect = await scOpenOverlay('screenshot');
+  if (!rect) return null;
+
+  // Crop from the correct display
+  const dataUrl = scCropFromDisplayMap(rect);
+  scPreCapturedDisplays = null;
+  return dataUrl;
+});
+
+
+// ── IPC: Recording source ID ─────────────────────────────────
+ipcMain.handle('starcapture:get-screen-sources', async () => {
+  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
+  return sources.map(s => ({ id: s.id, name: s.name }));
+});
+
+ipcMain.handle('starcapture:get-area-for-record', async () => {
+  const mainWins = BrowserWindow.getAllWindows().filter(w => !w.isDestroyed());
+  mainWins.forEach(w => w.minimize());
+  await new Promise(r => setTimeout(r, 250));
+
+  const rect = await scOpenOverlay('record');
+  mainWins.forEach(w => { try { w.restore(); w.focus(); } catch {} });
+  return rect; // { x, y, w, h, displayX, displayY, displayW, displayH }
+});
+
+// ── IPC: Save / Clipboard ────────────────────────────────────
+ipcMain.handle('starcapture:copy-image', (_, dataUrl) => {
+  try {
+    const img = nativeImage.createFromDataURL(dataUrl);
+    clipboard.writeImage(img);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('starcapture:save-image', async (_, { dataUrl, defaultName }) => {
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  const result = await dialog.showSaveDialog(win, {
+    title: 'Save Screenshot',
+    defaultPath: path.join(app.getPath('pictures'), defaultName || `screenshot-${Date.now()}.png`),
+    filters: [{ name: 'PNG Image', extensions: ['png'] }],
+  });
+  if (result.canceled || !result.filePath) return { ok: false };
+  try {
+    const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+    fs.writeFileSync(result.filePath, Buffer.from(base64, 'base64'));
+    return { ok: true, filePath: result.filePath };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('starcapture:save-video', async (_, { buffer, format, defaultName }) => {
+  const ext = format === 'webm' ? 'webm' : 'webm'; // save as webm, user can convert
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  const result = await dialog.showSaveDialog(win, {
+    title: 'Save Recording',
+    defaultPath: path.join(app.getPath('videos'), defaultName || `recording-${Date.now()}.${ext}`),
+    filters: [
+      { name: 'WebM Video', extensions: ['webm'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+  });
+  if (result.canceled || !result.filePath) return { ok: false };
+  try {
+    const uint8 = Buffer.from(buffer);
+    fs.writeFileSync(result.filePath, uint8);
+    return { ok: true, filePath: result.filePath };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('starcapture:open-file', (_, filePath) => {
+  shell.showItemInFolder(filePath);
+  return true;
 });

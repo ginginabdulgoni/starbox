@@ -1350,7 +1350,6 @@ hw.camera.front=none
       '-feature', '-Vulkan',
       '-no-snapshot-load',
       '-no-snapshot-save',
-      '-no-metrics',
       '-verbose'
     ];
     if (this.isWin) {
@@ -1414,7 +1413,8 @@ hw.camera.front=none
 
         if (this.isMac) {
           env.QEMU_AUDIO_DRV = 'none';
-          env.ANDROID_EMULATOR_HVF = '1';
+          // Do NOT set ANDROID_EMULATOR_HVF when using -no-accel (software mode)
+          // HVF + no-accel conflict causes exit code 1
         }
 
         // Log environment for debugging
@@ -1454,6 +1454,9 @@ hw.camera.front=none
           reject(error);
         });
 
+        let bootResolved = false;
+        let bootTimer = null;
+
         this.emulatorProcess.on('exit', (code) => {
           console.log(`Emulator exited with code ${code}`);
           this.emulatorProcess = null;
@@ -1462,20 +1465,33 @@ hw.camera.front=none
             message: `Emulator selesai dengan kode ${code}`,
             exitCode: code,
           });
+          if (!bootResolved && code !== 0 && code !== null) {
+            bootResolved = true;
+            if (bootTimer) clearTimeout(bootTimer);
+            reject(new Error(`Emulator keluar dengan kode ${code}. Cek log di atas untuk detail kesalahan.`));
+          }
         });
 
         // Wait for emulator to boot (15 minutes for software emulation)
-        setTimeout(() => {
+        bootTimer = setTimeout(() => {
+          bootTimer = null;
+          if (bootResolved) return;
           this.waitForBoot(900000, (payload) => emitProgress(payload))
             .then(() => {
-              resolve({ success: true, port: 5554 });
+              if (!bootResolved) {
+                bootResolved = true;
+                resolve({ success: true, port: 5554 });
+              }
             })
             .catch((err) => {
-              emitProgress({
-                phase: 'error',
-                message: err?.message || 'Gagal menunggu emulator boot',
-              });
-              reject(err);
+              if (!bootResolved) {
+                bootResolved = true;
+                emitProgress({
+                  phase: 'error',
+                  message: err?.message || 'Gagal menunggu emulator boot',
+                });
+                reject(err);
+              }
             });
         }, 2000);
 

@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>StarCapture</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    html, body { width: 100vw; height: 100vh; overflow: hidden; }
+    body { background: transparent; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+    /* ── SELECT MODE ─────────────────────────────────── */
+    #selectCanvas { display: block; position: fixed; inset: 0; cursor: crosshair; z-index: 10; }
+
+    .hint-box {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      background: rgba(13,17,23,0.88); border: 1px solid rgba(124,111,224,0.5);
+      border-radius: 12px; padding: 14px 24px; color: #e0e0e0;
+      font-size: 14px; text-align: center; line-height: 1.7;
+      pointer-events: none; transition: opacity 0.2s; z-index: 20;
+    }
+    .hint-box.hidden { opacity: 0; pointer-events: none; }
+    .hint-box kbd { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 1px 6px; font-size: 12px; }
+
+    .mode-badge {
+      position: fixed; top: 14px; right: 16px; z-index: 20;
+      background: rgba(124,111,224,0.92); color: #fff;
+      padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 600;
+      pointer-events: none;
+    }
+    .mode-badge.record { background: rgba(239,68,68,0.92); }
+
+    .size-badge {
+      position: fixed; z-index: 20;
+      background: rgba(124,111,224,0.9); color: #fff;
+      padding: 3px 10px; border-radius: 5px; font-size: 11px; font-family: monospace;
+      pointer-events: none; display: none;
+    }
+
+    /* Toolbar only shown for record mode (screenshot auto-confirms on mouseup) */
+    #recToolbar {
+      position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 20;
+      background: rgba(13,17,23,0.95); border: 1px solid #30363d; border-radius: 14px;
+      padding: 10px 16px; display: flex; gap: 10px; align-items: center;
+      opacity: 0; pointer-events: none; transition: opacity 0.2s;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    #recToolbar.visible { opacity: 1; pointer-events: all; }
+    .sel-info { font-size: 12px; color: #888; white-space: nowrap; }
+    .sel-btn { padding: 7px 16px; border-radius: 7px; border: 1px solid #30363d; color: #e0e0e0; cursor: pointer; font-size: 13px; background: rgba(255,255,255,0.06); transition: all 0.15s; }
+    .sel-btn:hover { background: rgba(255,255,255,0.12); }
+    .sel-btn.primary { background: linear-gradient(135deg,#ef4444,#f87171); border: none; font-weight: 600; }
+    .sel-btn.danger  { border-color: #ef4444; color: #ef4444; }
+    .sel-btn.danger:hover { background: rgba(239,68,68,0.1); }
+
+    /* ── LOADING ─────────────────────────────────────── */
+    #capLoading {
+      display: none; position: fixed; inset: 0; z-index: 50;
+      background: rgba(0,0,0,0.88);
+      align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+      color: #888; font-size: 14px;
+    }
+    #capLoading.active { display: flex; }
+    .sc-spinner { width: 36px; height: 36px; border: 3px solid #30363d; border-top-color: #7c6fe0; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── EDITOR MODE — all layers are direct children of body ─ */
+
+    /* Dark background */
+    #editorBg {
+      display: none; position: fixed; inset: 0; z-index: 100;
+      background: rgba(5, 8, 14, 0.93);
+    }
+    #editorBg.active { display: block; }
+
+    /* Canvas wrap — centered, always leaves room for toolbars */
+    #annotWrap {
+      display: none; position: fixed;
+      top: 58px; left: 0; right: 0; bottom: 70px; /* leave room for top+bottom bars */
+      z-index: 101;
+      align-items: center; justify-content: center;
+      padding: 8px 16px;
+      overflow: auto;
+    }
+    #annotWrap.active { display: flex; }
+    #annotCanvas {
+      max-width: calc(100vw - 40px);
+      max-height: 100%;          /* constrained by parent, never overlaps bars */
+      border-radius: 6px; cursor: crosshair;
+      box-shadow: 0 8px 48px rgba(0,0,0,0.85);
+      flex-shrink: 1;
+    }
+
+    /* Annotation toolbar — top center, fixed height 46px → annotWrap.top = 58px */
+    #annotToolbar {
+      display: none; position: fixed; top: 6px; left: 50%; transform: translateX(-50%);
+      z-index: 200; height: 46px;
+      background: rgba(13,17,23,0.97); border: 1px solid #30363d;
+      border-radius: 12px; padding: 0 14px;
+      gap: 5px; align-items: center;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.6); white-space: nowrap;
+    }
+    #annotToolbar.active { display: flex; }
+    .at-btn {
+      width: 30px; height: 30px; border-radius: 6px;
+      background: rgba(255,255,255,0.06); border: 1px solid #30363d;
+      color: #888; cursor: pointer; font-size: 13px;
+      display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+    }
+    .at-btn:hover { background: rgba(255,255,255,0.12); color: #e0e0e0; }
+    .at-btn.active { background: rgba(124,111,224,0.28); border-color: #7c6fe0; color: #a78bfa; }
+    .at-sep { width: 1px; height: 20px; background: #30363d; margin: 0 3px; flex-shrink: 0; }
+    .at-color { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #555; cursor: pointer; }
+    .at-sz {
+      width: 28px; height: 28px; border-radius: 6px;
+      background: rgba(255,255,255,0.04); border: 1px solid #30363d;
+      color: #555; cursor: pointer; font-size: 10px;
+      display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+    }
+    .at-sz:hover { color: #e0e0e0; }
+    .at-sz.active { border-color: #7c6fe0; color: #a78bfa; background: rgba(124,111,224,0.2); }
+
+    /* Action bar — bottom center, fixed height 48px → annotWrap.bottom = 70px */
+    #actionBar {
+      display: none; position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+      z-index: 200; height: 54px;
+      background: rgba(13,17,23,0.97); border: 1px solid #30363d;
+      border-radius: 14px; padding: 0 18px;
+      gap: 10px; align-items: center;
+      box-shadow: 0 -4px 24px rgba(0,0,0,0.7), 0 8px 32px rgba(0,0,0,0.6);
+      white-space: nowrap;
+    }
+    #actionBar.active { display: flex; }
+    #imgSizeInfo { font-size: 11px; color: #555; font-family: monospace; }
+    .ab-btn {
+      padding: 7px 16px; border-radius: 8px; border: 1px solid #30363d;
+      color: #e0e0e0; cursor: pointer; font-size: 13px;
+      background: rgba(255,255,255,0.06); transition: all 0.15s;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .ab-btn:hover { background: rgba(255,255,255,0.12); }
+    .ab-btn.primary { background: linear-gradient(135deg,#7c6fe0,#a78bfa); border: none; color: #fff; font-weight: 600; }
+    .ab-btn.success { background: linear-gradient(135deg,#10b981,#34d399); border: none; color: #fff; font-weight: 600; }
+    .ab-btn.danger  { border-color: #ef4444; color: #ef4444; }
+    .ab-btn.danger:hover { background: rgba(239,68,68,0.1); }
+
+    /* Top/bottom strips so toolbars always readable over any image */
+    #topStrip, #botStrip {
+      display: none; position: fixed; left: 0; right: 0; z-index: 150;
+      background: rgba(5,8,14,0.85);
+    }
+    #topStrip { top: 0; height: 58px; }
+    #botStrip { bottom: 0; height: 70px; }
+    #topStrip.active, #botStrip.active { display: block; }
+
+    /* Toast */
+    #toast {
+      position: fixed; bottom: 76px; left: 50%; transform: translateX(-50%);
+      background: rgba(16,185,129,0.95); color: #fff;
+      padding: 8px 20px; border-radius: 20px; font-size: 13px; font-weight: 600;
+      opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 300;
+    }
+    #toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+
+  <!-- ── SELECT MODE ────────────────────────────── -->
+  <canvas id="selectCanvas"></canvas>
+  <div class="hint-box" id="hintBox">
+    <div id="hintText">Seret untuk pilih area &nbsp;·&nbsp; <kbd>ESC</kbd> batal</div>
+  </div>
+  <div class="mode-badge" id="modeBadge">📸 Screenshot</div>
+  <div class="size-badge" id="sizeBadge"></div>
+  <!-- Record mode only: explicit confirm button -->
+  <div id="recToolbar">
+    <span class="sel-info" id="selInfo"></span>
+    <button class="sel-btn" onclick="resetSel()">↺ Reset</button>
+    <button class="sel-btn danger" onclick="doCancel()">✕ Batal</button>
+    <button class="sel-btn primary" onclick="doConfirm()">⏺ Mulai Rekam</button>
+  </div>
+
+  <!-- ── LOADING ────────────────────────────────── -->
+  <div id="capLoading">
+    <div class="sc-spinner"></div>
+    <span>Mengambil gambar...</span>
+  </div>
+
+  <!-- ── EDITOR MODE (direct children of body, no nesting) ── -->
+  <div id="editorBg"></div>
+  <div id="topStrip"></div>
+  <div id="botStrip"></div>
+
+  <div id="annotWrap">
+    <canvas id="annotCanvas"></canvas>
+  </div>
+
+  <div id="annotToolbar">
+    <button class="at-btn active" id="toolArrow"   title="Panah"        onclick="setTool('arrow')">↗</button>
+    <button class="at-btn"        id="toolRect"    title="Kotak"        onclick="setTool('rect')">□</button>
+    <button class="at-btn"        id="toolEllipse" title="Lingkaran"    onclick="setTool('ellipse')">○</button>
+    <button class="at-btn"        id="toolPencil"  title="Gambar bebas" onclick="setTool('pencil')">✏</button>
+    <button class="at-btn"        id="toolText"    title="Teks"         onclick="setTool('text')">T</button>
+    <button class="at-btn"        id="toolBlur"    title="Sensor/Blur"  onclick="setTool('blur')">⊘</button>
+    <div class="at-sep"></div>
+    <label style="position:relative;cursor:pointer;display:flex;align-items:center" title="Pilih warna">
+      <div class="at-color" id="colorDot" style="background:#ef4444"></div>
+      <input type="color" id="colorPicker" value="#ef4444"
+             style="position:absolute;opacity:0;inset:0;cursor:pointer;width:22px;height:22px"
+             onchange="setColor(this.value)">
+    </label>
+    <div class="at-sep"></div>
+    <button class="at-sz active" id="sz2" onclick="setWidth(2,this)" title="Tipis">—</button>
+    <button class="at-sz"        id="sz4" onclick="setWidth(4,this)" title="Sedang">━</button>
+    <button class="at-sz"        id="sz8" onclick="setWidth(8,this)" title="Tebal">█</button>
+    <div class="at-sep"></div>
+    <button class="at-btn" onclick="undoAnnot()" title="Undo (Ctrl+Z)">↩</button>
+    <button class="at-btn" onclick="clearAnnot()" title="Hapus semua">🗑</button>
+  </div>
+
+  <div id="actionBar">
+    <span id="imgSizeInfo"></span>
+    <button class="ab-btn" onclick="doCopy()">📋 Copy</button>
+    <button class="ab-btn success" onclick="doSave()">💾 Simpan</button>
+    <button class="ab-btn primary" onclick="doCopyAndSave()">📋 Copy &amp; Simpan</button>
+    <button class="ab-btn danger"  onclick="doDiscard()">✕ Buang</button>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    // ── State ──────────────────────────────────────────────────────
+    let mode = 'screenshot';
+    let inEditorMode = false;
+
+    // ── Select mode ────────────────────────────────────────────────
+    const selCanvas  = document.getElementById('selectCanvas');
+    const selCtx     = selCanvas.getContext('2d');
+    const hintBox    = document.getElementById('hintBox');
+    const sizeBadge  = document.getElementById('sizeBadge');
+    const modeBadge  = document.getElementById('modeBadge');
+    const recToolbar = document.getElementById('recToolbar');
+    const selInfo    = document.getElementById('selInfo');
+
+    let isDown = false, hasSelection = false;
+    let sx = 0, sy = 0, ex = 0, ey = 0;
+
+    function resizeSel() {
+      selCanvas.width  = window.innerWidth;
+      selCanvas.height = window.innerHeight;
+      redrawSel();
+    }
+    function norm() {
+      return { x:Math.min(sx,ex), y:Math.min(sy,ey), w:Math.abs(ex-sx), h:Math.abs(ey-sy) };
+    }
+    function redrawSel() {
+      selCtx.clearRect(0,0,selCanvas.width,selCanvas.height);
+      selCtx.fillStyle='rgba(0,0,0,0.46)';
+      selCtx.fillRect(0,0,selCanvas.width,selCanvas.height);
+      if(!hasSelection&&!isDown) return;
+      const{x,y,w,h}=norm();
+      if(w<2||h<2) return;
+      selCtx.clearRect(x,y,w,h);
+      selCtx.fillStyle='rgba(255,255,255,0.015)'; selCtx.fillRect(x,y,w,h);
+      const color=mode==='record'?'#ef4444':'#7c6fe0';
+      selCtx.strokeStyle=color; selCtx.lineWidth=2;
+      selCtx.strokeRect(x+1,y+1,w-2,h-2);
+      const hs=8;
+      selCtx.fillStyle=mode==='record'?'#f87171':'#a78bfa';
+      [[x,y],[x+w,y],[x,y+h],[x+w,y+h]].forEach(([cx,cy])=>selCtx.fillRect(cx-hs/2,cy-hs/2,hs,hs));
+      sizeBadge.style.display='block';
+      sizeBadge.style.background=mode==='record'?'rgba(239,68,68,0.9)':'rgba(124,111,224,0.9)';
+      sizeBadge.textContent=`${Math.round(w)} × ${Math.round(h)}`;
+      const bx=x+w/2-40, by=y>30?y-26:y+h+8;
+      sizeBadge.style.left=bx+'px'; sizeBadge.style.top=by+'px';
+    }
+
+    selCanvas.addEventListener('mousedown', e => {
+      if(inEditorMode) return;
+      isDown=true; hasSelection=false;
+      sx=e.clientX; sy=e.clientY; ex=e.clientX; ey=e.clientY;
+      if(mode==='record') recToolbar.classList.remove('visible');
+      hintBox.classList.add('hidden');
+      redrawSel();
+    });
+    selCanvas.addEventListener('mousemove', e => {
+      if(!isDown) return;
+      ex=e.clientX; ey=e.clientY;
+      selInfo.textContent=`${Math.round(Math.abs(ex-sx))} × ${Math.round(Math.abs(ey-sy))} px`;
+      redrawSel();
+    });
+    selCanvas.addEventListener('mouseup', e => {
+      if(!isDown) return;
+      isDown=false; ex=e.clientX; ey=e.clientY;
+      const{w,h}=norm();
+      if(w>10&&h>10) {
+        hasSelection=true;
+        if(mode==='record') {
+          recToolbar.classList.add('visible');
+        } else {
+          // Screenshot: auto-confirm immediately on mouseup — no button needed
+          doConfirm();
+        }
+      } else {
+        hasSelection=false;
+        hintBox.classList.remove('hidden');
+        sizeBadge.style.display='none';
+      }
+      redrawSel();
+    });
+
+    document.addEventListener('keydown', e => {
+      if(e.key==='Escape') { if(inEditorMode) doDiscard(); else doCancel(); }
+      if(e.key==='Enter'&&hasSelection&&!inEditorMode&&mode==='record') doConfirm();
+      if((e.ctrlKey||e.metaKey)&&e.key==='z'&&inEditorMode) undoAnnot();
+    });
+
+    function resetSel() {
+      hasSelection=false; isDown=false;
+      recToolbar.classList.remove('visible');
+      sizeBadge.style.display='none';
+      hintBox.classList.remove('hidden');
+      redrawSel();
+    }
+    function doCancel() { if(window.scOverlayAPI) window.scOverlayAPI.cancel(); }
+
+    function doConfirm() {
+      if(!hasSelection) return;
+      const{x,y,w,h}=norm();
+      if(w<10||h<10) return;
+      const dpr=window.devicePixelRatio||1;
+      const rect={
+        x:Math.round(x*dpr), y:Math.round(y*dpr),
+        w:Math.round(w*dpr), h:Math.round(h*dpr),
+        displayX:Math.round(x), displayY:Math.round(y),
+        displayW:Math.round(w), displayH:Math.round(h),
+      };
+      if(mode==='record') {
+        if(window.scOverlayAPI) window.scOverlayAPI.confirm(rect);
+      } else {
+        // Show loading, send to main for crop
+        showLoadingState();
+        if(window.scOverlayAPI) window.scOverlayAPI.confirmCapture(rect);
+      }
+    }
+
+    function showLoadingState() {
+      // Hide select mode UI
+      selCanvas.style.display='none';
+      hintBox.style.display='none';
+      modeBadge.style.display='none';
+      sizeBadge.style.display='none';
+      document.getElementById('capLoading').classList.add('active');
+    }
+
+    // ── Editor mode ─────────────────────────────────────────────
+    let annotCanvas, annotCtx, baseImg;
+    let annotations=[], activeTool='arrow', activeColor='#ef4444', activeWidth=2;
+    let edDrawing=false, edSX=0, edSY=0, pencilPoints=[], edEventsBound=false;
+
+    function showEditorMode(dataUrl) {
+      inEditorMode=true;
+      document.getElementById('capLoading').classList.remove('active');
+      // Show all editor layers (direct children of body — no containment issues)
+      ['editorBg','topStrip','botStrip','annotWrap','annotToolbar','actionBar']
+        .forEach(id => document.getElementById(id)?.classList.add('active'));
+
+      const img=new Image();
+      img.onload=()=>{
+        baseImg=img;
+        annotCanvas=document.getElementById('annotCanvas');
+        annotCtx=annotCanvas.getContext('2d');
+        annotCanvas.width=img.naturalWidth;
+        annotCanvas.height=img.naturalHeight;
+        document.getElementById('imgSizeInfo').textContent=`${img.naturalWidth} × ${img.naturalHeight} px`;
+        redrawAnnot();
+        if(!edEventsBound){ bindEditorEvents(); edEventsBound=true; }
+      };
+      img.src=dataUrl;
+    }
+
+    function edCoords(e) {
+      const r=annotCanvas.getBoundingClientRect();
+      return {
+        x:(e.clientX-r.left)*(annotCanvas.width/r.width),
+        y:(e.clientY-r.top)*(annotCanvas.height/r.height),
+      };
+    }
+
+    function redrawAnnot(preview) {
+      if(!annotCtx||!baseImg) return;
+      annotCtx.clearRect(0,0,annotCanvas.width,annotCanvas.height);
+      annotCtx.drawImage(baseImg,0,0);
+      annotations.forEach(a=>drawOne(annotCtx,a));
+      if(preview) drawOne(annotCtx,preview);
+    }
+
+    function drawOne(ctx,a) {
+      ctx.save();
+      ctx.strokeStyle=a.color; ctx.fillStyle=a.color;
+      ctx.lineWidth=a.width; ctx.lineCap='round'; ctx.lineJoin='round';
+      switch(a.type){
+        case 'arrow':   drawArrow(ctx,a);   break;
+        case 'rect':    drawRect(ctx,a);    break;
+        case 'ellipse': drawEllipse(ctx,a); break;
+        case 'pencil':  drawPencil(ctx,a);  break;
+        case 'text':    drawText(ctx,a);    break;
+        case 'blur':    drawBlur(ctx,a);    break;
+      }
+      ctx.restore();
+    }
+
+    function drawArrow(ctx,{x1,y1,x2,y2,width}){
+      const dx=x2-x1,dy=y2-y1,len=Math.sqrt(dx*dx+dy*dy);
+      if(len<2) return;
+      const hl=Math.max(12,width*3.5),ang=Math.atan2(dy,dx);
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2-hl*0.55*Math.cos(ang),y2-hl*0.55*Math.sin(ang)); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x2,y2);
+      ctx.lineTo(x2-hl*Math.cos(ang-Math.PI/6),y2-hl*Math.sin(ang-Math.PI/6));
+      ctx.lineTo(x2-hl*Math.cos(ang+Math.PI/6),y2-hl*Math.sin(ang+Math.PI/6));
+      ctx.closePath(); ctx.fill();
+    }
+    function drawRect(ctx,{x1,y1,x2,y2}){ ctx.strokeRect(Math.min(x1,x2),Math.min(y1,y2),Math.abs(x2-x1),Math.abs(y2-y1)); }
+    function drawEllipse(ctx,{x1,y1,x2,y2}){
+      const cx=(x1+x2)/2,cy=(y1+y2)/2,rx=Math.abs(x2-x1)/2,ry=Math.abs(y2-y1)/2;
+      if(rx<1||ry<1) return;
+      ctx.beginPath(); ctx.ellipse(cx,cy,rx,ry,0,0,2*Math.PI); ctx.stroke();
+    }
+    function drawPencil(ctx,{points}){
+      if(!points||points.length<2) return;
+      ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y);
+      for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y);
+      ctx.stroke();
+    }
+    function drawText(ctx,{x,y,text,color,width}){
+      const fs=Math.max(14,width*6);
+      ctx.font=`bold ${fs}px -apple-system,sans-serif`;
+      ctx.fillStyle=color; ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=3;
+      ctx.fillText(text,x,y); ctx.shadowBlur=0;
+    }
+    function drawBlur(ctx,{x1,y1,x2,y2}){
+      const rx=Math.min(x1,x2),ry=Math.min(y1,y2),rw=Math.abs(x2-x1),rh=Math.abs(y2-y1);
+      if(rw<4||rh<4) return;
+      const BLOCK=Math.max(8,Math.round(Math.min(rw,rh)/14));
+      try{
+        const id=ctx.getImageData(rx,ry,rw,rh),d=id.data;
+        for(let by=0;by<rh;by+=BLOCK) for(let bx=0;bx<rw;bx+=BLOCK){
+          const idx=(by*rw+bx)*4,r=d[idx],g=d[idx+1],b=d[idx+2];
+          for(let fy=by;fy<Math.min(by+BLOCK,rh);fy++) for(let fx=bx;fx<Math.min(bx+BLOCK,rw);fx++){
+            const fi=(fy*rw+fx)*4; d[fi]=r;d[fi+1]=g;d[fi+2]=b;d[fi+3]=255;
+          }
+        }
+        ctx.putImageData(id,rx,ry);
+      }catch(e){}
+    }
+
+    function bindEditorEvents(){
+      annotCanvas.addEventListener('mousedown',e=>{
+        if(e.button!==0) return;
+        edDrawing=true;
+        const{x,y}=edCoords(e); edSX=x; edSY=y;
+        if(activeTool==='pencil') pencilPoints=[{x,y}];
+        if(activeTool==='text'){
+          edDrawing=false;
+          const txt=prompt('Masukkan teks:');
+          if(txt){annotations.push({type:'text',x,y,text:txt,color:activeColor,width:activeWidth});redrawAnnot();}
+        }
+      });
+      annotCanvas.addEventListener('mousemove',e=>{
+        if(!edDrawing) return;
+        const{x,y}=edCoords(e);
+        if(activeTool==='pencil'){pencilPoints.push({x,y});redrawAnnot({type:'pencil',points:[...pencilPoints],color:activeColor,width:activeWidth});}
+        else if(activeTool!=='text') redrawAnnot({type:activeTool,x1:edSX,y1:edSY,x2:x,y2:y,color:activeColor,width:activeWidth});
+      });
+      const onUp=e=>{
+        if(!edDrawing) return; edDrawing=false;
+        const{x,y}=edCoords(e);
+        if(activeTool==='pencil'){
+          if(pencilPoints.length>1) annotations.push({type:'pencil',points:[...pencilPoints],color:activeColor,width:activeWidth});
+        } else if(activeTool!=='text'){
+          if(Math.abs(x-edSX)>2||Math.abs(y-edSY)>2)
+            annotations.push({type:activeTool,x1:edSX,y1:edSY,x2:x,y2:y,color:activeColor,width:activeWidth});
+        }
+        pencilPoints=[]; redrawAnnot();
+      };
+      annotCanvas.addEventListener('mouseup',onUp);
+      annotCanvas.addEventListener('mouseleave',onUp);
+    }
+
+    function setTool(t){
+      activeTool=t;
+      document.querySelectorAll('.at-btn').forEach(b=>b.classList.remove('active'));
+      const btn=document.getElementById('tool'+t.charAt(0).toUpperCase()+t.slice(1));
+      if(btn) btn.classList.add('active');
+      if(annotCanvas) annotCanvas.style.cursor=t==='text'?'text':t==='blur'?'cell':'crosshair';
+    }
+    function setColor(c){
+      activeColor=c; document.getElementById('colorDot').style.background=c;
+    }
+    function setWidth(w,btn){
+      activeWidth=w;
+      document.querySelectorAll('.at-sz').forEach(b=>b.classList.remove('active'));
+      if(btn) btn.classList.add('active');
+    }
+    function undoAnnot(){ annotations.pop(); redrawAnnot(); }
+    function clearAnnot(){ annotations=[]; redrawAnnot(); }
+    function getDataUrl(){ return annotCanvas?annotCanvas.toDataURL('image/png'):null; }
+
+    // ── Actions ──────────────────────────────────────────────────
+    async function doCopy(){
+      const d=getDataUrl(); if(!d) return;
+      try{ const r=await window.scOverlayAPI.copyImage(d); showToast(r.ok?'✓ Disalin ke clipboard':'✗ Gagal menyalin'); }
+      catch{ showToast('✗ Error'); }
+    }
+    async function doSave(){
+      const d=getDataUrl(); if(!d) return;
+      try{
+        const r=await window.scOverlayAPI.saveImage(d);
+        if(r.ok){ showToast('✓ Tersimpan: '+(r.filePath||'').split(/[\\/]/).pop()); setTimeout(doDiscard,1500); }
+        else if(!r.canceled) showToast('✗ Gagal menyimpan');
+      }catch{ showToast('✗ Error'); }
+    }
+    async function doCopyAndSave(){ await doCopy(); await doSave(); }
+    function doDiscard(){ if(window.scOverlayAPI) window.scOverlayAPI.close(); }
+
+    function showToast(msg){
+      const el=document.getElementById('toast');
+      el.textContent=msg; el.classList.add('show');
+      setTimeout(()=>el.classList.remove('show'),2200);
+    }
+
+    // ── Init ─────────────────────────────────────────────────────
+    window.addEventListener('resize', resizeSel);
+    resizeSel();
+
+    if(window.scOverlayAPI){
+      window.scOverlayAPI.getMode().then(m=>{
+        mode=m||'screenshot';
+        if(mode==='record'){
+          modeBadge.textContent='🔴 Rekam Area';
+          modeBadge.classList.add('record');
+          document.getElementById('hintText').textContent='Seret untuk pilih area rekaman · ESC batal';
+        }
+      });
+      // Receive captured image from main process
+      window.scOverlayAPI.onShowImage(dataUrl=>showEditorMode(dataUrl));
+    }
+  </script>
+</body>
+</html>

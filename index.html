@@ -3,13 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StarBox v1.4.260315 – MultiService Emulator</title>
+    <title>StarBox v1.3.260316 – MultiService Emulator</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
     />
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- xterm.js for Remox terminal -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@4.19.0/css/xterm.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@4.19.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.5.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
     <link rel="stylesheet" href="style.css" />
+    <script src="i18n.js"></script>
   </head>
 
   <body>
@@ -47,8 +53,25 @@
           onclick="handleAuthButtonClick()"
           class="navbar-btn-auth"
         >
-          <i class="bi bi-box-arrow-in-right"></i> Masuk / Daftar
+          <i class="bi bi-box-arrow-in-right"></i> <span data-i18n="auth.signin">Sign In / Register</span>
         </button>
+
+        <!-- Language Dropdown -->
+        <div class="navbar-lang-dropdown">
+          <button id="langDropdownToggle" type="button" class="navbar-btn-lang">
+            <span id="langFlag">🇺🇸</span>
+            <span id="langLabel">EN</span>
+          </button>
+          <div id="langSelectorPanel" class="lang-selector-panel" data-visible="false">
+            <button type="button" class="lang-option is-active" data-lang="en" onclick="window.setLang('en')">
+              <span class="lang-flag">🇺🇸</span> English
+            </button>
+            <button type="button" class="lang-option" data-lang="id" onclick="window.setLang('id')">
+              <span class="lang-flag">🇮🇩</span> Indonesia
+            </button>
+          </div>
+        </div>
+
         <div class="navbar-theme-dropdown">
           <button
             id="themeDropdownToggle"
@@ -56,7 +79,7 @@
             class="navbar-btn-theme"
           >
             <i class="bi bi-palette"></i>
-            <span>Tema</span>
+            <span data-i18n="nav.theme">Theme</span>
           </button>
           <div
             id="themeSelector"
@@ -64,7 +87,7 @@
             data-visible="false"
             data-enabled="false"
           >
-            <span>Pilih Tema StarBox</span>
+            <span data-i18n="nav.theme.select">Select StarBox Theme</span>
             <div class="theme-options">
               <button
                 type="button"
@@ -121,7 +144,7 @@
             background: transparent; cursor: pointer; font-size: 12px;
             font-weight: 500; transition: background .15s;
           "
-          onmouseover="this.style.background='rgba(255,255,255,.08)'"
+          onmouseover="this.style.background=document.body.classList.contains('theme-mode-light')?'rgba(100,116,139,.12)':'rgba(255,255,255,.08)'"
           onmouseout="this.style.background='transparent'"
         >
           <span id="remoteDot" style="
@@ -159,100 +182,74 @@
 
     <!-- Sidebar -->
     <aside class="sidebar">
-      <div class="sidebar-menu">
-        <a
-          href="#"
-          class="sidebar-item active"
-          data-page="web-emulator"
-          onclick="switchPage('web-emulator')"
-        >
-          <i class="bi bi-laptop"></i>
-          <span>Web Emulator</span>
-        </a>
+      <!-- Collapse toggle — top, icon only -->
+      <button class="sidebar-collapse-btn" onclick="toggleSidebarMini()" id="sidebarCollapseBtn" data-i18n-title="nav.sidebar.collapse" title="Collapse / Expand Sidebar">
+        <i class="bi bi-layout-sidebar-reverse"></i>
+      </button>
 
-        <a
-          href="#"
-          class="sidebar-item"
-          data-page="whatsapp-gateway"
-          onclick="switchPage('whatsapp-gateway')"
-        >
+      <div class="sidebar-menu">
+        <a href="#" class="sidebar-item active" data-page="web-emulator"
+          data-label="Web Emulator" onclick="switchPage('web-emulator')">
+          <i class="bi bi-laptop"></i>
+          <span data-i18n="sidebar.web_emulator">Web Emulator</span>
+        </a>
+        <a href="#" class="sidebar-item" data-page="whatsapp-gateway"
+          data-label="WhatsApp Gateway" onclick="switchPage('whatsapp-gateway')">
           <i class="bi bi-whatsapp"></i>
-          <span>WhatsApp Gateway</span>
+          <span data-i18n="sidebar.whatsapp_gateway">WhatsApp Gateway</span>
         </a>
-        <a
-          href="#"
-          class="sidebar-item"
-          data-page="android-ios"
-          onclick="switchPage('android-ios')"
-        >
+        <a href="#" class="sidebar-item" data-page="android-ios"
+          data-label="Android / iOS" onclick="switchPage('android-ios')">
           <i class="bi bi-phone"></i>
-          <span>Android / iOS</span>
+          <span data-i18n="sidebar.android_ios">Android / iOS</span>
         </a>
-        <a
-          href="#"
-          class="sidebar-item"
-          data-page="remote-control"
-          onclick="switchPage('remote-control')"
-        >
-          <i class="bi bi-pc-display"></i>
-          <span>Remote Control</span>
-        </a>
-        <a
-          href="#"
-          class="sidebar-item"
-          data-page="remox"
-          data-dev-only="true"
-          onclick="switchPage('remox')"
-        >
+        <a href="#" class="sidebar-item" data-page="remox"
+          data-label="Remox" onclick="switchPage('remox')">
           <i class="bi bi-terminal"></i>
-          <span>Remox</span>
+          <span data-i18n="sidebar.remox">Remox</span>
         </a>
-        <a
-          href="#"
-          class="sidebar-item"
-          data-page="os-virtual"
-          data-dev-only="true"
-          onclick="switchPage('os-virtual')"
-        >
+        <a href="#" class="sidebar-item" data-page="os-virtual"
+          data-label="OS Virtual" onclick="switchPage('os-virtual')">
           <i class="bi bi-display"></i>
-          <span>OS Virtual</span>
+          <span data-i18n="sidebar.os_virtual">OS Virtual</span>
         </a>
-        <a
-          href="#"
-          class="sidebar-item"
-          data-page="cctv"
-          data-dev-only="true"
-          onclick="switchPage('cctv')"
-        >
+        <a href="#" class="sidebar-item" data-page="cctv"
+          data-label="CCTV" onclick="switchPage('cctv')">
           <i class="bi bi-camera-video"></i>
-          <span>CCTV</span>
+          <span data-i18n="sidebar.cctv">CCTV</span>
+        </a>
+        <a href="#" class="sidebar-item" data-page="cron"
+          data-label="Jadwal" onclick="switchPage('cron')">
+          <i class="bi bi-clock-history"></i>
+          <span data-i18n="sidebar.cron">Jadwal</span>
+        </a>
+        <a href="#" class="sidebar-item" data-page="resource-monitor"
+          data-label="Resource Monitor" onclick="switchPage('resource-monitor')">
+          <i class="bi bi-speedometer2"></i>
+          <span data-i18n="sidebar.resource_monitor">Resource Monitor</span>
+        </a>
+        <a href="#" class="sidebar-item" data-page="starcapture"
+          data-label="StarCapture" onclick="switchPage('starcapture')">
+          <i class="bi bi-camera-fill"></i>
+          <span data-i18n="sidebar.starcapture">StarCapture</span>
         </a>
       </div>
 
       <div class="sidebar-footer">
-        <a
-          href="#"
-          class="sidebar-item sidebar-footer-item"
-          onclick="event.preventDefault(); openSupportModal()"
-        >
+        <a href="#" class="sidebar-item sidebar-footer-item"
+          data-label="Support Us" onclick="event.preventDefault(); openSupportModal()">
           <i class="bi bi-heart-fill"></i>
-          <span>Support Us</span>
+          <span data-i18n="sidebar.support_us">Support Us</span>
         </a>
-        <a
-          href="#"
-          class="sidebar-item sidebar-footer-item"
-          onclick="event.preventDefault(); openLogsModal()"
-        >
+        <a href="#" class="sidebar-item sidebar-footer-item"
+          data-label="Logs" onclick="event.preventDefault(); openLogsModal()">
           <i class="bi bi-journal-text"></i>
-          <span>Logs</span>
+          <span data-i18n="sidebar.logs">Logs</span>
         </a>
-        <a
-          href="#"
-          class="sidebar-item sidebar-footer-item"
-          onclick="event.preventDefault(); openAbout()"
-        >
+        <a href="#" class="sidebar-item sidebar-footer-item"
+          data-label="About" onclick="event.preventDefault(); openAbout()">
           <i class="bi bi-info-circle"></i>
-          <span>About</span>
+          <span data-i18n="sidebar.about">About</span>
         </a>
       </div>
     </aside>
@@ -267,9 +264,9 @@
           style="display: none"
         >
           <div class="version-alert-info">
-            <strong id="versionAlertTitle">Versi baru tersedia</strong>
-            <p id="versionAlertMessage">
-              Dapatkan peningkatan fitur dan perbaikan bug terbaru.
+            <strong id="versionAlertTitle" data-i18n="version.new_available">New version available</strong>
+            <p id="versionAlertMessage" data-i18n="version.new_desc">
+              Get the latest feature improvements and bug fixes.
             </p>
           </div>
           <div class="version-alert-actions">
@@ -281,21 +278,21 @@
               onclick="window.startVersionDownload && window.startVersionDownload()"
             >
               <i class="bi bi-download"></i>
-              <span id="versionDownloadLabel">Download & Install</span>
+              <span id="versionDownloadLabel" data-i18n="version.download">Download & Install</span>
             </button>
             <button
               type="button"
               class="secondary"
               onclick="window.openVersionInfoDialog && window.openVersionInfoDialog()"
             >
-              Detail
+              <span data-i18n="version.detail">Detail</span>
             </button>
             <button
               type="button"
               class="ghost"
               onclick="window.dismissVersionBanner && window.dismissVersionBanner()"
             >
-              Tutup
+              <span data-i18n="version.close">Close</span>
             </button>
           </div>
           <div
@@ -313,7 +310,7 @@
               id="versionDownloadText"
               style="font-size: 13px; color: #e2e8f0; margin-bottom: 6px"
             >
-              Menyiapkan unduhan...
+              <span data-i18n="version.preparing">Preparing download...</span>
             </div>
             <div
               style="
@@ -345,10 +342,10 @@
                 id="selectAllDevices"
                 onchange="selectAllDevices(this)"
               />
-              Pilih Semua
+              <span data-i18n="toolbar.select_all">Select All</span>
             </label>
             <button onclick="openModal()">
-              <i class="bi bi-plus-circle"></i> Tambah Device
+              <i class="bi bi-plus-circle"></i> <span data-i18n="toolbar.add_device">Add Device</span>
             </button>
             <div class="toolbar-actions-dropdown">
               <button
@@ -356,7 +353,7 @@
                 class="toolbar-actions-toggle"
                 onclick="toggleToolbarActions(event)"
               >
-                <i class="bi bi-menu-button-wide"></i> Actions
+                <i class="bi bi-menu-button-wide"></i> <span data-i18n="toolbar.actions">Actions</span>
                 <i class="bi bi-chevron-down ms"></i>
               </button>
               <div class="toolbar-actions-menu" id="toolbarActionsMenu">
@@ -364,46 +361,56 @@
                   type="button"
                   onclick="closeToolbarActionsMenu(); runAllDevices()"
                 >
-                  <i class="bi bi-play-fill"></i> Run All Device
+                  <i class="bi bi-play-fill"></i> <span data-i18n="toolbar.run_all">Run All Device</span>
                 </button>
                 <button
                   type="button"
                   onclick="closeToolbarActionsMenu(); runSelectedDevices()"
                 >
-                  <i class="bi bi-play-btn-fill"></i> Run Selected
+                  <i class="bi bi-play-btn-fill"></i> <span data-i18n="toolbar.run_selected">Run Selected</span>
                 </button>
                 <button
                   type="button"
                   onclick="closeToolbarActionsMenu(); restartSelectedDevices()"
                 >
-                  <i class="bi bi-arrow-clockwise"></i> Restart Selected
+                  <i class="bi bi-arrow-clockwise"></i> <span data-i18n="toolbar.restart_selected">Restart Selected</span>
                 </button>
                 <button
                   type="button"
                   onclick="closeToolbarActionsMenu(); restartAllDevices()"
                 >
-                  <i class="bi bi-arrow-repeat"></i> Restart All
+                  <i class="bi bi-arrow-repeat"></i> <span data-i18n="toolbar.restart_all">Restart All</span>
                 </button>
                 <button
                   type="button"
                   onclick="closeToolbarActionsMenu(); stopSelectedDevices()"
                 >
-                  <i class="bi bi-stop-circle"></i> Stop Selected
+                  <i class="bi bi-stop-circle"></i> <span data-i18n="toolbar.stop_selected">Stop Selected</span>
                 </button>
                 <button
                   type="button"
                   onclick="closeToolbarActionsMenu(); stopAllDevices()"
                 >
-                  <i class="bi bi-stop-btn-fill"></i> Stop All
+                  <i class="bi bi-stop-btn-fill"></i> <span data-i18n="toolbar.stop_all">Stop All</span>
                 </button>
               </div>
             </div>
+            <button onclick="switchPage('remote-control')" title="Remote Control — kendalikan device dari komputer lain"
+              style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;
+                border:1px solid rgba(124,111,224,0.35);background:rgba(124,111,224,0.08);
+                color:#a78bfa;cursor:pointer;font-size:12px;font-weight:500;transition:all .15s;flex-shrink:0"
+              onmouseover="this.style.background='rgba(124,111,224,0.18)'"
+              onmouseout="this.style.background='rgba(124,111,224,0.08)'">
+              <i class="bi bi-pc-display-horizontal"></i> <span data-i18n="toolbar.remote_control">Remote Control</span>
+            </button>
+
             <div class="device-search-wrapper">
               <i class="bi bi-search"></i>
               <input
                 type="text"
                 id="deviceSearchInput"
-                placeholder="Cari nama device, layanan, atau URL..."
+                data-i18n-placeholder="search.placeholder"
+                placeholder="Search device name, service, or URL..."
               />
             </div>
             <div id="layoutToggle" class="layout-toggle" style="display: none">
@@ -444,7 +451,7 @@
           >
             <div class="ads-head">
               <div class="ads-title">
-                <p class="ads-eyebrow">Rekomendasi pilihan</p>
+                <p class="ads-eyebrow" data-i18n="ads.eyebrow">Featured recommendations</p>
                 <h4>Iklan</h4>
               </div>
               <span id="adsCountdown" class="ads-countdown"></span>
@@ -454,17 +461,17 @@
                 class="ads-hide-btn"
                 onclick="openAdsInfoModal()"
               >
-                Sembunyikan iklan
+                <span data-i18n="ads.hide">Hide ads</span>
               </button>
             </div>
             <div class="ads-marquee ads-marquee-horizontal">
               <div id="adsTrackHorizontal" class="ads-track">
-                <div class="ads-empty">Memuat rekomendasi...</div>
+                <div class="ads-empty" data-i18n="ads.loading">Loading recommendations...</div>
               </div>
             </div>
             <div class="ads-marquee ads-marquee-vertical">
               <div id="adsTrackVertical" class="ads-track">
-                <div class="ads-empty">Memuat rekomendasi...</div>
+                <div class="ads-empty" data-i18n="ads.loading">Loading recommendations...</div>
               </div>
             </div>
           </section>
@@ -477,29 +484,31 @@
         <main class="page-main">
           <div class="toolbar">
             <button onclick="openModalAndroid()">
-              <i class="bi bi-plus-circle"></i> Tambah Device
+              <i class="bi bi-plus-circle"></i> <span data-i18n="toolbar.add_device_android">Add Device</span>
             </button>
             <button
               id="iosSimulatorButtonAndroid"
               onclick="openIOSSimulator()"
               style="display: none"
             >
-              <i class="bi bi-phone"></i> iOS Simulator
+              <i class="bi bi-phone"></i> <span data-i18n="toolbar.ios_simulator">iOS Simulator</span>
             </button>
             <button
               type="button"
               class="secondary"
               onclick="openAdbTutorialModal()"
-              title="Lihat panduan Developer Options, USB Debugging, dan ADB Wireless"
+              data-i18n-title="toolbar.adb_tutorial.title"
+              title="View guide for Developer Options, USB Debugging, and ADB Wireless"
             >
-              <i class="bi bi-journal-check"></i> Tutorial ADB
+              <i class="bi bi-journal-check"></i> <span data-i18n="toolbar.adb_tutorial">ADB Tutorial</span>
             </button>
             <button
               id="fixAndroidButtonAndroid"
               onclick="fixAndroidEmulator()"
-              title="Perbaiki masalah ADB busy atau error emulator Android"
+              data-i18n-title="toolbar.fix_android.title"
+              title="Fix busy ADB or Android emulator errors"
             >
-              <i class="bi bi-tools"></i> Fix Android
+              <i class="bi bi-tools"></i> <span data-i18n="toolbar.fix_android">Fix Android</span>
             </button>
           </div>
 
@@ -515,14 +524,13 @@
             style="display: none"
           >
             <div class="scrcpy-notice-text">
-              <strong>Tampilan layar HP membutuhkan scrcpy.</strong>
-              <p id="scrcpyStatusText">
-                scrcpy belum terdeteksi. Klik tombol di samping untuk menginstal
-                otomatis melalui Homebrew/Chocolatey.
+              <strong data-i18n="android.scrcpy_required">Phone screen display requires scrcpy.</strong>
+              <p id="scrcpyStatusText" data-i18n="android.scrcpy_not_detected">
+                scrcpy not detected. Click the button to install automatically via Homebrew/Chocolatey.
               </p>
             </div>
             <button id="installScrcpyButton" type="button">
-              Install scrcpy otomatis
+              <span data-i18n="android.install_scrcpy">Auto install scrcpy</span>
             </button>
           </div>
 
@@ -538,13 +546,13 @@
         <main class="page-main">
           <div class="page-header">
             <h2>WhatsApp Gateway</h2>
-            <p>Kelola multi-device WhatsApp dengan auto-reply dan scheduling</p>
+            <p data-i18n="wa.gateway.desc">Manage multi-device WhatsApp with auto-reply and scheduling</p>
           </div>
 
           <div class="toolbar">
             <div class="toolbar-actions">
               <button onclick="openWAGatewayModal()">
-                <i class="bi bi-plus-circle"></i> Tambah Device WA
+                <i class="bi bi-plus-circle"></i> <span data-i18n="toolbar.add_device_wa">Add WA Device</span>
               </button>
               <button
                 id="fixWAGatewayButton"
@@ -564,66 +572,1918 @@
 
       <!-- Page: Remox -->
       <div id="page-remox" class="page-content">
-        <main class="page-main">
-          <div class="page-header">
-            <h2>Remox - Remote Access</h2>
-            <p>Akses remote melalui SSH, Telnet, RDP, dan protokol lainnya</p>
+        <style>
+          /* ── Remox Layout ── */
+          #page-remox { display: none; flex-direction: column; height: 100%; padding: 0; overflow: hidden; }
+          #page-remox.active { display: flex; }
+
+          /* ── Top bar ── */
+          .rmx-topbar {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 16px;
+            background: var(--color-dark-purple);
+            border-bottom: 1px solid rgba(139,92,246,0.15);
+            flex-shrink: 0;
+          }
+          .rmx-topbar h2 { margin: 0; font-size: 16px; font-weight: 600; color: var(--color-text-light); }
+          .rmx-topbar .rmx-topbar-actions { margin-left: auto; display: flex; gap: 8px; }
+          .rmx-workspace { display: flex; flex: 1; overflow: hidden; }
+
+          /* ── Sidebar connections ── */
+          .rmx-sidebar {
+            width: 240px; min-width: 200px;
+            background: var(--color-medium-purple);
+            border-right: 1px solid rgba(139,92,246,0.15);
+            display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;
+          }
+          .rmx-sidebar-head {
+            padding: 10px 12px; display: flex; align-items: center; justify-content: space-between;
+            border-bottom: 1px solid rgba(139,92,246,0.12);
+          }
+          .rmx-sidebar-head span {
+            font-size: 11px; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.8px; color: var(--color-gray);
+          }
+          .rmx-conn-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+          .rmx-conn-item {
+            display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+            cursor: pointer; transition: background 0.15s;
+            border-left: 3px solid transparent; user-select: none;
+          }
+          .rmx-conn-item:hover { background: rgba(139,92,246,0.08); }
+          .rmx-conn-item.active { background: rgba(139,92,246,0.15); border-left-color: var(--color-accent-purple); }
+          .rmx-conn-icon {
+            width: 30px; height: 30px; border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px; flex-shrink: 0;
+          }
+          .rmx-conn-icon.ssh    { background: rgba(80,160,240,0.18); color: #50a0f0; }
+          .rmx-conn-icon.telnet { background: rgba(80,200,120,0.18); color: #50c878; }
+          .rmx-conn-icon.rdp    { background: rgba(139,92,246,0.18); color: var(--color-accent-purple); }
+          .rmx-conn-info { flex: 1; min-width: 0; }
+          .rmx-conn-name {
+            font-size: 13px; font-weight: 500; color: var(--color-text-light);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          }
+          .rmx-conn-meta {
+            font-size: 11px; color: var(--color-gray);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          }
+          .rmx-conn-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s; }
+          .rmx-conn-item:hover .rmx-conn-actions { opacity: 1; }
+          .rmx-conn-btn {
+            background: none; border: none; cursor: pointer; padding: 2px 4px;
+            border-radius: 4px; font-size: 12px; color: var(--color-gray);
+          }
+          .rmx-conn-btn:hover { background: rgba(139,92,246,0.15); color: var(--color-text-light); }
+          .rmx-conn-btn.danger:hover { background: rgba(220,60,60,0.2); color: var(--color-danger, #ef4444); }
+          .rmx-conn-empty { padding: 24px 16px; text-align: center; color: var(--color-gray); font-size: 13px; }
+
+          /* ── Ping badge ── */
+          .rmx-ping-badge {
+            display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+            font-size: 10px; padding: 2px 6px; border-radius: 10px;
+            background: rgba(139,92,246,0.08); color: var(--color-gray);
+            cursor: pointer; user-select: none; transition: background 0.15s;
+          }
+          .rmx-ping-badge:hover { background: rgba(139,92,246,0.15); color: var(--color-text-light); }
+          .rmx-ping-badge .rmx-ping-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-gray); flex-shrink: 0; }
+          .rmx-ping-badge.ok .rmx-ping-dot   { background: #50c878; box-shadow: 0 0 4px #50c87866; }
+          .rmx-ping-badge.fail .rmx-ping-dot  { background: var(--color-danger, #e87070); }
+          .rmx-ping-badge.checking .rmx-ping-dot { background: var(--color-warning, #f0a040); animation: rmx-pulse 0.8s infinite; }
+          .rmx-ping-badge.ok   { color: #50c878; }
+          .rmx-ping-badge.fail { color: var(--color-danger, #e87070); }
+          @keyframes rmx-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+          /* ── Terminal area — intentionally kept dark (terminal UX) ── */
+          .rmx-terminal-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #0d1117; }
+          .rmx-tabs {
+            display: flex; align-items: center; background: #161b22;
+            border-bottom: 1px solid rgba(255,255,255,0.07); flex-shrink: 0; overflow-x: auto;
+            position: relative;
+          }
+          .rmx-tab-add {
+            display: flex; align-items: center; justify-content: center;
+            width: 30px; height: 30px; flex-shrink: 0; cursor: pointer;
+            color: #666; font-size: 16px; border-left: 1px solid rgba(255,255,255,0.05);
+            transition: color 0.15s, background 0.15s;
+          }
+          .rmx-tab-add:hover { color: #ccc; background: rgba(255,255,255,0.06); }
+          .rmx-tab-dropdown {
+            position: absolute; top: 100%; left: 0; z-index: 500;
+            background: #1c2230; border: 1px solid #30363d; border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5); min-width: 220px;
+            padding: 4px 0; display: none;
+          }
+          .rmx-tab-dropdown.open { display: block; }
+          .rmx-tab-dropdown-title {
+            padding: 6px 12px 4px; font-size: 10px; font-weight: 600;
+            color: #666; text-transform: uppercase; letter-spacing: 0.8px;
+          }
+          .rmx-tab-dropdown-item {
+            display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+            cursor: pointer; transition: background 0.12s; font-size: 13px; color: #ccc;
+          }
+          .rmx-tab-dropdown-item:hover { background: rgba(124,111,224,0.2); color: #e0e0e0; }
+          .rmx-tab-dropdown-item .rmx-conn-icon { width: 24px; height: 24px; font-size: 12px; border-radius: 4px; }
+          .rmx-tab-dropdown-empty { padding: 10px 12px; font-size: 12px; color: #666; }
+          .rmx-tab {
+            display: flex; align-items: center; gap: 6px; padding: 7px 14px;
+            cursor: pointer; border-right: 1px solid rgba(255,255,255,0.05);
+            font-size: 12px; color: #888; white-space: nowrap; flex-shrink: 0;
+            transition: background 0.15s, color 0.15s;
+          }
+          .rmx-tab:hover { background: rgba(255,255,255,0.04); color: #ccc; }
+          .rmx-tab.active { background: #0d1117; color: #e0e0e0; border-bottom: 2px solid var(--color-accent-purple, #7c6fe0); }
+          .rmx-tab-dot { width: 7px; height: 7px; border-radius: 50%; background: #555; }
+          .rmx-tab-dot.connected  { background: #50c878; box-shadow: 0 0 4px #50c87866; }
+          .rmx-tab-dot.connecting { background: #f0a040; animation: rmx-pulse 1s infinite; }
+          .rmx-tab-dot.error      { background: #e87070; }
+          .rmx-tab-close { background: none; border: none; cursor: pointer; color: #555;
+            padding: 0 2px; font-size: 13px; line-height: 1; border-radius: 3px; }
+          .rmx-tab-close:hover { color: #e87070; background: rgba(220,60,60,0.15); }
+
+          .rmx-terminal-panels { flex: 1; position: relative; overflow: hidden; }
+          .rmx-terminal-panel { position: absolute; inset: 0; display: none; padding: 6px; }
+          .rmx-terminal-panel.active { display: flex; flex-direction: column; }
+          .rmx-term-container { flex: 1; overflow: hidden; }
+          .rmx-term-container .xterm { height: 100%; }
+          .rmx-term-container .xterm-viewport { overflow-y: auto !important; }
+
+          .rmx-splash {
+            flex: 1; display: flex; flex-direction: column; align-items: center;
+            justify-content: center; gap: 12px; color: #555;
+          }
+          .rmx-splash i  { font-size: 3.5rem; color: #2a3550; }
+          .rmx-splash h3 { margin: 0; font-size: 16px; color: #666; }
+          .rmx-splash p  { margin: 0; font-size: 13px; color: #555; text-align: center; max-width: 320px; }
+
+          /* ── Light-mode overrides for non-terminal areas ── */
+          body.theme-mode-light .rmx-topbar {
+            background: var(--color-medium-purple);
+            border-bottom-color: var(--card-border-light, #d4dbe9);
+          }
+          body.theme-mode-light .rmx-sidebar {
+            background: var(--card-bg-light, #ffffff);
+            border-right-color: var(--card-border-light, #d4dbe9);
+          }
+          body.theme-mode-light .rmx-sidebar-head {
+            border-bottom-color: var(--card-border-light, #d4dbe9);
+          }
+          body.theme-mode-light .rmx-conn-item:hover  { background: rgba(99,102,241,0.07); }
+          body.theme-mode-light .rmx-conn-item.active { background: rgba(99,102,241,0.12); border-left-color: var(--color-accent-purple); }
+          body.theme-mode-light .rmx-conn-btn:hover   { background: rgba(99,102,241,0.1); }
+          body.theme-mode-light .rmx-ping-badge       { background: rgba(0,0,0,0.05); }
+          body.theme-mode-light .rmx-ping-badge:hover { background: rgba(0,0,0,0.1); }
+
+          /* ── Modal form inputs ── */
+          #rmxModal .modal-dialog { max-width: 480px; }
+          .rmx-form-group { margin-bottom: 14px; }
+          .rmx-form-group label {
+            display: block; font-size: 12px; font-weight: 600;
+            color: var(--color-gray); margin-bottom: 5px;
+          }
+          .rmx-form-group input, .rmx-form-group select, .rmx-form-group textarea {
+            width: 100%; padding: 8px 10px;
+            background: var(--color-dark-purple); border: 1px solid rgba(139,92,246,0.25);
+            border-radius: 6px; color: var(--color-text-light); font-size: 13px; outline: none;
+          }
+          body.theme-mode-light .rmx-form-group input,
+          body.theme-mode-light .rmx-form-group select,
+          body.theme-mode-light .rmx-form-group textarea {
+            background: #f8fafc; border-color: var(--card-border-light, #d4dbe9);
+          }
+          .rmx-form-group input:focus, .rmx-form-group select:focus, .rmx-form-group textarea:focus {
+            border-color: var(--color-accent-purple);
+          }
+          .rmx-form-row { display: flex; gap: 10px; }
+          .rmx-form-row .rmx-form-group { flex: 1; }
+          .rmx-pk-toggle { font-size: 11px; color: var(--color-accent-purple); cursor: pointer; text-decoration: underline; }
+          #rmxPkField { display: none; }
+        </style>
+
+        <div class="rmx-topbar">
+          <i class="bi bi-terminal-fill" style="color:#7c6fe0;font-size:18px"></i>
+          <h2>Remox — Remote Terminal</h2>
+          <div class="rmx-topbar-actions">
+            <button class="btn-icon" onclick="rmxOpenAddModal()" data-i18n-title="remox.add_connection.title" title="Add Connection">
+              <i class="bi bi-plus-lg"></i>
+            </button>
           </div>
-          <div class="content-placeholder">
-            <i
-              class="bi bi-terminal"
-              style="font-size: 4rem; color: var(--color-light-purple)"
-            ></i>
-            <h3>Remote Access Management</h3>
-            <p>
-              Fitur untuk mengelola koneksi SSH, Telnet, RDP akan segera
-              tersedia di sini.
-            </p>
+        </div>
+
+        <div class="rmx-workspace">
+          <!-- Sidebar -->
+          <div class="rmx-sidebar">
+            <div class="rmx-sidebar-head">
+              <span data-i18n="remox.connections">Connections</span>
+              <button class="rmx-conn-btn" onclick="rmxOpenAddModal()" data-i18n-title="remox.add_new.title" title="Add new connection">
+                <i class="bi bi-plus"></i>
+              </button>
+            </div>
+            <div class="rmx-conn-list" id="rmxConnList">
+              <div class="rmx-conn-empty" data-i18n="remox.empty">No saved connections.</div>
+            </div>
           </div>
-        </main>
+
+          <!-- Terminal area -->
+          <div class="rmx-terminal-area">
+            <div class="rmx-tabs" id="rmxTabs">
+              <div class="rmx-tab-add" id="rmxTabAddBtn" onclick="rmxToggleTabDropdown()" data-i18n-title="remox.open_new.title" title="Open new connection">+</div>
+              <div class="rmx-tab-dropdown" id="rmxTabDropdown">
+                <div class="rmx-tab-dropdown-title" data-i18n="remox.open_connection">Open Connection</div>
+                <div id="rmxTabDropdownList"></div>
+              </div>
+            </div>
+            <div class="rmx-terminal-panels" id="rmxPanels">
+              <div class="rmx-splash" id="rmxSplash">
+                <i class="bi bi-terminal"></i>
+                <h3>Remox Terminal</h3>
+                <p data-i18n="remox.splash">Select a connection in the sidebar then click <strong>Connect</strong> to open a terminal session.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add/Edit Connection Modal -->
+        <div id="rmxModal" style="display:none;position:fixed;inset:0;z-index:9000;
+          background:rgba(0,0,0,0.6);align-items:center;justify-content:center;">
+          <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;
+            width:480px;max-width:95vw;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+              <h3 id="rmxModalTitle" data-i18n="remox.modal.add" style="margin:0;font-size:16px;font-weight:600;color:#e0e0e0">Add Connection</h3>
+              <button onclick="rmxCloseModal()" style="background:none;border:none;color:#888;cursor:pointer;font-size:18px">
+                <i class="bi bi-x"></i>
+              </button>
+            </div>
+            <input type="hidden" id="rmxEditId" value="">
+            <div class="rmx-form-group">
+              <label data-i18n="remox.form.name">Connection Name</label>
+              <input type="text" id="rmxFormName" placeholder="contoh: Web Server Production">
+            </div>
+            <div class="rmx-form-row">
+              <div class="rmx-form-group">
+                <label data-i18n="remox.form.type">Type</label>
+                <select id="rmxFormType" onchange="rmxOnTypeChange()">
+                  <option value="ssh">SSH</option>
+                  <option value="telnet">Telnet</option>
+                  <option value="rdp">RDP (Windows)</option>
+                </select>
+              </div>
+              <div class="rmx-form-group" style="flex:2">
+                <label data-i18n="remox.form.host">Host / IP</label>
+                <input type="text" id="rmxFormHost" placeholder="192.168.1.1 atau domain.com">
+              </div>
+              <div class="rmx-form-group" style="flex:0 0 80px">
+                <label data-i18n="remox.form.port">Port</label>
+                <input type="number" id="rmxFormPort" value="22" min="1" max="65535">
+              </div>
+            </div>
+            <div id="rmxSshFields">
+              <div class="rmx-form-row">
+                <div class="rmx-form-group">
+                  <label data-i18n="remox.form.user">Username</label>
+                  <input type="text" id="rmxFormUser" placeholder="root">
+                </div>
+                <div class="rmx-form-group">
+                  <label>Password <span class="rmx-pk-toggle" id="rmxPkToggleBtn" data-i18n="remox.form.pk_toggle" onclick="rmxTogglePk()">or Use Private Key</span></label>
+                  <input type="password" id="rmxFormPass" placeholder="••••••••">
+                </div>
+              </div>
+              <div id="rmxRdpFields" style="display:none">
+                <div class="rmx-form-group">
+                  <label data-i18n="remox.form.domain">Domain</label>
+                  <input type="text" id="rmxFormDomain" placeholder="WORKGROUP ou nome de domínio">
+                </div>
+              </div>
+              <div id="rmxPkField" class="rmx-form-group">
+                <label data-i18n="remox.form.pk">Private Key (paste content of .pem / id_rsa file)</label>
+                <textarea id="rmxFormPk" rows="4" placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;..."></textarea>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
+              <button onclick="rmxCloseModal()" class="btn-secondary" data-i18n="remox.form.cancel" style="padding:8px 20px;border-radius:8px">Cancel</button>
+              <button onclick="rmxSaveConnection()" class="btn-primary" style="padding:8px 20px;border-radius:8px">
+                <i class="bi bi-floppy"></i> <span data-i18n="remox.form.save">Save</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
       <!-- End Page: Remox -->
 
+      <script>
+      (function () {
+        "use strict";
+
+        // ─── State ───────────────────────────────────────────────────────────
+        let rmxConnections = [];
+        let rmxTabs = [];         // [{ id, connId, name, type, status, term, fitAddon }]
+        let rmxActiveTab = null;  // tab id
+        let rmxDataUnlisten = null;
+        let rmxStatusUnlisten = null;
+        let rmxInitialized = false;
+
+        // ─── Ping cache ───────────────────────────────────────────────────────
+        // connId -> { reachable, latency, ts }
+        const rmxPingCache = new Map();
+        const PING_TTL_MS = 3 * 60 * 1000; // 3 menit
+
+        // ─── Init ─────────────────────────────────────────────────────────────
+        // Expose active session count and refit helper for Resource Monitor
+        window.rmxGetActiveCount = function () {
+          return rmxTabs.filter(t => t.status === 'connected').length;
+        };
+
+        function rmxRefitActive() {
+          rmxRenderTabs();
+          if (rmxActiveTab) {
+            const tab = rmxTabs.find(t => t.id === rmxActiveTab);
+            if (tab?.fitAddon) setTimeout(() => { tab.fitAddon.fit(); tab.term?.focus(); }, 60);
+          }
+        }
+
+        window.initRemoxPage = async function () {
+          if (rmxInitialized) { rmxRefreshSidebar(); rmxRefitActive(); return; }
+          rmxInitialized = true;
+
+          // Subscribe to IPC events
+          if (window.electronAPI?.remox) {
+            rmxDataUnlisten = window.electronAPI.remox.onData(({ sessionId, data }) => {
+              const tab = rmxTabs.find((t) => t.id === sessionId);
+              if (tab?.term) tab.term.write(data);
+            });
+            rmxStatusUnlisten = window.electronAPI.remox.onStatus(({ sessionId, status, message }) => {
+              const tab = rmxTabs.find((t) => t.id === sessionId);
+              if (!tab) return;
+              tab.status = status;
+              rmxRenderTabs();
+              if (status === "disconnected") {
+                tab.term?.write(`\r\n\x1b[33m[Terputus${message ? ": " + message : ""}]\x1b[0m\r\n`);
+              }
+            });
+          }
+
+          await rmxLoadConnections();
+        };
+
+        async function rmxLoadConnections() {
+          if (!window.electronAPI?.remox) return;
+          try {
+            rmxConnections = await window.electronAPI.remox.loadConnections();
+          } catch { rmxConnections = []; }
+          rmxRefreshSidebar();
+          rmxPingAll();
+        }
+
+        // ─── Sidebar ──────────────────────────────────────────────────────────
+        function rmxRefreshSidebar() {
+          const list = document.getElementById("rmxConnList");
+          if (!list) return;
+          if (!rmxConnections.length) {
+            list.innerHTML = `<div class="rmx-conn-empty">${window.t('remox.empty_hint')}</div>`;
+            rmxUpdateTabDropdown();
+            return;
+          }
+          list.innerHTML = rmxConnections.map((c) => {
+            const activeTab = rmxTabs.find((t) => t.connId === c.id && t.status !== "disconnected");
+            const isActive = !!activeTab;
+            const isRdp = c.type === "rdp";
+            const ping = isRdp ? null : rmxPingCache.get(c.id);
+            let pingClass = "", pingLabel = "–", pingTitle = window.t('remox.ping.click');
+            if (isRdp) {
+              // RDP: Windows Firewall sering blokir TCP probe — tampilkan badge netral
+              pingClass = ""; pingLabel = "RDP"; pingTitle = window.t('remox.ping.rdp');
+            } else if (ping) {
+              if (ping.checking) {
+                pingClass = "checking"; pingLabel = "...";
+              } else if (ping.reachable) {
+                pingClass = "ok"; pingLabel = ping.latency + "ms";
+              } else {
+                pingClass = "fail"; pingLabel = window.t('remox.ping.fail');
+              }
+              pingTitle = `Dicek ${rmxTimeAgo(ping.ts)} lalu — klik untuk ping ulang`;
+            }
+            return `<div class="rmx-conn-item${isActive ? " active" : ""}" onclick="rmxConnectOrFocus('${c.id}')">
+              <div class="rmx-conn-icon ${c.type}">
+                <i class="bi bi-${c.type === "ssh" ? "shield-lock" : c.type === "rdp" ? "display" : "terminal"}"></i>
+              </div>
+              <div class="rmx-conn-info">
+                <div class="rmx-conn-name">${rmxEsc(c.name)}</div>
+                <div class="rmx-conn-meta">${rmxEsc(c.type.toUpperCase())} · ${rmxEsc(c.host)}:${c.port}${c.domain ? " · " + rmxEsc(c.domain) : ""}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+                <span class="rmx-ping-badge ${pingClass}" title="${pingTitle}"
+                  onclick="event.stopPropagation();${isRdp ? "" : "rmxPingOne('" + c.id + "')"}">
+                  <span class="rmx-ping-dot"></span>${rmxEsc(pingLabel)}
+                </span>
+                <div class="rmx-conn-actions" style="opacity:0">
+                  <button class="rmx-conn-btn" onclick="event.stopPropagation();rmxOpenEditModal('${c.id}')" title="Edit"><i class="bi bi-pencil"></i></button>
+                  <button class="rmx-conn-btn danger" onclick="event.stopPropagation();rmxDeleteConnection('${c.id}')" title="Hapus"><i class="bi bi-trash"></i></button>
+                </div>
+              </div>
+            </div>`;
+          }).join("");
+          // Re-enable hover visibility for actions
+          list.querySelectorAll(".rmx-conn-item").forEach((el) => {
+            const actions = el.querySelector(".rmx-conn-actions");
+            el.addEventListener("mouseenter", () => actions && (actions.style.opacity = "1"));
+            el.addEventListener("mouseleave", () => actions && (actions.style.opacity = "0"));
+          });
+          rmxUpdateTabDropdown();
+        }
+
+        // ─── Ping ─────────────────────────────────────────────────────────────
+        async function rmxPingOne(connId) {
+          const conn = rmxConnections.find((c) => c.id === connId);
+          if (!conn || !window.electronAPI?.remox?.ping || conn.type === "rdp") return;
+          rmxPingCache.set(connId, { checking: true, ts: Date.now() });
+          rmxRefreshSidebar();
+          const res = await window.electronAPI.remox.ping({ host: conn.host, port: conn.port });
+          rmxPingCache.set(connId, { reachable: res.reachable, latency: res.latency, ts: Date.now() });
+          rmxRefreshSidebar();
+        }
+
+        async function rmxPingAll() {
+          if (!rmxConnections.length || !window.electronAPI?.remox?.ping) return;
+          const now = Date.now();
+          // Only ping connections whose cache is expired or missing
+          const toPing = rmxConnections.filter((c) => {
+            if (c.type === "rdp") return false; // RDP: skip ping, firewall sering blokir TCP probe
+            const cached = rmxPingCache.get(c.id);
+            return !cached || (!cached.checking && now - cached.ts > PING_TTL_MS);
+          });
+          if (!toPing.length) return;
+          toPing.forEach((c) => rmxPingCache.set(c.id, { checking: true, ts: now }));
+          rmxRefreshSidebar();
+          await Promise.all(toPing.map(async (c) => {
+            const res = await window.electronAPI.remox.ping({ host: c.host, port: c.port });
+            rmxPingCache.set(c.id, { reachable: res.reachable, latency: res.latency, ts: Date.now() });
+          }));
+          rmxRefreshSidebar();
+        }
+
+        function rmxTimeAgo(ts) {
+          const s = Math.floor((Date.now() - ts) / 1000);
+          if (s < 60) return s + "d";
+          return Math.floor(s / 60) + "m";
+        }
+
+        // ─── Tab dropdown (connect from tab bar) ─────────────────────────────
+        function rmxUpdateTabDropdown() {
+          const dl = document.getElementById("rmxTabDropdownList");
+          if (!dl) return;
+          if (!rmxConnections.length) {
+            dl.innerHTML = `<div class="rmx-tab-dropdown-empty">${window.t('remox.tab_dropdown.empty')}</div>`;
+            return;
+          }
+          dl.innerHTML = rmxConnections.map((c) => {
+            const ping = rmxPingCache.get(c.id);
+            const dot = ping ? (ping.checking ? "checking" : ping.reachable ? "ok" : "fail") : "";
+            return `<div class="rmx-tab-dropdown-item" onclick="rmxCloseTabDropdown();rmxConnectOrFocus('${c.id}')">
+              <div class="rmx-conn-icon ${c.type}" style="width:24px;height:24px;font-size:11px;border-radius:4px">
+                <i class="bi bi-${c.type === "ssh" ? "shield-lock" : c.type === "rdp" ? "display" : "terminal"}"></i>
+              </div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${rmxEsc(c.name)}</div>
+                <div style="font-size:11px;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${rmxEsc(c.host)}:${c.port}</div>
+              </div>
+              ${dot ? `<span class="rmx-ping-dot ${dot}" style="width:7px;height:7px;border-radius:50%;background:${dot==="ok"?"#50c878":dot==="fail"?"#e87070":"#f0a040"};flex-shrink:0"></span>` : ""}
+            </div>`;
+          }).join("");
+        }
+
+        window.rmxToggleTabDropdown = function () {
+          const dd = document.getElementById("rmxTabDropdown");
+          if (!dd) return;
+          const isOpen = dd.classList.contains("open");
+          if (isOpen) { dd.classList.remove("open"); return; }
+          rmxUpdateTabDropdown();
+          dd.classList.add("open");
+          // Position dropdown near the + button
+          const btn = document.getElementById("rmxTabAddBtn");
+          if (btn) { dd.style.left = btn.offsetLeft + "px"; }
+          // Close on outside click
+          setTimeout(() => {
+            document.addEventListener("click", rmxCloseTabDropdownOnce, { once: true });
+          }, 0);
+        };
+
+        function rmxCloseTabDropdownOnce(e) {
+          const dd = document.getElementById("rmxTabDropdown");
+          const btn = document.getElementById("rmxTabAddBtn");
+          if (dd && !dd.contains(e.target) && e.target !== btn) dd.classList.remove("open");
+        }
+
+        window.rmxCloseTabDropdown = function () {
+          document.getElementById("rmxTabDropdown")?.classList.remove("open");
+        };
+
+        // ─── Tabs ─────────────────────────────────────────────────────────────
+        function rmxRenderTabs() {
+          // Preserve the + button; only update session tabs
+          const tabsEl = document.getElementById("rmxTabs");
+          if (!tabsEl) return;
+          // Remove existing session tabs (keep .rmx-tab-add and .rmx-tab-dropdown)
+          tabsEl.querySelectorAll(".rmx-tab").forEach((el) => el.remove());
+          // Insert tabs before the + button
+          const addBtn = document.getElementById("rmxTabAddBtn");
+          rmxTabs.forEach((t) => {
+            const dotClass = t.status === "connected" ? "connected"
+              : t.status === "connecting" ? "connecting"
+              : t.status === "error" ? "error" : "";
+            const div = document.createElement("div");
+            div.className = "rmx-tab" + (t.id === rmxActiveTab ? " active" : "");
+            div.onclick = () => rmxSetActiveTab(t.id);
+            div.innerHTML = `<span class="rmx-tab-dot ${dotClass}"></span>
+              <span>${rmxEsc(t.name)}</span>
+              <button class="rmx-tab-close" onclick="event.stopPropagation();rmxCloseTab('${t.id}')" title="${window.t('remox.tab.close')}">×</button>`;
+            tabsEl.insertBefore(div, addBtn || null);
+          });
+        }
+
+        function rmxSetActiveTab(id) {
+          rmxActiveTab = id;
+          rmxRenderTabs();
+          document.querySelectorAll(".rmx-terminal-panel").forEach((p) => p.classList.remove("active"));
+          const panel = document.getElementById("rmx-panel-" + id);
+          if (panel) {
+            panel.classList.add("active");
+            const tab = rmxTabs.find((t) => t.id === id);
+            if (tab?.fitAddon) { setTimeout(() => { tab.fitAddon.fit(); tab.term?.focus(); }, 50); }
+          }
+          rmxSplashHide();
+        }
+
+        window.rmxCloseTab = async function (id) {
+          const tab = rmxTabs.find((t) => t.id === id);
+          if (tab) {
+            tab.term?.dispose();
+            await window.electronAPI?.remox?.disconnect(id);
+          }
+          rmxTabs = rmxTabs.filter((t) => t.id !== id);
+          document.getElementById("rmx-panel-" + id)?.remove();
+
+          if (rmxActiveTab === id) {
+            rmxActiveTab = rmxTabs.length ? rmxTabs[rmxTabs.length - 1].id : null;
+            if (rmxActiveTab) rmxSetActiveTab(rmxActiveTab);
+            else { rmxSplashShow(); }
+          }
+          rmxRenderTabs();
+          rmxRefreshSidebar();
+        };
+
+        function rmxSplashShow() {
+          const s = document.getElementById("rmxSplash");
+          if (s) { s.style.display = ""; }
+        }
+        function rmxSplashHide() {
+          const s = document.getElementById("rmxSplash");
+          if (s) { s.style.display = "none"; }
+        }
+
+        // Panels are created dynamically and appended to #rmxPanels
+        function rmxEnsurePanel(sessionId) {
+          if (document.getElementById("rmx-panel-" + sessionId)) return;
+          const panels = document.getElementById("rmxPanels");
+          if (!panels) return;
+          const div = document.createElement("div");
+          div.className = "rmx-terminal-panel";
+          div.id = "rmx-panel-" + sessionId;
+          div.innerHTML = '<div class="rmx-term-container" style="width:100%;height:100%;"></div>';
+          panels.appendChild(div);
+        }
+
+        // ─── RDP Panel ────────────────────────────────────────────────────────
+        async function rmxOpenRdpPanel(conn, sessionId) {
+          rmxEnsurePanel(sessionId);
+          const tab = { id: sessionId, connId: conn.id, name: conn.name, type: "rdp", status: "connected", term: null, fitAddon: null };
+          rmxTabs.push(tab);
+          rmxRenderTabs();
+          rmxSetActiveTab(sessionId);
+          rmxSplashHide();
+
+          const panelEl = document.getElementById("rmx-panel-" + sessionId);
+          if (panelEl) {
+            const container = panelEl.querySelector(".rmx-term-container");
+            container.style.display = "flex";
+            container.style.alignItems = "center";
+            container.style.justifyContent = "center";
+            container.style.background = "#0d1117";
+            container.innerHTML = `
+              <div style="text-align:center;max-width:380px;padding:24px">
+                <div style="font-size:40px;margin-bottom:16px">🖥️</div>
+                <div style="font-size:16px;font-weight:600;color:#e0e0e0;margin-bottom:6px">${rmxEsc(conn.name)}</div>
+                <div style="font-size:13px;color:#666;margin-bottom:4px">RDP — ${rmxEsc(conn.host)}:${conn.port}</div>
+                ${conn.domain ? `<div style="font-size:12px;color:#555;margin-bottom:4px">Domain: ${rmxEsc(conn.domain)}</div>` : ""}
+                ${conn.username ? `<div style="font-size:12px;color:#555;margin-bottom:20px">User: ${rmxEsc(conn.username)}</div>` : `<div style="margin-bottom:20px"></div>`}
+                <div style="display:flex;flex-direction:column;gap:10px;align-items:center">
+                  <button id="rdpLaunchBtn-${sessionId}"
+                    style="display:inline-flex;align-items:center;gap:8px;padding:10px 24px;border-radius:9px;
+                      border:1px solid rgba(124,111,224,0.4);background:rgba(124,111,224,0.15);
+                      color:#a78bfa;cursor:pointer;font-size:14px;font-weight:600;transition:all .15s"
+                    onclick="rmxLaunchRdp('${sessionId}','${conn.id}')">
+                    <i class="bi bi-play-fill"></i> Buka RDP Client
+                  </button>
+                  <div id="rdpStatus-${sessionId}" style="font-size:12px;color:#555"></div>
+                </div>
+                <div style="margin-top:20px;padding:12px;background:rgba(255,255,255,0.04);border-radius:8px;
+                  font-size:11px;color:#555;line-height:1.6;text-align:left">
+                  <b style="color:#777">Info:</b> RDP akan dibuka menggunakan aplikasi native di sistem Anda.<br>
+                  Windows: <i>Remote Desktop Connection (mstsc)</i><br>
+                  macOS: <i>Microsoft Remote Desktop</i><br>
+                  Linux: <i>Remmina / xfreerdp</i>
+                </div>
+              </div>`;
+          }
+
+          // Auto-launch immediately
+          rmxLaunchRdp(sessionId, conn.id);
+        }
+
+        window.rmxLaunchRdp = async function (sessionId, connId) {
+          const conn = rmxConnections.find((c) => c.id === connId);
+          if (!conn) return;
+          const statusEl = document.getElementById("rdpStatus-" + sessionId);
+          const setStatus = (msg, ok) => {
+            if (!statusEl) return;
+            statusEl.textContent = msg;
+            statusEl.style.color = ok === true ? "#50c878" : ok === false ? "#f87171" : "#888";
+          };
+          if (!window.electronAPI?.remox?.launchRdp) {
+            setStatus("launchRdp tidak tersedia — coba restart aplikasi", false);
+            return;
+          }
+          setStatus("Membuka RDP client…", null);
+          try {
+            const res = await window.electronAPI.remox.launchRdp({
+              host: conn.host, port: conn.port,
+              username: conn.username, password: conn.password, domain: conn.domain,
+            });
+            if (res?.success) {
+              setStatus("RDP client dibuka ✓", true);
+            } else {
+              setStatus("Gagal: " + (res?.error || "Unknown error"), false);
+            }
+          } catch (err) {
+            setStatus("Error: " + (err?.message || String(err)), false);
+          }
+        };
+
+        // ─── Connect / Focus ──────────────────────────────────────────────────
+        window.rmxConnectOrFocus = async function (connId) {
+          const existingTab = rmxTabs.find((t) => t.connId === connId && t.status !== "disconnected");
+          if (existingTab) { rmxSetActiveTab(existingTab.id); return; }
+          const sessionId = "rmx-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
+          const conn = rmxConnections.find((c) => c.id === connId);
+          if (!conn) return;
+
+          // RDP — open panel with native client launcher
+          if (conn.type === "rdp") { await rmxOpenRdpPanel(conn, sessionId); return; }
+
+          rmxEnsurePanel(sessionId);
+          const tab = {
+            id: sessionId, connId, name: conn.name, type: conn.type,
+            status: "connecting", term: null, fitAddon: null,
+          };
+          rmxTabs.push(tab);
+          rmxRenderTabs();
+          rmxSetActiveTab(sessionId);
+          rmxSplashHide();
+
+          const panelEl = document.getElementById("rmx-panel-" + sessionId);
+          if (panelEl) {
+            const container = panelEl.querySelector(".rmx-term-container");
+            const term = new Terminal({
+              theme: {
+                background: "#0d1117", foreground: "#c9d1d9", cursor: "#58a6ff",
+                selectionBackground: "#3b4a6b", black: "#0d1117", red: "#ff7b72",
+                green: "#3fb950", yellow: "#d29922", blue: "#58a6ff", magenta: "#bc8cff",
+                cyan: "#39c5cf", white: "#b1bac4", brightBlack: "#6e7681",
+                brightRed: "#ffa198", brightGreen: "#56d364", brightYellow: "#e3b341",
+                brightBlue: "#79c0ff", brightMagenta: "#d2a8ff", brightCyan: "#56d4dd",
+                brightWhite: "#f0f6fc",
+              },
+              fontFamily: '"Cascadia Code", "Fira Code", "Courier New", monospace',
+              fontSize: 13, lineHeight: 1.2, cursorBlink: true,
+              allowTransparency: true, scrollback: 5000,
+            });
+            const fitAddon = new FitAddon.FitAddon();
+            term.loadAddon(fitAddon);
+            term.open(container);
+            fitAddon.fit();
+            tab.term = term;
+            tab.fitAddon = fitAddon;
+
+            term.onData((data) => window.electronAPI?.remox?.sendData({ sessionId, data }));
+
+            const ro = new ResizeObserver(() => {
+              if (tab.status === "connected") {
+                fitAddon.fit();
+                window.electronAPI?.remox?.resize({ sessionId, cols: term.cols, rows: term.rows });
+              }
+            });
+            ro.observe(container);
+            term.write(`\x1b[33mMenghubungkan ke ${conn.host}:${conn.port}...\x1b[0m\r\n`);
+          }
+
+          const result = await window.electronAPI.remox.connect({ sessionId, connectionId: connId });
+          if (result.success) {
+            tab.status = "connected";
+            if (tab.fitAddon) {
+              tab.fitAddon.fit();
+              window.electronAPI?.remox?.resize({ sessionId, cols: tab.term.cols, rows: tab.term.rows });
+            }
+          } else {
+            tab.status = "error";
+            tab.term?.write(`\r\n\x1b[31mGagal terhubung: ${result.error}\x1b[0m\r\n`);
+          }
+          rmxRenderTabs();
+          rmxRefreshSidebar();
+          tab.term?.focus();
+        };
+
+        // ─── Modal ────────────────────────────────────────────────────────────
+        window.rmxOpenAddModal = function () {
+          document.getElementById("rmxEditId").value = "";
+          document.getElementById("rmxModalTitle").textContent = window.t('remox.modal.add');
+          document.getElementById("rmxFormName").value = "";
+          document.getElementById("rmxFormType").value = "ssh";
+          document.getElementById("rmxFormHost").value = "";
+          document.getElementById("rmxFormPort").value = "22";
+          document.getElementById("rmxFormUser").value = "";
+          document.getElementById("rmxFormPass").value = "";
+          document.getElementById("rmxFormPk").value = "";
+          document.getElementById("rmxFormDomain").value = "";
+          document.getElementById("rmxPkField").style.display = "none";
+          document.getElementById("rmxRdpFields").style.display = "none";
+          document.getElementById("rmxPkToggleBtn").style.display = "";
+          document.getElementById("rmxSshFields").style.display = "";
+          document.getElementById("rmxModal").style.display = "flex";
+          document.getElementById("rmxFormName").focus();
+        };
+
+        window.rmxOpenEditModal = function (id) {
+          const c = rmxConnections.find((x) => x.id === id);
+          if (!c) return;
+          document.getElementById("rmxEditId").value = c.id;
+          document.getElementById("rmxModalTitle").textContent = window.t('remox.modal.edit');
+          document.getElementById("rmxFormName").value = c.name || "";
+          document.getElementById("rmxFormType").value = c.type || "ssh";
+          document.getElementById("rmxFormHost").value = c.host || "";
+          document.getElementById("rmxFormPort").value = c.port || 22;
+          document.getElementById("rmxFormUser").value = c.username || "";
+          document.getElementById("rmxFormPass").value = c.password || "";
+          document.getElementById("rmxFormPk").value = c.privateKey || "";
+          document.getElementById("rmxFormDomain").value = c.domain || "";
+          const isRdp = c.type === "rdp";
+          const isSsh = c.type === "ssh";
+          document.getElementById("rmxPkField").style.display = (isSsh && c.privateKey) ? "" : "none";
+          document.getElementById("rmxRdpFields").style.display = isRdp ? "" : "none";
+          document.getElementById("rmxPkToggleBtn").style.display = isSsh ? "" : "none";
+          document.getElementById("rmxSshFields").style.display = (isSsh || isRdp) ? "" : "none";
+          document.getElementById("rmxModal").style.display = "flex";
+        };
+
+        window.rmxCloseModal = function () {
+          document.getElementById("rmxModal").style.display = "none";
+        };
+
+        window.rmxOnTypeChange = function () {
+          const t = document.getElementById("rmxFormType").value;
+          const isSsh = t === "ssh";
+          const isRdp = t === "rdp";
+          document.getElementById("rmxSshFields").style.display = (isSsh || isRdp) ? "" : "none";
+          document.getElementById("rmxRdpFields").style.display = isRdp ? "" : "none";
+          document.getElementById("rmxPkField").style.display = "none";
+          document.getElementById("rmxPkToggleBtn").style.display = isSsh ? "" : "none";
+          document.getElementById("rmxFormPort").value = isSsh ? 22 : isRdp ? 3389 : 23;
+        };
+
+        window.rmxTogglePk = function () {
+          const f = document.getElementById("rmxPkField");
+          f.style.display = f.style.display === "none" ? "" : "none";
+        };
+
+        window.rmxSaveConnection = async function () {
+          const name = document.getElementById("rmxFormName").value.trim();
+          const type = document.getElementById("rmxFormType").value;
+          const host = document.getElementById("rmxFormHost").value.trim();
+          const defPort = type === "ssh" ? 22 : type === "rdp" ? 3389 : 23;
+          const port = parseInt(document.getElementById("rmxFormPort").value) || defPort;
+          const username = document.getElementById("rmxFormUser").value.trim();
+          const password = document.getElementById("rmxFormPass").value;
+          const privateKey = document.getElementById("rmxFormPk").value.trim();
+          const domain = document.getElementById("rmxFormDomain").value.trim();
+          const editId = document.getElementById("rmxEditId").value;
+
+          if (!name) { alert("Nama koneksi wajib diisi"); return; }
+          if (!host) { alert("Host wajib diisi"); return; }
+          if (type === "ssh" && !username) { alert("Username wajib diisi untuk SSH"); return; }
+          if (type === "rdp" && !username) { alert("Username wajib diisi untuk RDP"); return; }
+
+          const conn = { type, host, port, username, password, privateKey, domain };
+          if (editId) conn.id = editId;
+          conn.name = name;
+
+          const saved = await window.electronAPI.remox.saveConnection(conn);
+          if (editId) {
+            const idx = rmxConnections.findIndex((c) => c.id === editId);
+            if (idx >= 0) rmxConnections[idx] = saved; else rmxConnections.push(saved);
+            // Invalidate ping cache for edited connection
+            rmxPingCache.delete(editId);
+          } else {
+            rmxConnections.push(saved);
+          }
+          rmxRefreshSidebar();
+          rmxCloseModal();
+          // Ping the saved/new connection
+          rmxPingOne(saved.id);
+        };
+
+        window.rmxDeleteConnection = async function (id) {
+          const c = rmxConnections.find((x) => x.id === id);
+          if (!c) return;
+          if (!confirm(`Hapus koneksi "${c.name}"?`)) return;
+          await window.electronAPI.remox.deleteConnection(id);
+          rmxConnections = rmxConnections.filter((x) => x.id !== id);
+          rmxRefreshSidebar();
+        };
+
+        // ─── Util ─────────────────────────────────────────────────────────────
+        function rmxEsc(str) {
+          return String(str || "")
+            .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        }
+
+        // ─── MutationObserver trigger ─────────────────────────────────────────
+        const rmxPage = document.getElementById("page-remox");
+        if (rmxPage) {
+          new MutationObserver(() => {
+            if (rmxPage.classList.contains("active")) window.initRemoxPage();
+          }).observe(rmxPage, { attributes: true, attributeFilter: ["class"] });
+        }
+      })();
+      </script>
+
       <!-- Page: OS Virtual -->
       <div id="page-os-virtual" class="page-content">
-        <main class="page-main">
-          <div class="page-header">
-            <h2>OS Virtual</h2>
-            <p>Kelola mesin virtual Windows dan Linux seperti VirtualBox</p>
+        <style>
+          /* ── OS Virtual Layout ── */
+          #page-os-virtual { overflow-y: auto; }
+          .osv-header {
+            display: flex; align-items: center; gap: 14px;
+            padding: 20px 24px 10px; flex-wrap: wrap;
+          }
+          .osv-header-title { flex: 1; min-width: 0; }
+          .osv-header-title h2 { margin: 0; font-size: 20px; font-weight: 700; color: #e0e0e0; }
+          .osv-header-title p { margin: 2px 0 0; font-size: 13px; color: #666; }
+          .osv-header-actions { display: flex; gap: 8px; }
+
+          /* VM grid */
+          .osv-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 16px; padding: 12px 24px 24px;
+          }
+          .osv-card {
+            background: var(--color-medium-purple, #1a1a2e);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 12px; overflow: hidden;
+            transition: border-color 0.2s, box-shadow 0.2s;
+          }
+          .osv-card:hover { border-color: rgba(124,111,224,0.35); box-shadow: 0 4px 20px rgba(0,0,0,0.25); }
+          .osv-card-head {
+            display: flex; align-items: center; gap: 12px; padding: 16px 16px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+          }
+          .osv-os-icon {
+            width: 42px; height: 42px; border-radius: 10px; display: flex;
+            align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;
+          }
+          .osv-os-icon.linux { background: rgba(252,211,77,0.15); color: #fcd34d; }
+          .osv-os-icon.windows { background: rgba(59,130,246,0.15); color: #60a5fa; }
+          .osv-os-icon.other { background: rgba(167,139,250,0.15); color: #a78bfa; }
+          .osv-card-name { flex: 1; min-width: 0; }
+          .osv-card-name h4 { margin: 0; font-size: 15px; font-weight: 600; color: #e0e0e0;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          .osv-card-name span { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+          .osv-status-badge {
+            display: flex; align-items: center; gap: 5px; padding: 3px 10px;
+            border-radius: 20px; font-size: 11px; font-weight: 600; flex-shrink: 0;
+          }
+          .osv-status-badge .dot { width: 6px; height: 6px; border-radius: 50%; }
+          .osv-status-badge.running { background: rgba(80,200,120,0.15); color: #50c878; }
+          .osv-status-badge.running .dot { background: #50c878; box-shadow: 0 0 4px #50c87866; animation: osv-blink 2s infinite; }
+          .osv-status-badge.stopped { background: rgba(255,255,255,0.05); color: #666; }
+          .osv-status-badge.stopped .dot { background: #555; }
+          .osv-status-badge.starting { background: rgba(240,160,64,0.15); color: #f0a040; }
+          .osv-status-badge.starting .dot { background: #f0a040; animation: osv-blink 0.8s infinite; }
+          @keyframes osv-blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+          /* Specs row */
+          .osv-specs {
+            display: grid; grid-template-columns: repeat(4, 1fr);
+            gap: 0; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);
+          }
+          .osv-spec { text-align: center; }
+          .osv-spec-val { font-size: 14px; font-weight: 600; color: #c9d1d9; }
+          .osv-spec-key { font-size: 10px; color: #555; text-transform: uppercase; margin-top: 1px; }
+
+          /* Info row */
+          .osv-info { padding: 10px 16px; font-size: 12px; color: #555; border-bottom: 1px solid rgba(255,255,255,0.06); }
+          .osv-info span { display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; }
+
+          /* Actions */
+          .osv-actions {
+            display: flex; gap: 6px; padding: 10px 12px; flex-wrap: wrap;
+          }
+          .osv-btn {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 6px 12px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.05); color: #aaa; cursor: pointer;
+            font-size: 12px; transition: all 0.15s;
+          }
+          .osv-btn:hover { background: rgba(255,255,255,0.1); color: #e0e0e0; }
+          .osv-btn.start { border-color: rgba(80,200,120,0.3); color: #50c878; }
+          .osv-btn.start:hover { background: rgba(80,200,120,0.15); }
+          .osv-btn.stop { border-color: rgba(232,112,112,0.3); color: #e87070; }
+          .osv-btn.stop:hover { background: rgba(232,112,112,0.15); }
+          .osv-btn.restart { border-color: rgba(240,160,64,0.3); color: #f0a040; }
+          .osv-btn.restart:hover { background: rgba(240,160,64,0.15); }
+          .osv-btn.vnc { border-color: rgba(124,111,224,0.3); color: #9d8df0; }
+          .osv-btn.vnc:hover { background: rgba(124,111,224,0.15); }
+          .osv-btn.danger:hover { background: rgba(220,60,60,0.15); color: #e87070; border-color: rgba(220,60,60,0.3); }
+          .osv-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+          /* Empty state */
+          .osv-empty {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 16px; padding: 60px 24px; color: #444; text-align: center;
+            grid-column: 1 / -1;
+          }
+          .osv-empty i { font-size: 4rem; color: #2a2a4a; }
+          .osv-empty h3 { margin: 0; font-size: 17px; color: #555; }
+          .osv-empty p { margin: 0; font-size: 13px; color: #444; max-width: 340px; }
+
+          /* Snapshot list inside card */
+          .osv-snapshots { padding: 0 16px 8px; }
+          .osv-snap-title { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
+          .osv-snap-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #777; padding: 2px 0; }
+          .osv-snap-item i { color: #555; font-size: 10px; }
+
+          /* Notes */
+          .osv-notes { padding: 0 16px 10px; font-size: 12px; color: #666; font-style: italic; }
+        </style>
+
+        <div class="osv-header">
+          <div class="osv-header-title">
+            <h2><i class="bi bi-display" style="color:#7c6fe0;margin-right:8px"></i>OS Virtual</h2>
+            <p data-i18n="osv.subtitle">Manage QEMU virtual machines — Linux, Windows, and other OS</p>
           </div>
-          <div class="toolbar">
-            <button onclick="openVmModal()">
-              <i class="bi bi-plus-circle"></i> Tambah OS
+          <div class="osv-header-actions">
+            <button class="btn-icon" onclick="loadVmList()" data-i18n-title="osv.refresh.title" title="Refresh VM list">
+              <i class="bi bi-arrow-clockwise"></i>
+            </button>
+            <button class="btn-icon" onclick="killAllQemu()" data-i18n-title="osv.killqemu.title" title="Kill all QEMU processes (use if VM cannot start due to locked image)" style="color:#f0a040;border-color:rgba(240,160,64,0.3)">
+              <i class="bi bi-exclamation-triangle"></i>
+            </button>
+            <button class="btn-primary" onclick="openVmModal()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px">
+              <i class="bi bi-plus-lg"></i> <span data-i18n="osv.add_vm">Add VM</span>
             </button>
           </div>
-          <div id="vm-list" class="device-list" style="min-height: 200px">
-            Loading VM...
+        </div>
+
+        <!-- QEMU missing banner -->
+        <div id="qemuMissingBanner" style="display:none;align-items:center;gap:12px;padding:12px 16px;margin-bottom:12px;background:rgba(240,160,64,0.12);border:1px solid rgba(240,160,64,0.4);border-radius:10px;flex-wrap:wrap;">
+          <i class="bi bi-exclamation-triangle-fill" style="color:#f0a040;font-size:1.2rem;flex-shrink:0;"></i>
+          <span style="flex:1;font-size:0.9rem;color:var(--color-text);">QEMU tidak terinstall. Install QEMU untuk dapat menjalankan OS Virtual.</span>
+          <button id="installQemuBtn" onclick="installQemu()" style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;font-size:0.85rem;border-radius:8px;background:#7c6fe0;color:#fff;border:none;cursor:pointer;white-space:nowrap;">
+            <i class="bi bi-download"></i> Install QEMU
+          </button>
+        </div>
+
+        <div class="osv-grid" id="vm-list">
+          <div class="osv-empty">
+            <i class="bi bi-display"></i>
+            <h3>Memuat daftar VM...</h3>
           </div>
-        </main>
+        </div>
       </div>
       <!-- End Page: OS Virtual -->
 
       <!-- Page: CCTV -->
       <div id="page-cctv" class="page-content">
-        <main class="page-main">
-          <div class="page-header">
-            <h2>CCTV Monitoring</h2>
-            <p>Monitor dan kelola kamera CCTV Anda</p>
+        <main class="page-main" style="display:flex;flex-direction:column;height:100%;padding:0;overflow:hidden;">
+
+          <!-- Toolbar -->
+          <div style="display:flex;align-items:center;gap:10px;padding:12px 18px;background:var(--color-card);border-bottom:1px solid var(--color-border);flex-shrink:0;flex-wrap:wrap;">
+            <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:200px;">
+              <i class="bi bi-camera-video-fill" style="color:var(--color-primary);font-size:1.2rem;"></i>
+              <span style="font-weight:700;font-size:1rem;">CCTV Monitor</span>
+              <span id="cctvStatusDot" style="width:8px;height:8px;border-radius:50%;background:#666;display:inline-block;" title="ffmpeg status"></span>
+              <span id="cctvStatusText" data-i18n="cctv.checking" style="font-size:0.75rem;color:var(--color-muted);">Checking ffmpeg...</span>
+              <button id="cctvInstallFfmpegBtn" onclick="cctvInstallFfmpeg()" style="display:none;align-items:center;gap:4px;padding:3px 10px;font-size:0.75rem;border-radius:6px;background:var(--color-primary);color:#fff;border:none;cursor:pointer;">
+                <i class="bi bi-download"></i> Install FFmpeg
+              </button>
+            </div>
+            <!-- Layout buttons -->
+            <div style="display:flex;gap:4px;background:var(--color-bg);border-radius:8px;padding:3px;">
+              <button onclick="cctvSetLayout(1)"  id="cctvLayout1"  class="btn-cctv-layout active" title="1 Kamera">
+                <svg width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="2" fill="currentColor"/></svg>
+              </button>
+              <button onclick="cctvSetLayout(4)"  id="cctvLayout4"  class="btn-cctv-layout" title="2×2">
+                <svg width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1" fill="currentColor"/><rect x="1" y="9" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor"/></svg>
+              </button>
+              <button onclick="cctvSetLayout(9)"  id="cctvLayout9"  class="btn-cctv-layout" title="3×3">
+                <svg width="16" height="16" viewBox="0 0 16 16">
+                  <rect x="1" y="1" width="4" height="4" rx="0.5" fill="currentColor"/><rect x="6" y="1" width="4" height="4" rx="0.5" fill="currentColor"/><rect x="11" y="1" width="4" height="4" rx="0.5" fill="currentColor"/>
+                  <rect x="1" y="6" width="4" height="4" rx="0.5" fill="currentColor"/><rect x="6" y="6" width="4" height="4" rx="0.5" fill="currentColor"/><rect x="11" y="6" width="4" height="4" rx="0.5" fill="currentColor"/>
+                  <rect x="1" y="11" width="4" height="4" rx="0.5" fill="currentColor"/><rect x="6" y="11" width="4" height="4" rx="0.5" fill="currentColor"/><rect x="11" y="11" width="4" height="4" rx="0.5" fill="currentColor"/>
+                </svg>
+              </button>
+              <button onclick="cctvSetLayout(16)" id="cctvLayout16" class="btn-cctv-layout" title="4×4">
+                <svg width="16" height="16" viewBox="0 0 16 16">
+                  <rect x="1"  y="1"  width="3" height="3" rx="0.3" fill="currentColor"/><rect x="5"  y="1"  width="3" height="3" rx="0.3" fill="currentColor"/><rect x="9"  y="1"  width="3" height="3" rx="0.3" fill="currentColor"/><rect x="13" y="1"  width="3" height="3" rx="0.3" fill="currentColor"/>
+                  <rect x="1"  y="5"  width="3" height="3" rx="0.3" fill="currentColor"/><rect x="5"  y="5"  width="3" height="3" rx="0.3" fill="currentColor"/><rect x="9"  y="5"  width="3" height="3" rx="0.3" fill="currentColor"/><rect x="13" y="5"  width="3" height="3" rx="0.3" fill="currentColor"/>
+                  <rect x="1"  y="9"  width="3" height="3" rx="0.3" fill="currentColor"/><rect x="5"  y="9"  width="3" height="3" rx="0.3" fill="currentColor"/><rect x="9"  y="9"  width="3" height="3" rx="0.3" fill="currentColor"/><rect x="13" y="9"  width="3" height="3" rx="0.3" fill="currentColor"/>
+                  <rect x="1"  y="13" width="3" height="3" rx="0.3" fill="currentColor"/><rect x="5"  y="13" width="3" height="3" rx="0.3" fill="currentColor"/><rect x="9"  y="13" width="3" height="3" rx="0.3" fill="currentColor"/><rect x="13" y="13" width="3" height="3" rx="0.3" fill="currentColor"/>
+                </svg>
+              </button>
+            </div>
+            <button onclick="cctvOpenScanModal()" style="display:flex;align-items:center;gap:6px;padding:7px 14px;background:var(--color-bg);border:1px solid var(--color-border);color:var(--color-text);border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600;">
+              <i class="bi bi-radar"></i> <span data-i18n="cctv.scan_onvif">Scan ONVIF</span>
+            </button>
+            <button onclick="cctvOpenAddModal()" style="display:flex;align-items:center;gap:6px;padding:7px 14px;background:var(--color-primary);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600;">
+              <i class="bi bi-plus-lg"></i> <span data-i18n="cctv.add_camera">Add Camera</span>
+            </button>
           </div>
-          <div class="content-placeholder">
-            <i
-              class="bi bi-camera-video"
-              style="font-size: 4rem; color: var(--color-light-purple)"
-            ></i>
-            <h3>CCTV Management</h3>
-            <p>
-              Fitur untuk monitoring dan mengelola CCTV akan segera tersedia di
-              sini.
-            </p>
+
+          <!-- Grid -->
+          <div id="cctvGrid" class="cctv-grid cctv-grid-1" style="flex:1;overflow:auto;padding:10px;gap:8px;">
+            <!-- cells rendered by JS -->
           </div>
+
         </main>
       </div>
       <!-- End Page: CCTV -->
+
+      <!-- CCTV Add/Edit Modal -->
+      <div id="cctvModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9000;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+        <div style="background:var(--color-medium-purple,#2d2446);border-radius:14px;padding:28px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.08);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 id="cctvModalTitle" data-i18n="cctv.modal.add" style="margin:0;font-size:1.1rem;">Add Camera</h3>
+            <button onclick="cctvCloseModal()" style="background:none;border:none;color:var(--color-muted);font-size:1.3rem;cursor:pointer;padding:4px;">×</button>
+          </div>
+
+          <input type="hidden" id="cctvEditUid" value="">
+
+          <div style="display:flex;flex-direction:column;gap:14px;">
+            <div>
+              <label data-i18n="cctv.form.name" style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">Camera Name *</label>
+              <input id="cctvName" type="text" placeholder="Contoh: Kamera Depan" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;box-sizing:border-box;">
+            </div>
+
+            <div>
+              <label data-i18n="cctv.form.type" style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">Stream Type</label>
+              <select id="cctvType" onchange="cctvOnTypeChange()" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;">
+                <option value="rtsp">RTSP (DVR/NVR/IP Camera)</option>
+                <option value="http-mjpeg">HTTP MJPEG (IP Camera langsung)</option>
+                <option value="hls">HLS (.m3u8)</option>
+                <option value="snapshot">Snapshot URL (auto-refresh)</option>
+              </select>
+            </div>
+
+            <div id="cctvBrandHelper" style="display:none;">
+              <label data-i18n="cctv.form.template" style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">URL Template (optional)</label>
+              <select onchange="cctvApplyTemplate(this.value)" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;">
+                <option value="" data-i18n="cctv.form.template_default">— Select brand to auto-fill URL —</option>
+                <option value="rtsp://IP:554/Streaming/Channels/101">Hikvision (Channel 1 Main)</option>
+                <option value="rtsp://IP:554/Streaming/Channels/201">Hikvision (Channel 2 Main)</option>
+                <option value="rtsp://IP:554/cam/realmonitor?channel=1&subtype=0">Dahua (CH1 Main)</option>
+                <option value="rtsp://IP:554/cam/realmonitor?channel=1&subtype=1">Dahua (CH1 Sub)</option>
+                <option value="rtsp://IP:554/h264Preview_01_main">Reolink (CH1 Main)</option>
+                <option value="rtsp://IP:554/axis-media/media.amp">Axis</option>
+                <option value="rtsp://IP:554/live/ch00_0">Tiandy / Generic DVR</option>
+                <option value="rtsp://IP:554/stream1">Generic (stream1)</option>
+                <option value="rtsp://IP:554/0">Generic (channel 0)</option>
+                <option disabled>─── Indonesia ───</option>
+                <option value="rtsp://admin:admin@IP:8554/Streaming/Channels/101">Bardi (Main Stream)</option>
+                <option value="rtsp://admin:admin@IP:8554/Streaming/Channels/102">Bardi (Sub Stream)</option>
+                <option value="rtsp://admin:admin@IP:554/stream1">AVARO (stream1)</option>
+                <option value="rtsp://admin:admin@IP:554/live">AVARO (live)</option>
+                <option value="rtsp://admin:admin@IP:554/videoMain">AVARO / Tuya (videoMain)</option>
+              </select>
+            </div>
+
+            <div>
+              <label data-i18n="cctv.form.url" style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">URL / Stream Address *</label>
+              <input id="cctvUrl" type="text" placeholder="rtsp://192.168.1.100:554/stream1" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;font-family:monospace;box-sizing:border-box;">
+              <p id="cctvUrlHint" style="margin:4px 0 0;font-size:0.75rem;color:var(--color-muted);"></p>
+            </div>
+
+            <div style="display:flex;gap:10px;" id="cctvCredFields">
+              <div style="flex:1;">
+                <label style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">Username</label>
+                <input id="cctvUsername" type="text" placeholder="admin" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;box-sizing:border-box;">
+              </div>
+              <div style="flex:1;">
+                <label style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">Password</label>
+                <input id="cctvPassword" type="password" placeholder="••••••" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;box-sizing:border-box;">
+              </div>
+            </div>
+
+            <div id="cctvFpsField">
+              <label data-i18n="cctv.form.fps" style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">Frame Rate (fps)</label>
+              <select id="cctvFps" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;">
+                <option value="5">5 fps (hemat CPU)</option>
+                <option value="10">10 fps</option>
+                <option value="15" selected>15 fps (default)</option>
+                <option value="25">25 fps</option>
+                <option value="30">30 fps</option>
+              </select>
+            </div>
+
+            <div id="cctvSnapshotInterval" style="display:none;">
+              <label data-i18n="cctv.form.refresh" style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">Refresh Interval (seconds)</label>
+              <input id="cctvRefreshSec" type="number" min="1" max="300" value="5" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;box-sizing:border-box;">
+            </div>
+
+            <div>
+              <label data-i18n="cctv.form.notes" style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">Notes</label>
+              <input id="cctvNotes" type="text" placeholder="Lokasi, keterangan, dll." style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;box-sizing:border-box;">
+            </div>
+
+            <!-- PTZ / ONVIF section -->
+            <div style="border:1px solid #4c1d9566;border-radius:10px;padding:14px 14px 10px;">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                <span data-i18n="cctv.form.ptz" style="font-size:0.82rem;font-weight:700;color:#a78bfa;">🎮 PTZ / ONVIF</span>
+                <span data-i18n="cctv.form.ptz_hint" style="font-size:0.72rem;color:var(--color-muted);">Fill in to show camera direction control buttons</span>
+                <button type="button" onclick="cctvAutoFillOnvif()" style="margin-left:auto;padding:3px 10px;background:#4c1d95;border:none;color:#fff;border-radius:5px;cursor:pointer;font-size:0.72rem;white-space:nowrap;">⚡ Isi Otomatis</button>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 100px 1fr;gap:10px;">
+                <div>
+                  <label data-i18n="cctv.form.onvif_ip" style="font-size:0.75rem;color:var(--color-muted);display:block;margin-bottom:4px;">ONVIF IP</label>
+                  <input id="cctvOnvifIp" type="text" placeholder="192.168.2.245" style="width:100%;padding:8px 10px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:7px;color:var(--color-text);font-size:0.85rem;box-sizing:border-box;">
+                </div>
+                <div>
+                  <label data-i18n="cctv.form.onvif_port" style="font-size:0.75rem;color:var(--color-muted);display:block;margin-bottom:4px;">ONVIF Port</label>
+                  <input id="cctvOnvifPort" type="number" placeholder="80" value="80" style="width:100%;padding:8px 10px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:7px;color:var(--color-text);font-size:0.85rem;box-sizing:border-box;">
+                </div>
+                <div>
+                  <label style="font-size:0.75rem;color:var(--color-muted);display:block;margin-bottom:4px;">Profile Token</label>
+                  <input id="cctvOnvifToken" type="text" placeholder="MainStream" style="width:100%;padding:8px 10px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:7px;color:var(--color-text);font-size:0.85rem;box-sizing:border-box;">
+                </div>
+              </div>
+              <div style="font-size:0.7rem;color:var(--color-muted);margin-top:7px;">
+                💡 Bardi: port <b>835</b>, token <b>MainStream</b> &nbsp;·&nbsp; AVARO: port <b>80</b>, token <b>MainStream</b>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:24px;">
+            <button onclick="cctvCloseModal()" style="padding:9px 20px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);cursor:pointer;font-size:0.9rem;" data-i18n="cctv.form.cancel">Cancel</button>
+            <button onclick="cctvSaveCamera()" style="padding:9px 20px;background:var(--color-primary);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;font-weight:600;" data-i18n="cctv.form.save">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CCTV Fullscreen Overlay -->
+      <div id="cctvFullscreen" style="display:none;position:fixed;inset:0;background:#000;z-index:9500;flex-direction:column;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:rgba(0,0,0,0.7);position:absolute;top:0;left:0;right:0;z-index:1;">
+          <span id="cctvFsTitle" style="color:#fff;font-weight:700;"></span>
+          <button onclick="cctvCloseFullscreen()" style="background:rgba(255,255,255,0.15);border:none;color:#fff;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:0.85rem;">✕ Tutup</button>
+        </div>
+        <img id="cctvFsImg" src="" style="width:100%;height:100%;object-fit:contain;display:none;" alt="CCTV Stream">
+        <video id="cctvFsVideo" style="width:100%;height:100%;object-fit:contain;display:none;" autoplay muted controls></video>
+      </div>
+
+      <!-- CCTV ONVIF Scan Modal -->
+      <div id="cctvScanModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9200;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+        <div style="background:var(--color-medium-purple,#2d2446);border-radius:14px;padding:24px;width:620px;max-width:96vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.08);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <div>
+              <h3 data-i18n="cctv.scan.title" style="margin:0;font-size:1.05rem;">Scan ONVIF / IP Camera</h3>
+              <p data-i18n="cctv.scan.desc" style="margin:4px 0 0;font-size:0.75rem;color:var(--color-muted);">WS-Discovery + TCP scan on local subnet ports 80, 8080, 8899</p>
+            </div>
+            <button onclick="cctvCloseScanModal()" style="background:none;border:none;color:var(--color-muted);font-size:1.3rem;cursor:pointer;">×</button>
+          </div>
+
+          <!-- IP Range -->
+          <div style="margin-bottom:12px;">
+            <label style="font-size:0.75rem;color:var(--color-muted);display:block;margin-bottom:4px;">
+              <span data-i18n="cctv.scan.subnet">Subnet or Range</span>
+              <span data-i18n="cctv.scan.subnet_hint" style="color:var(--color-muted);font-weight:400;"> — leave blank for auto-detect local subnet</span>
+            </label>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input id="cctvScanSubnet" type="text" placeholder="Contoh: 192.168.100 atau 192.168.100.1-50"
+                style="flex:1;min-width:200px;padding:8px 10px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:7px;color:var(--color-text);font-size:0.85rem;font-family:monospace;box-sizing:border-box;">
+              <div style="display:flex;gap:6px;flex-wrap:wrap;" id="cctvSubnetChips">
+                <!-- populated by JS -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Credentials + Scan button -->
+          <div style="display:flex;gap:10px;margin-bottom:14px;">
+            <div style="flex:1;">
+              <label data-i18n="cctv.scan.user" style="font-size:0.75rem;color:var(--color-muted);display:block;margin-bottom:4px;">Username (optional)</label>
+              <input id="cctvScanUser" type="text" placeholder="admin" style="width:100%;padding:8px 10px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:7px;color:var(--color-text);font-size:0.85rem;box-sizing:border-box;">
+            </div>
+            <div style="flex:1;">
+              <label data-i18n="cctv.scan.pass" style="font-size:0.75rem;color:var(--color-muted);display:block;margin-bottom:4px;">Password (optional)</label>
+              <div style="position:relative;">
+                <input id="cctvScanPass" type="password" placeholder="••••••" style="width:100%;padding:8px 36px 8px 10px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:7px;color:var(--color-text);font-size:0.85rem;box-sizing:border-box;">
+                <button type="button" onclick="cctvToggleScanPass(this)"
+                  style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--color-muted);cursor:pointer;padding:2px 4px;font-size:0.9rem;line-height:1;">
+                  <i class="bi bi-eye"></i>
+                </button>
+              </div>
+            </div>
+            <div style="display:flex;align-items:flex-end;">
+              <button id="cctvScanBtn" onclick="cctvStartScan()" style="padding:8px 18px;background:var(--color-primary);color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:0.85rem;font-weight:600;white-space:nowrap;">
+                <i class="bi bi-search"></i> <span data-i18n="cctv.scan.start">Start Scan</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Progress -->
+          <div id="cctvScanProgress" style="display:none;margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+              <span id="cctvScanMsg" style="font-size:0.78rem;color:var(--color-muted);"></span>
+              <span id="cctvScanPct" style="font-size:0.78rem;color:var(--color-muted);"></span>
+            </div>
+            <div style="height:4px;background:var(--color-bg);border-radius:2px;overflow:hidden;">
+              <div id="cctvScanBar" style="height:100%;background:var(--color-primary);width:0%;transition:width .3s;"></div>
+            </div>
+          </div>
+
+          <!-- Brand notes -->
+          <div style="background:#f59e0b18;border:1px solid #f59e0b44;border-radius:7px;padding:8px 12px;margin-bottom:10px;font-size:0.75rem;color:#f59e0b;line-height:1.6;">
+            <b>Bardi</b>: Aktifkan ONVIF dulu di aplikasi Bardi → Perangkat → Pengaturan → ONVIF. Port RTSP: <code style="background:#0003;padding:1px 5px;border-radius:3px;">8554</code><br>
+            <b>AVARO</b>: Support ONVIF via port 80/8080. Jika tidak terdeteksi, tambah manual dengan URL template AVARO.
+          </div>
+
+          <!-- Results -->
+          <div id="cctvScanResults" style="flex:1;overflow-y:auto;min-height:100px;">
+            <div id="cctvScanEmpty" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100px;color:var(--color-muted);gap:8px;">
+              <i class="bi bi-radar" style="font-size:2rem;"></i>
+              <span data-i18n="cctv.scan.hint" style="font-size:0.85rem;">Click "Start Scan" to search for ONVIF cameras on the local network</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════ -->
+      <!-- Page: Cron Job Manager                                  -->
+      <!-- ═══════════════════════════════════════════════════════ -->
+      <div id="page-cron" class="page-content">
+        <style>
+          #page-cron { display: none; flex-direction: column; overflow-y: auto; padding: 20px 24px; background: var(--color-dark-purple); color: var(--color-text-light); }
+          #page-cron.active { display: flex; }
+          .cron-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+          .cron-subtitle { font-size: 13px; color: #888; flex: 1; }
+          .cron-job-list { display: flex; flex-direction: column; gap: 12px; }
+          .cron-job-card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; overflow: hidden; transition: border-color 0.2s; }
+          .cron-job-card:hover { border-color: #7c6fe0; }
+          .cron-job-card.cron-disabled { opacity: 0.6; }
+          .cron-card-header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; }
+          .cron-card-header:hover .cron-card-name { color: #a78bfa; }
+          .cron-toggle { width: 36px; height: 20px; background: #333; border-radius: 10px; border: none; cursor: pointer; position: relative; transition: background 0.2s; flex-shrink: 0; }
+          .cron-toggle.on { background: #7c6fe0; }
+          .cron-toggle::after { content:''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left 0.2s; }
+          .cron-toggle.on::after { left: 19px; }
+          .cron-card-name { font-size: 14px; font-weight: 600; color: #e0e0e0; flex: 1; }
+          .cron-card-schedule { font-family: monospace; font-size: 12px; color: #a78bfa; background: rgba(124,111,224,0.1); padding: 2px 8px; border-radius: 5px; }
+          .cron-card-status { font-size: 11px; padding: 2px 8px; border-radius: 5px; font-weight: 600; }
+          .cron-card-status.success { background: rgba(16,185,129,0.15); color: #10b981; }
+          .cron-card-status.failed { background: rgba(239,68,68,0.15); color: #ef4444; }
+          .cron-card-status.pending { background: rgba(148,163,184,0.15); color: #94a3b8; }
+          .cron-card-actions { display: flex; gap: 6px; margin-left: auto; }
+          .cron-act-btn { background: rgba(255,255,255,0.05); border: 1px solid #30363d; border-radius: 6px; color: #aaa; cursor: pointer; padding: 4px 10px; font-size: 12px; transition: all 0.15s; }
+          .cron-act-btn:hover { background: rgba(124,111,224,0.15); border-color: #7c6fe0; color: #a78bfa; }
+          .cron-act-btn.danger:hover { background: rgba(239,68,68,0.15); border-color: #ef4444; color: #ef4444; }
+          .cron-card-meta { padding: 0 16px 10px; display: flex; gap: 20px; flex-wrap: wrap; }
+          .cron-meta-item { font-size: 11px; color: #666; }
+          .cron-meta-item span { color: #aaa; }
+          .cron-card-url { padding: 0 16px 10px; font-size: 12px; color: #555; word-break: break-all; }
+          .cron-card-url a { color: #7c6fe0; text-decoration: none; }
+          .cron-history-panel { display: none; border-top: 1px solid #30363d; }
+          .cron-history-panel.open { display: block; }
+          .cron-history-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: #0d1117; }
+          .cron-history-header h4 { margin: 0; font-size: 12px; font-weight: 600; color: #888; }
+          .cron-history-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          .cron-history-table th { padding: 6px 10px; text-align: left; color: #666; font-weight: 500; border-bottom: 1px solid #21262d; }
+          .cron-history-table td { padding: 6px 10px; color: #aaa; border-bottom: 1px solid #161b22; }
+          .cron-history-table tr:last-child td { border-bottom: none; }
+          .cron-status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+          .cron-status-dot.success { background: #10b981; }
+          .cron-status-dot.failed { background: #ef4444; }
+          .cron-empty { text-align: center; padding: 60px 20px; color: #555; }
+          .cron-empty i { font-size: 40px; color: #333; display: block; margin-bottom: 12px; }
+          .cron-empty h3 { margin: 0 0 6px; font-size: 16px; color: #666; }
+          /* Cron Modal */
+          #cronModal { display: none; position: fixed; inset: 0; z-index: 9000; background: rgba(0,0,0,0.65); align-items: center; justify-content: center; overflow-y: auto; padding: 20px 0; }
+          #cronModal.open { display: flex; }
+          .cron-modal-box { background: #161b22; border: 1px solid #30363d; border-radius: 14px; width: 560px; max-width: 95vw; box-shadow: 0 24px 64px rgba(0,0,0,0.5); }
+          .cron-modal-header { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid #30363d; }
+          .cron-modal-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+          .cron-modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid #30363d; }
+          .cron-field label { display: block; font-size: 12px; font-weight: 600; color: #aaa; margin-bottom: 5px; }
+          .cron-field input, .cron-field select, .cron-field textarea { width: 100%; padding: 8px 10px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e0e0e0; font-size: 13px; box-sizing: border-box; }
+          .cron-field input:focus, .cron-field select:focus, .cron-field textarea:focus { outline: none; border-color: #7c6fe0; }
+          .cron-preset-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+          .cron-chip { padding: 3px 10px; background: rgba(255,255,255,0.05); border: 1px solid #30363d; border-radius: 12px; color: #888; font-size: 11px; cursor: pointer; }
+          .cron-chip:hover { background: rgba(124,111,224,0.15); border-color: #7c6fe0; color: #a78bfa; }
+          .cron-expr-preview { font-size: 11px; margin-top: 4px; color: #10b981; }
+          .cron-expr-preview.invalid { color: #ef4444; }
+          .cron-toggle-row { display: flex; align-items: center; gap: 10px; }
+          /* ── Schedule Visual Builder ── */
+          .cron-builder-wrap { display: flex; flex-direction: column; gap: 8px; }
+          .cron-builder-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+          .cron-cycle-select { padding: 8px 10px; background: #0d1117; border: 1px solid #7c6fe0; border-radius: 6px; color: #e0e0e0; font-size: 13px; font-weight: 600; min-width: 140px; cursor: pointer; }
+          .cron-builder-fields { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+          .cron-builder-num { width: 72px; padding: 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e0e0e0; font-size: 14px; text-align: center; }
+          .cron-builder-time { padding: 8px 10px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e0e0e0; font-size: 14px; }
+          .cron-builder-sel { padding: 8px 10px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e0e0e0; font-size: 13px; }
+          .cron-builder-lbl { font-size: 13px; color: #888; white-space: nowrap; }
+          .cron-builder-desc { display: inline-flex; align-items: center; gap: 6px; background: rgba(124,111,224,0.12); border: 1px solid rgba(124,111,224,0.3); border-radius: 8px; padding: 6px 12px; font-size: 13px; color: #a78bfa; font-weight: 500; }
+          .cron-builder-desc i { font-size: 14px; }
+          .cron-adv-btn { background: none; border: 1px solid #30363d; border-radius: 6px; color: #666; cursor: pointer; padding: 4px 10px; font-size: 11px; transition: all 0.15s; }
+          .cron-adv-btn:hover, .cron-adv-btn.active { border-color: #7c6fe0; color: #a78bfa; }
+        </style>
+
+        <!-- Toolbar -->
+        <div class="cron-toolbar">
+          <div>
+            <h2 style="margin:0;font-size:18px;font-weight:700;color:#e0e0e0"><i class="bi bi-clock-history" style="color:#7c6fe0;margin-right:8px"></i><span data-i18n="sidebar.cron">Jadwal</span></h2>
+            <p class="cron-subtitle" data-i18n="cron.subtitle">Kelola tugas terjadwal berbasis URL (cron job)</p>
+          </div>
+          <div style="flex:1"></div>
+          <button onclick="openCronModal()" style="display:flex;align-items:center;gap:6px;padding:8px 16px;background:linear-gradient(135deg,#7c6fe0,#a78bfa);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600">
+            <i class="bi bi-plus-lg"></i><span data-i18n="cron.add_job">Tambah Job</span>
+          </button>
+        </div>
+
+        <!-- Job List -->
+        <div id="cronJobList" class="cron-job-list">
+          <div class="cron-empty">
+            <i class="bi bi-clock-history"></i>
+            <h3 data-i18n="cron.loading">Memuat jadwal...</h3>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal: Cron Job -->
+      <div id="cronModal">
+        <div class="cron-modal-box">
+          <div class="cron-modal-header">
+            <i class="bi bi-clock-history" style="font-size:18px;color:#7c6fe0"></i>
+            <h3 id="cronModalTitle" data-i18n="cron.modal.add" style="margin:0;font-size:16px;font-weight:600;color:#e0e0e0;flex:1">Tambah Cron Job</h3>
+            <button onclick="closeCronModal()" style="background:none;border:none;color:#666;cursor:pointer;font-size:18px;line-height:1;padding:2px 6px">×</button>
+          </div>
+          <div class="cron-modal-body">
+            <input type="hidden" id="cronJobId">
+
+            <!-- Job Name -->
+            <div class="cron-field">
+              <label data-i18n="cron.form.name">Nama Job</label>
+              <input type="text" id="cronJobName" data-i18n-placeholder="cron.form.name_placeholder" placeholder="Mis: Health check API">
+            </div>
+
+            <!-- Schedule Visual Builder -->
+            <div class="cron-field">
+              <label data-i18n="cron.form.schedule">Siklus Eksekusi</label>
+              <div class="cron-builder-wrap">
+                <!-- Row: cycle dropdown + dynamic fields -->
+                <div class="cron-builder-row">
+                  <select id="cronCycle" class="cron-cycle-select" onchange="cronBuilderChange()">
+                    <!-- Options filled by JS based on language -->
+                  </select>
+                  <div id="cronBuilderFields" class="cron-builder-fields"></div>
+                </div>
+                <!-- Human-readable description badge -->
+                <div id="cronBuilderDesc" class="cron-builder-desc"></div>
+                <!-- Advanced toggle -->
+                <div style="margin-top:8px">
+                  <button type="button" id="cronAdvToggle" onclick="cronToggleAdvanced()" class="cron-adv-btn">
+                    <i class="bi bi-code-slash" style="margin-right:4px"></i><span data-i18n="cron.advanced">Advanced</span>
+                  </button>
+                  <div id="cronAdvancedPanel" style="display:none;margin-top:6px">
+                    <input type="text" id="cronJobSchedule" value="*/5 * * * *"
+                      style="font-family:monospace;font-size:12px;width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;box-sizing:border-box"
+                      oninput="cronParseRaw()">
+                    <p style="margin:3px 0 0;font-size:11px;color:#555" data-i18n="cron.form.schedule_hint">Format: menit jam hari bulan hari-minggu</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- URL -->
+            <div class="cron-field">
+              <label data-i18n="cron.form.url">URL yang Dipanggil *</label>
+              <input type="url" id="cronJobUrl" data-i18n-placeholder="cron.form.url_placeholder" placeholder="https://example.com/api/ping">
+            </div>
+
+            <!-- Method + Body in a row -->
+            <div style="display:grid;grid-template-columns:140px 1fr;gap:12px">
+              <div class="cron-field">
+                <label data-i18n="cron.form.method">Metode HTTP</label>
+                <select id="cronJobMethod" onchange="cronToggleBody()">
+                  <option value="GET">GET</option>
+                  <option value="POST">POST</option>
+                  <option value="PUT">PUT</option>
+                  <option value="PATCH">PATCH</option>
+                  <option value="DELETE">DELETE</option>
+                  <option value="HEAD">HEAD</option>
+                </select>
+              </div>
+              <div class="cron-field" id="cronBodyField" style="display:none">
+                <label data-i18n="cron.form.body">Request Body (POST saja)</label>
+                <textarea id="cronJobBody" rows="2" data-i18n-placeholder="cron.form.body_placeholder" placeholder='{"key":"value"}' style="resize:vertical"></textarea>
+              </div>
+            </div>
+
+            <!-- Enable toggle -->
+            <div class="cron-toggle-row">
+              <input type="checkbox" id="cronJobEnabled" checked style="width:16px;height:16px;accent-color:#7c6fe0">
+              <label for="cronJobEnabled" style="font-size:13px;color:#ccc;cursor:pointer" data-i18n="cron.form.enabled">Aktifkan job ini</label>
+            </div>
+          </div>
+          <div class="cron-modal-footer">
+            <button onclick="closeCronModal()" data-i18n="cron.form.cancel" style="padding:8px 20px;background:rgba(255,255,255,0.06);border:1px solid #30363d;border-radius:8px;color:#aaa;cursor:pointer;font-size:13px">Batal</button>
+            <button onclick="submitCronJob()" style="padding:8px 20px;background:linear-gradient(135deg,#7c6fe0,#a78bfa);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600">
+              <i class="bi bi-floppy" style="margin-right:5px"></i><span data-i18n="cron.form.save">Simpan Job</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Page: Resource Monitor -->
+      <div id="page-resource-monitor" class="page-content">
+        <style>
+          #page-resource-monitor {
+            overflow-y: auto;
+            padding: 20px 24px;
+            background: var(--color-dark-purple);
+            color: var(--color-text-light);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+          }
+          /* Header */
+          .rm-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding-bottom: 14px;
+            border-bottom: 1px solid rgba(139,92,246,.2);
+          }
+          .rm-header h2 {
+            font-size: 17px; font-weight: 700; margin: 0;
+            display: flex; align-items: center; gap: 8px;
+            color: var(--color-accent-purple);
+          }
+          .rm-header-right { display: flex; align-items: center; gap: 12px; }
+          .rm-last-updated { font-size: 11px; color: var(--color-gray, #888); }
+          .rm-btn {
+            background: var(--color-accent-purple); color: #fff; border: none;
+            border-radius: 8px; padding: 6px 13px; cursor: pointer; font-size: 12px;
+            display: inline-flex; align-items: center; gap: 5px; font-family: inherit;
+            transition: opacity .15s;
+          }
+          .rm-btn:hover { opacity: .85; }
+          .rm-btn-sm {
+            background: transparent; color: var(--color-danger, #ef4444);
+            border: 1px solid var(--color-danger, #ef4444);
+            border-radius: 5px; padding: 2px 7px; cursor: pointer; font-size: 11px;
+            font-family: inherit; transition: background .15s, color .15s;
+          }
+          .rm-btn-sm:hover { background: var(--color-danger, #ef4444); color: #fff; }
+          /* Metric cards */
+          .rm-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+          }
+          .rm-card {
+            background: var(--color-medium-purple);
+            border: 1px solid rgba(139,92,246,.18);
+            border-radius: 12px; padding: 16px 18px;
+          }
+          body.theme-mode-light .rm-card { box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+          .rm-card-label {
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .07em; color: var(--color-gray); margin-bottom: 6px;
+            display: flex; align-items: center; gap: 5px;
+          }
+          .rm-card-value {
+            font-size: 30px; font-weight: 800; line-height: 1; margin-bottom: 5px;
+            color: var(--color-text-light);
+          }
+          .rm-card-sub {
+            font-size: 11px; color: var(--color-gray); margin-bottom: 10px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          }
+          .rm-bar { height: 6px; border-radius: 99px; background: rgba(128,128,128,.15); overflow: hidden; }
+          .rm-bar-fill { height: 100%; border-radius: 99px; transition: width .6s ease; }
+          .rm-bar-cpu  .rm-bar-fill { background: linear-gradient(90deg, var(--color-accent-purple), #c084fc); }
+          .rm-bar-mem  .rm-bar-fill { background: linear-gradient(90deg, var(--color-success, #4ade80), #06b6d4); }
+          .rm-bar-disk .rm-bar-fill { background: linear-gradient(90deg, var(--color-warning, #fbbf24), var(--color-danger, #ef4444)); }
+          .rm-bar-self .rm-bar-fill { background: linear-gradient(90deg, var(--color-info, #60a5fa), #a855f7); }
+          /* Section panels */
+          .rm-section {
+            background: var(--color-medium-purple);
+            border: 1px solid rgba(139,92,246,.18);
+            border-radius: 12px; padding: 16px 18px;
+          }
+          body.theme-mode-light .rm-section { box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+          .rm-section-title {
+            font-size: 12px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .06em; color: var(--color-gray);
+            margin-bottom: 14px; display: flex; align-items: center; gap: 6px;
+          }
+          /* Service mini-cards */
+          .rm-service-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(130px,1fr)); gap: 8px;
+          }
+          .rm-svc-card {
+            background: rgba(128,128,128,.08); border: 1px solid rgba(139,92,246,.12);
+            border-radius: 10px; padding: 12px 10px; text-align: center; transition: border-color .2s;
+          }
+          .rm-svc-icon  { font-size: 17px; margin-bottom: 4px; }
+          .rm-svc-count { font-size: 26px; font-weight: 800; line-height: 1; color: var(--color-gray); }
+          .rm-svc-label { font-size: 10px; color: var(--color-gray); margin-top: 3px; }
+          .rm-svc-active .rm-svc-count { color: var(--color-success, #4ade80); }
+          .rm-svc-active { border-color: rgba(74,222,128,.3); }
+          /* System info */
+          .rm-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+          .rm-info-row {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 12px; padding: 6px 0;
+            border-bottom: 1px solid rgba(128,128,128,.1);
+          }
+          .rm-info-row:last-child { border: none; }
+          .rm-info-key { color: var(--color-gray); }
+          .rm-info-val { font-weight: 600; text-align: right; color: var(--color-text-light); }
+          /* Process table */
+          .rm-proc-toolbar {
+            display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;
+          }
+          .rm-proc-search {
+            background: rgba(128,128,128,.1); border: 1px solid rgba(139,92,246,.2);
+            border-radius: 7px; padding: 5px 10px; color: var(--color-text-light);
+            font-size: 12px; font-family: inherit; outline: none; width: 200px;
+          }
+          .rm-proc-search:focus { border-color: var(--color-accent-purple); }
+          .rm-proc-search::placeholder { color: var(--color-gray); }
+          .rm-proc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          .rm-proc-table th {
+            text-align: left; padding: 6px 8px;
+            color: var(--color-gray); font-size: 10px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: .06em;
+            border-bottom: 1px solid rgba(128,128,128,.15);
+            cursor: pointer; user-select: none; white-space: nowrap;
+          }
+          .rm-proc-table th:hover { color: var(--color-text-light); }
+          .rm-proc-table th.rm-th-active { color: var(--color-accent-purple); }
+          .rm-th-arrow { display:inline-block; margin-left:3px; font-style:normal; }
+          .rm-proc-table td {
+            padding: 5px 8px; border-bottom: 1px solid rgba(128,128,128,.07);
+            vertical-align: middle;
+          }
+          .rm-proc-table tr:hover td { background: rgba(128,128,128,.06); }
+          .rm-proc-table tr:last-child td { border: none; }
+          .rm-proc-name { font-weight: 600; max-width: 200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color: var(--color-text-light); }
+          .rm-proc-pid  { color: var(--color-gray); font-size: 11px; font-family: monospace; }
+          .rm-proc-cpu  { color: var(--color-warning, #fbbf24); font-weight: 600; }
+          .rm-proc-mem  { color: var(--color-info, #60a5fa); font-weight: 600; }
+          .rm-proc-user { color: var(--color-gray); font-size: 10px; }
+          .rm-proc-bar-wrap { width: 60px; }
+          .rm-proc-bar { height: 4px; border-radius: 99px; background: rgba(128,128,128,.15); overflow:hidden; }
+          .rm-proc-bar-fill { height: 100%; border-radius: 99px; background: var(--color-info, #60a5fa); transition: width .4s; }
+          .rm-loading { text-align: center; padding: 20px; color: var(--color-gray); font-size: 12px; }
+          @keyframes rm-spin { to { transform: rotate(360deg); } }
+          .rm-spinner { display: inline-block; animation: rm-spin .8s linear infinite; }
+        </style>
+
+        <!-- Header -->
+        <div class="rm-header">
+          <h2><i class="bi bi-speedometer2"></i> Resource Monitor</h2>
+          <div class="rm-header-right">
+            <span class="rm-last-updated" id="rmLastUpdated" data-i18n="rm.waiting">Waiting for data...</span>
+            <button class="rm-btn" onclick="rmRefreshAll()"><i class="bi bi-arrow-clockwise"></i> <span data-i18n="rm.refresh">Refresh</span></button>
+          </div>
+        </div>
+
+        <!-- Metric cards -->
+        <div class="rm-cards">
+          <div class="rm-card">
+            <div class="rm-card-label"><i class="bi bi-cpu"></i> CPU</div>
+            <div class="rm-card-value" id="rmCpuPct">—</div>
+            <div class="rm-card-sub" id="rmCpuSub">—</div>
+            <div class="rm-bar rm-bar-cpu"><div class="rm-bar-fill" id="rmCpuBar" style="width:0%"></div></div>
+          </div>
+          <div class="rm-card">
+            <div class="rm-card-label"><i class="bi bi-memory"></i> RAM</div>
+            <div class="rm-card-value" id="rmMemPct">—</div>
+            <div class="rm-card-sub" id="rmMemSub">—</div>
+            <div class="rm-bar rm-bar-mem"><div class="rm-bar-fill" id="rmMemBar" style="width:0%"></div></div>
+          </div>
+          <div class="rm-card">
+            <div class="rm-card-label"><i class="bi bi-hdd"></i> Disk</div>
+            <div class="rm-card-value" id="rmDiskPct">—</div>
+            <div class="rm-card-sub" id="rmDiskSub">—</div>
+            <div class="rm-bar rm-bar-disk"><div class="rm-bar-fill" id="rmDiskBar" style="width:0%"></div></div>
+          </div>
+          <div class="rm-card">
+            <div class="rm-card-label"><i class="bi bi-box-seam"></i> StarBox</div>
+            <div class="rm-card-value" id="rmSelfMb">—</div>
+            <div class="rm-card-sub" id="rmSelfSub">—</div>
+            <div class="rm-bar rm-bar-self"><div class="rm-bar-fill" id="rmSelfBar" style="width:0%"></div></div>
+          </div>
+        </div>
+
+        <!-- System Info -->
+        <div class="rm-section">
+          <div class="rm-section-title"><i class="bi bi-info-circle"></i> <span data-i18n="rm.system_info">System Information</span></div>
+          <div class="rm-info-grid">
+            <div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.platform">Platform</span><span class="rm-info-val" id="rmSysPlatform">—</span></div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.arch">Architecture</span><span class="rm-info-val" id="rmSysArch">—</span></div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.cores">CPU Cores</span><span class="rm-info-val" id="rmSysCores">—</span></div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.model">CPU Model</span><span class="rm-info-val" id="rmSysModel" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">—</span></div>
+            </div>
+            <div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.hostname">Hostname</span><span class="rm-info-val" id="rmSysHost">—</span></div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.heap_used">Heap Used</span><span class="rm-info-val" id="rmSysHeap">—</span></div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.heap_total">Heap Total</span><span class="rm-info-val" id="rmSysHeapTotal">—</span></div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.uptime">System Uptime</span><span class="rm-info-val" id="rmSysUptime">—</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- StarBox Services -->
+        <div class="rm-section">
+          <div class="rm-section-title"><i class="bi bi-grid-3x3-gap"></i> <span data-i18n="rm.active_services">Active StarBox Services</span></div>
+          <div class="rm-service-grid">
+            <div class="rm-svc-card" id="rmSvcWeb">
+              <div class="rm-svc-icon">🌐</div>
+              <div class="rm-svc-count" id="rmSvcWebCount">—</div>
+              <div class="rm-svc-label">Web Emulator</div>
+            </div>
+            <div class="rm-svc-card" id="rmSvcAndroid">
+              <div class="rm-svc-icon">🤖</div>
+              <div class="rm-svc-count" id="rmSvcAndroidCount">—</div>
+              <div class="rm-svc-label">Android VM</div>
+            </div>
+            <div class="rm-svc-card" id="rmSvcCctv">
+              <div class="rm-svc-icon">📷</div>
+              <div class="rm-svc-count" id="rmSvcCctvCount">—</div>
+              <div class="rm-svc-label">CCTV Stream</div>
+            </div>
+            <div class="rm-svc-card" id="rmSvcWa">
+              <div class="rm-svc-icon">💬</div>
+              <div class="rm-svc-count" id="rmSvcWaCount">—</div>
+              <div class="rm-svc-label">WA Gateway</div>
+            </div>
+            <div class="rm-svc-card" id="rmSvcAdb">
+              <div class="rm-svc-icon">📱</div>
+              <div class="rm-svc-count" id="rmSvcAdbCount">—</div>
+              <div class="rm-svc-label">Android ADB Remote</div>
+            </div>
+            <div class="rm-svc-card" id="rmSvcRemox">
+              <div class="rm-svc-icon">🖥️</div>
+              <div class="rm-svc-count" id="rmSvcRemoxCount">—</div>
+              <div class="rm-svc-label">Remox SSH/Telnet</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- System Processes -->
+        <div class="rm-section">
+          <div class="rm-proc-toolbar">
+            <div class="rm-section-title" style="margin:0"><i class="bi bi-list-task"></i> <span data-i18n="rm.system_procs">System Processes</span></div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input class="rm-proc-search" id="rmProcSearch" type="text" data-i18n-placeholder="rm.proc.search" placeholder="Search processes..." oninput="rmFilterProcs()">
+              <button class="rm-btn" style="padding:5px 10px;font-size:11px" onclick="rmLoadProcs()"><i class="bi bi-arrow-clockwise"></i></button>
+            </div>
+          </div>
+          <div id="rmProcContainer">
+            <div class="rm-loading"><span class="rm-spinner">⟳</span> <span data-i18n="rm.loading_procs">Loading processes...</span></div>
+          </div>
+        </div>
+
+        <script>
+          let _rmInterval = null;
+          let _rmActive   = false;
+          let _rmAllProcs = [];   // raw process list from last fetch
+          let _rmMaxMem   = 1;    // for bar scaling
+
+          /* ── helpers ── */
+          function rmFmtBytes(b) {
+            if (!b || b < 0) return '—';
+            if (b >= 1073741824) return (b / 1073741824).toFixed(1) + ' GB';
+            if (b >= 1048576)    return (b / 1048576).toFixed(0) + ' MB';
+            return (b / 1024).toFixed(0) + ' KB';
+          }
+          function rmFmtUptime(s) {
+            const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+            return `${h}j ${m}m`;
+          }
+          function rmSet(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+          function rmSetBar(id, pct) { const el = document.getElementById(id); if (el) el.style.width = Math.min(100, Math.max(0, pct)) + '%'; }
+          function rmSetSvc(cardId, cntId, v) {
+            const card = document.getElementById(cardId);
+            const cnt  = document.getElementById(cntId);
+            if (!card || !cnt) return;
+            cnt.textContent = v;
+            card.className = 'rm-svc-card' + (v > 0 ? ' rm-svc-active' : '');
+          }
+
+          /* ── system stats refresh ── */
+          async function rmRefresh() {
+            try {
+              const d = await window.electronAPI.resourceMonitor.get();
+              rmSet('rmCpuPct', d.cpu + '%');
+              rmSet('rmCpuSub', d.system.cores + ' core · ' + (d.system.model.split('@')[0].trim().slice(0, 30) || '—'));
+              rmSetBar('rmCpuBar', d.cpu);
+
+              const memPct = Math.round(d.mem.used / d.mem.total * 100);
+              rmSet('rmMemPct', memPct + '%');
+              rmSet('rmMemSub', rmFmtBytes(d.mem.used) + ' / ' + rmFmtBytes(d.mem.total));
+              rmSetBar('rmMemBar', memPct);
+
+              if (d.disk) {
+                const dp = Math.round(d.disk.used / d.disk.total * 100);
+                rmSet('rmDiskPct', dp + '%');
+                rmSet('rmDiskSub', rmFmtBytes(d.disk.used) + ' / ' + rmFmtBytes(d.disk.total));
+                rmSetBar('rmDiskBar', dp);
+              } else {
+                rmSet('rmDiskPct', 'N/A'); rmSet('rmDiskSub', '—');
+              }
+
+              const selfPct = Math.round(d.selfMem.rss / d.mem.total * 100);
+              rmSet('rmSelfMb', rmFmtBytes(d.selfMem.rss));
+              rmSet('rmSelfSub', selfPct + '% dari total RAM');
+              rmSetBar('rmSelfBar', selfPct);
+
+              rmSetSvc('rmSvcWeb',     'rmSvcWebCount',     d.services.webEmulator);
+              rmSetSvc('rmSvcAndroid', 'rmSvcAndroidCount', d.services.androidEmulator);
+              rmSetSvc('rmSvcCctv',    'rmSvcCctvCount',    d.services.cctvStreams);
+              rmSetSvc('rmSvcWa',      'rmSvcWaCount',      d.services.waGateway);
+              rmSetSvc('rmSvcAdb',     'rmSvcAdbCount',     d.services.adbRemote);
+              // Use renderer-side rmxTabs count (more accurate than backend session map)
+              const remoxCount = typeof window.rmxGetActiveCount === 'function' ? window.rmxGetActiveCount() : d.services.remox;
+              rmSetSvc('rmSvcRemox',   'rmSvcRemoxCount',   remoxCount);
+
+              rmSet('rmSysPlatform',  d.system.platform);
+              rmSet('rmSysArch',      d.system.arch);
+              rmSet('rmSysCores',     d.system.cores + ' core');
+              rmSet('rmSysModel',     d.system.model || '—');
+              rmSet('rmSysHost',      d.system.hostname);
+              rmSet('rmSysHeap',      rmFmtBytes(d.selfMem.heapUsed));
+              rmSet('rmSysHeapTotal', rmFmtBytes(d.selfMem.heapTotal));
+              rmSet('rmSysUptime',    rmFmtUptime(d.system.uptime));
+
+              rmSet('rmLastUpdated', 'Update ' + new Date().toLocaleTimeString('id-ID'));
+            } catch (e) { console.error('[RM stats]', e); }
+          }
+
+          /* ── process list ── */
+          async function rmLoadProcs() {
+            document.getElementById('rmProcContainer').innerHTML =
+              '<div class="rm-loading"><span class="rm-spinner">⟳</span> Memuat proses…</div>';
+            try {
+              const procs = await window.electronAPI.resourceMonitor.getProcesses(80);
+              _rmAllProcs = procs;
+              _rmMaxMem   = Math.max(1, ...procs.map(p => p.mem || 0));
+              rmRenderProcs();
+            } catch (e) {
+              document.getElementById('rmProcContainer').innerHTML =
+                '<div class="rm-loading">Gagal memuat proses: ' + (e.message || e) + '</div>';
+            }
+          }
+
+          let _rmSortBy  = 'mem';
+          let _rmSortDir = 'desc';   // 'asc' | 'desc'
+
+          function rmFilterProcs() { rmRenderProcs(); }
+
+          function rmSetSort(col) {
+            if (_rmSortBy === col) {
+              _rmSortDir = _rmSortDir === 'desc' ? 'asc' : 'desc';
+            } else {
+              _rmSortBy  = col;
+              _rmSortDir = col === 'name' ? 'asc' : 'desc';
+            }
+            rmRenderProcs();
+          }
+
+          function rmRenderProcs() {
+            const q = (document.getElementById('rmProcSearch')?.value || '').toLowerCase();
+            let list = _rmAllProcs.filter(p => !q || p.name.toLowerCase().includes(q));
+
+            list.sort((a, b) => {
+              let v;
+              if (_rmSortBy === 'cpu')       v = (a.cpu || 0) - (b.cpu || 0);
+              else if (_rmSortBy === 'name') v = a.name.localeCompare(b.name);
+              else if (_rmSortBy === 'pid')  v = a.pid - b.pid;
+              else if (_rmSortBy === 'user') v = (a.user || '').localeCompare(b.user || '');
+              else                           v = (a.mem || 0) - (b.mem || 0);
+              return _rmSortDir === 'asc' ? v : -v;
+            });
+
+            if (!list.length) {
+              document.getElementById('rmProcContainer').innerHTML =
+                '<div class="rm-loading">Tidak ada proses yang ditemukan.</div>';
+              return;
+            }
+
+            const arrow = (col) => {
+              if (_rmSortBy !== col) return '<i class="rm-th-arrow" style="opacity:.2">⇅</i>';
+              return `<i class="rm-th-arrow">${_rmSortDir === 'asc' ? '▲' : '▼'}</i>`;
+            };
+            const thCls = (col) => _rmSortBy === col ? 'rm-th-active' : '';
+
+            const rows = list.map(p => {
+              const memPct = Math.round((p.mem || 0) / _rmMaxMem * 100);
+              const cpuStr = p.cpu != null ? p.cpu.toFixed(1) + '%' : '—';
+              return `<tr>
+                <td class="rm-proc-name" title="${p.cmd || p.name}">${p.name}</td>
+                <td class="rm-proc-pid">${p.pid}</td>
+                <td class="rm-proc-cpu">${cpuStr}</td>
+                <td class="rm-proc-mem">${rmFmtBytes(p.mem)}</td>
+                <td class="rm-proc-bar-wrap">
+                  <div class="rm-proc-bar"><div class="rm-proc-bar-fill" style="width:${memPct}%"></div></div>
+                </td>
+                <td class="rm-proc-user">${p.user || '—'}</td>
+                <td><button class="rm-btn-sm" onclick="rmKillProc(${p.pid},'${p.name.replace(/'/g,'')}')">✕ Kill</button></td>
+              </tr>`;
+            }).join('');
+
+            document.getElementById('rmProcContainer').innerHTML =
+              `<table class="rm-proc-table">
+                <thead><tr>
+                  <th class="${thCls('name')}" onclick="rmSetSort('name')">Nama ${arrow('name')}</th>
+                  <th class="${thCls('pid')}"  onclick="rmSetSort('pid')">PID ${arrow('pid')}</th>
+                  <th class="${thCls('cpu')}"  onclick="rmSetSort('cpu')">CPU ${arrow('cpu')}</th>
+                  <th class="${thCls('mem')}"  onclick="rmSetSort('mem')">Memori ${arrow('mem')}</th>
+                  <th></th>
+                  <th class="${thCls('user')}" onclick="rmSetSort('user')">User ${arrow('user')}</th>
+                  <th></th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+              </table>`;
+          }
+
+          async function rmKillProc(pid, name) {
+            const ok = await Swal.fire({
+              title: 'Hentikan Proses?',
+              html: `Yakin ingin menghentikan <b>${name}</b> (PID ${pid})?`,
+              icon: 'warning',
+              showCancelButton: true,
+              confirmButtonText: 'Ya, Kill',
+              cancelButtonText: 'Batal',
+              confirmButtonColor: '#ef4444',
+              background: 'var(--color-medium-purple, #2d2446)',
+              color: 'var(--color-text-light, #e0e0e0)',
+            });
+            if (!ok.isConfirmed) return;
+            const r = await window.electronAPI.resourceMonitor.killProcess(pid);
+            if (r.success) {
+              _rmAllProcs = _rmAllProcs.filter(p => p.pid !== pid);
+              rmRenderProcs();
+            } else {
+              Swal.fire({ title: 'Gagal', text: r.error, icon: 'error', background:'var(--color-medium-purple,#2d2446)',color:'var(--color-text-light,#e0e0e0)' });
+            }
+          }
+
+          /* ── polling ── */
+          async function rmRefreshAll() {
+            await Promise.all([ rmRefresh(), rmLoadProcs() ]);
+          }
+
+          function rmStartPolling() {
+            if (_rmActive) return;
+            _rmActive = true;
+            rmRefreshAll();
+            _rmInterval = setInterval(rmRefresh, 3000);
+          }
+          function rmStopPolling() {
+            _rmActive = false;
+            if (_rmInterval) { clearInterval(_rmInterval); _rmInterval = null; }
+          }
+
+          // expose to window so renderer.js can call them
+          window.rmStartPolling  = rmStartPolling;
+          window.rmStopPolling   = rmStopPolling;
+          window.rmRefreshAll    = rmRefreshAll;
+          window.rmKillProc      = rmKillProc;
+          window.rmFilterProcs   = rmFilterProcs;
+          window.rmSortProcs     = rmSortProcs;
+          window.rmLoadProcs     = rmLoadProcs;
+        </script>
+      </div>
 
       <!-- Page: Remote Control (embedded) -->
       <div id="page-remote-control" class="page-content">
@@ -1369,12 +3229,12 @@
       <div id="packageModal" class="modal">
         <div class="modal-content">
           <span class="close" onclick="closePackageModal()">&times;</span>
-          <h3>Detail Paket Anda</h3>
+          <h3 data-i18n="package.title">Your Package Details</h3>
           <div id="packageModalBody" class="package-details">
-            <p class="loading-text">Memuat informasi paket...</p>
+            <p class="loading-text" data-i18n="package.loading">Loading package info...</p>
           </div>
           <div class="modal-buttons">
-            <button onclick="closePackageModal()">Tutup</button>
+            <button onclick="closePackageModal()" data-i18n="package.close">Close</button>
           </div>
         </div>
       </div>
@@ -1382,22 +3242,23 @@
       <div id="adsInfoModal" class="modal">
         <div class="modal-content" style="max-width: 640px">
           <span class="close" onclick="closeAdsInfoModal()">&times;</span>
-          <h3>Hilangkan Iklan</h3>
-          <p style="color: #94a3b8; margin: 6px 0 12px">
-            Login dan berlangganan paket untuk menghilangkan iklan di dashboard.
+          <h3 data-i18n="ads.modal.title">Remove Ads</h3>
+          <p data-i18n="ads.modal.desc" style="color: #94a3b8; margin: 6px 0 12px">
+            Login and subscribe to a package to remove ads from the dashboard.
           </p>
           <div id="adsPackagesList" class="ads-packages-list">
-            <p class="loading-text">Memuat paket...</p>
+            <p class="loading-text" data-i18n="ads.modal.loading">Loading packages...</p>
           </div>
           <div class="modal-buttons" style="justify-content: flex-end">
             <button
               type="button"
               class="secondary"
               onclick="openAuthModal('login')"
+              data-i18n="ads.login_subscribe"
             >
-              Login / Berlangganan
+              Login / Subscribe
             </button>
-            <button type="button" onclick="closeAdsInfoModal()">Tutup</button>
+            <button type="button" onclick="closeAdsInfoModal()" data-i18n="common.close">Close</button>
           </div>
         </div>
       </div>
@@ -1405,22 +3266,23 @@
       <div id="addModal" class="modal">
         <div class="modal-content" style="max-width: 560px">
           <span class="close" onclick="closeModal()">&times;</span>
-          <h3>Tambah Device Baru</h3>
+          <h3 data-i18n="modal.add.title">Add New Device</h3>
 
-          <label for="deviceName">Nama Device</label>
+          <label for="deviceName" data-i18n="form.device_name">Device Name</label>
           <input
             type="text"
             id="deviceName"
-            placeholder="Misal: WA Personal, Telegram Bot"
+            data-i18n-placeholder="form.device_name.placeholder"
+            placeholder="E.g.: Personal WA, Telegram Bot"
           />
 
           <select id="deviceService" style="display: none"></select>
           <div class="service-browser">
             <div class="service-browser-header">
               <div>
-                <label for="serviceBrowserSearch">Jenis Layanan</label>
-                <p class="service-browser-subtitle">
-                  Pilih layanan populer untuk membantu produktivitas Anda.
+                <label for="serviceBrowserSearch" data-i18n="form.service_type">Service Type</label>
+                <p class="service-browser-subtitle" data-i18n="form.service_subtitle">
+                  Select popular services to boost your productivity.
                 </p>
               </div>
               <div class="service-browser-search">
@@ -1428,7 +3290,8 @@
                 <input
                   type="text"
                   id="serviceBrowserSearch"
-                  placeholder="Cari WhatsApp, Tokopedia, Slack, dll..."
+                  data-i18n-placeholder="form.service_placeholder"
+                  placeholder="Search WhatsApp, Tokopedia, Slack, etc..."
                   autocomplete="off"
                 />
               </div>
@@ -1436,8 +3299,8 @@
             <div id="serviceBrowserSelected" class="service-browser-selected">
               <img src="assets/starbox.png" alt="Service preview" />
               <div>
-                <strong>Belum memilih layanan</strong>
-                <span>Tap salah satu layanan di daftar di bawah.</span>
+                <strong data-i18n="form.service_not_selected">No service selected</strong>
+                <span data-i18n="form.service_tap">Tap a service from the list below.</span>
               </div>
             </div>
             <div id="serviceBrowserGrid" class="service-browser-grid"></div>
@@ -1453,11 +3316,10 @@
           >
             <label class="auto-sender-toggle">
               <input type="checkbox" id="deviceUseChromeNative" />
-              <span>Gunakan Chrome asli (profil terpisah)</span>
+              <span data-i18n="form.chrome_native">Use native Chrome (separate profile)</span>
             </label>
-            <p class="small-text" style="margin: 4px 0 0">
-              Setiap device membuka Chrome dengan user data dir unik agar login
-              Google tetap aman.
+            <p class="small-text" data-i18n="form.chrome_native_hint" style="margin: 4px 0 0">
+              Each device opens Chrome with a unique user data dir to keep Google logins safe.
             </p>
           </div>
 
@@ -1750,15 +3612,16 @@
               <span>MultiService Emulator</span>
             </div>
           </div>
-          <h3>Akses Akun Starbox</h3>
-          <p class="auth-subtitle">
-            Masuk untuk menambah kuota device sesuai paket akun Anda.
+          <h3 data-i18n="auth.modal.title">Access Starbox Account</h3>
+          <p class="auth-subtitle" data-i18n="auth.modal.subtitle">
+            Sign in to increase device quota according to your account package.
           </p>
           <div class="auth-tabs">
             <button
               id="authTabLogin"
               class="auth-tab active"
               onclick="switchAuthTab('login')"
+              data-i18n="auth.tab.login"
             >
               Login
             </button>
@@ -1766,25 +3629,26 @@
               id="authTabRegister"
               class="auth-tab"
               onclick="switchAuthTab('register')"
+              data-i18n="auth.tab.register"
             >
               Register
             </button>
           </div>
 
           <div id="authLoginForm" class="auth-form">
-            <label for="loginEmail">Email</label>
+            <label for="loginEmail" data-i18n="auth.form.email">Email</label>
             <input
               type="email"
               id="loginEmail"
               placeholder="nama@starbox.app"
             />
 
-            <label for="loginPassword">Password</label>
+            <label for="loginPassword" data-i18n="auth.form.password">Password</label>
             <input type="password" id="loginPassword" placeholder="••••••••" />
 
             <label class="remember-me">
               <input type="checkbox" id="loginRememberMe" />
-              Ingat saya
+              <span data-i18n="auth.form.remember">Remember me</span>
             </label>
 
             <button
@@ -1792,43 +3656,44 @@
               class="auth-primary-btn"
               onclick="submitLoginForm(event)"
             >
-              <i class="bi bi-box-arrow-in-right"></i> Masuk
+              <i class="bi bi-box-arrow-in-right"></i> <span data-i18n="auth.login.btn">Sign In</span>
             </button>
           </div>
 
           <div id="authRegisterForm" class="auth-form" style="display: none">
-            <label for="registerName">Nama Lengkap</label>
-            <input type="text" id="registerName" placeholder="Nama Lengkap" />
+            <label for="registerName" data-i18n="auth.form.fullname">Full Name</label>
+            <input type="text" id="registerName" placeholder="Full Name" />
 
-            <label for="registerEmail">Email</label>
+            <label for="registerEmail" data-i18n="auth.form.email">Email</label>
             <input
               type="email"
               id="registerEmail"
               placeholder="nama@starbox.app"
             />
 
-            <label for="registerPhoneCode">Kode Negara</label>
+            <label for="registerPhoneCode" data-i18n="auth.form.phone_code">Country Code</label>
             <div class="phonecode-selector">
               <input
                 type="text"
                 id="registerPhoneCodeSearch"
                 class="phonecode-search-input"
-                placeholder="Cari negara atau kode..."
+                placeholder="Search country or code..."
                 autocomplete="off"
               />
               <select id="registerPhoneCode">
-                <option value="">Memuat kode negara...</option>
+                <option value="">Loading country codes...</option>
               </select>
             </div>
 
-            <label for="registerPhone">Nomor Telepon</label>
+            <label for="registerPhone" data-i18n="auth.form.phone">Phone Number</label>
             <input type="text" id="registerPhone" placeholder="81234567890" />
 
-            <label for="registerPassword">Password</label>
+            <label for="registerPassword" data-i18n="auth.form.password">Password</label>
             <input
               type="password"
               id="registerPassword"
-              placeholder="Minimal 6 karakter"
+              data-i18n-placeholder="auth.form.pass_placeholder"
+              placeholder="Min. 6 characters"
             />
 
             <button
@@ -1836,7 +3701,7 @@
               class="auth-primary-btn"
               onclick="submitRegisterForm(event)"
             >
-              <i class="bi bi-person-plus"></i> Daftar
+              <i class="bi bi-person-plus"></i> <span data-i18n="auth.register.btn">Register</span>
             </button>
           </div>
         </div>
@@ -1847,30 +3712,30 @@
           <span class="close close-visible" onclick="closeAccountModal()"
             >&times;</span
           >
-          <h3>Detail Akun</h3>
+          <h3 data-i18n="account.title">Account Details</h3>
           <div class="account-info">
             <div class="account-info-row">
-              <span>Nama</span>
+              <span data-i18n="account.name">Name</span>
               <strong id="accountNameValue">-</strong>
             </div>
             <div class="account-info-row">
-              <span>Email</span>
+              <span data-i18n="account.email">Email</span>
               <strong id="accountEmailValue">-</strong>
             </div>
             <div class="account-info-row">
-              <span>Telepon</span>
+              <span data-i18n="account.phone">Phone</span>
               <strong id="accountPhoneValue">-</strong>
             </div>
             <div class="account-info-row">
-              <span>Paket</span>
+              <span data-i18n="account.package">Package</span>
               <strong id="accountPackageValue">-</strong>
             </div>
             <div class="account-info-row">
-              <span>Limit per layanan</span>
+              <span data-i18n="account.limit">Limit per service</span>
               <strong id="accountLimitValue">-</strong>
             </div>
             <div class="account-info-row">
-              <span>Masa aktif</span>
+              <span data-i18n="account.expiry">Active period</span>
               <strong id="accountExpiryValue">-</strong>
             </div>
           </div>
@@ -1880,15 +3745,14 @@
           </div>
           <div class="account-note">
             <strong>Tip:</strong>
-            Jika Anda sudah upgrade paket namun informasi belum berubah, silakan
-            keluar lalu login kembali agar data ter-refresh.
+            <span data-i18n="account.tip">If you have upgraded your package but the information has not changed, please sign out and sign back in to refresh the data.</span>
           </div>
           <div class="account-actions">
-            <button class="ghost" onclick="openPackageFromAccount()">
-              Cek Paket
+            <button class="ghost" onclick="openPackageFromAccount()" data-i18n="account.check_package">
+              Check Package
             </button>
-            <button class="ghost" onclick="closeAccountModal()">Tutup</button>
-            <button class="danger" onclick="handleLogout()">Logout</button>
+            <button class="ghost" onclick="closeAccountModal()" data-i18n="account.close">Close</button>
+            <button class="danger" onclick="handleLogout()" data-i18n="account.logout">Logout</button>
           </div>
         </div>
       </div>
@@ -2203,7 +4067,21 @@
       <div id="addModalAndroid" class="modal">
         <div class="modal-content" style="max-width: 520px">
           <span class="close" onclick="closeModalAndroid()">&times;</span>
-          <h3><i class="bi bi-phone"></i> Tambah Android (ADB Remote)</h3>
+          <h3 id="addAndroidModalTitle"><i class="bi bi-android2"></i> Tambah Android</h3>
+
+          <!-- Type Toggle -->
+          <div style="display:flex;gap:0;margin-bottom:16px;border:1px solid #30363d;border-radius:8px;overflow:hidden">
+            <button id="btnAndroidTypeAdb" onclick="switchAndroidAddType('adb')"
+              style="flex:1;padding:9px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all .15s;
+                background:rgba(61,220,132,0.15);color:#3ddc84;">
+              <i class="bi bi-phone"></i> ADB / Remote
+            </button>
+            <button id="btnAndroidTypeEmu" onclick="switchAndroidAddType('emulator')"
+              style="flex:1;padding:9px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all .15s;
+                background:transparent;color:#888;">
+              <i class="bi bi-cpu"></i> Android Emulator
+            </button>
+          </div>
 
           <label for="deviceNameAndroid">Nama Device</label>
           <input
@@ -2212,6 +4090,7 @@
             placeholder="Misal: Samsung WA 1"
           />
 
+          <div id="androidFormTypeAdb">
           <label for="androidAdbDeviceSelect" style="margin-top: 12px"
             >Pilih Perangkat ADB</label
           >
@@ -2596,6 +4475,43 @@
             </p>
           </div>
 
+          </div><!-- end androidFormTypeAdb -->
+
+          <!-- Emulator Form -->
+          <div id="androidFormTypeEmulator" style="display:none">
+            <div style="margin-bottom:14px;padding:10px 12px;background:rgba(61,220,132,0.06);border:1px solid rgba(61,220,132,0.2);border-radius:8px;font-size:12px;color:#aaa;line-height:1.5">
+              <i class="bi bi-info-circle" style="color:#3ddc84"></i>
+              Emulator Android lokal menggunakan Android SDK (~800MB). SDK hanya diunduh sekali.
+            </div>
+            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:8px">Spec Preset</label>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid #30363d;border-radius:8px;cursor:pointer;transition:border-color .15s"
+                id="emuSpecLite" onclick="selectEmuSpec('lite')">
+                <input type="radio" name="emuSpec" value="lite" style="margin-top:3px;accent-color:#3ddc84">
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:#e0e0e0">⚡ Lite</div>
+                  <div style="font-size:11px;color:#666">1 Core · 1 GB RAM · 540×960 — Cocok untuk PC spesifikasi rendah</div>
+                </div>
+              </label>
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid rgba(61,220,132,0.4);border-radius:8px;cursor:pointer;transition:border-color .15s"
+                id="emuSpecBalanced" onclick="selectEmuSpec('balanced')">
+                <input type="radio" name="emuSpec" value="balanced" checked style="margin-top:3px;accent-color:#3ddc84">
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:#e0e0e0">⚖️ Balanced <span style="font-size:10px;color:#3ddc84;font-weight:400">(Disarankan)</span></div>
+                  <div style="font-size:11px;color:#666">2 Core · 1.5 GB RAM · 720×1280 — Keseimbangan performa &amp; RAM</div>
+                </div>
+              </label>
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid #30363d;border-radius:8px;cursor:pointer;transition:border-color .15s"
+                id="emuSpecPerformance" onclick="selectEmuSpec('performance')">
+                <input type="radio" name="emuSpec" value="performance" style="margin-top:3px;accent-color:#3ddc84">
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:#e0e0e0">🚀 Performance</div>
+                  <div style="font-size:11px;color:#666">4 Core · 2 GB RAM · 1080×1920 — Untuk animasi dan app berat</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
           <div
             class="modal-buttons"
             style="margin-top: 1rem; text-align: right"
@@ -2608,103 +4524,424 @@
         </div>
       </div>
 
-      <!-- Modal: OS Virtual (VM) -->
-      <div id="vmModal" class="modal">
-        <div class="modal-content" style="max-width: 560px">
-          <span class="close" onclick="closeVmModal()">&times;</span>
-          <h3><i class="bi bi-display"></i> Tambah OS Virtual</h3>
+      <!-- ═══════════════════════════════════════════════════════ -->
+      <!-- Page: StarCapture                                        -->
+      <!-- ═══════════════════════════════════════════════════════ -->
+      <div id="page-starcapture" class="page-content">
+        <style>
+          #page-starcapture { display:none; flex-direction:column; overflow-y:auto; padding:24px; background:var(--color-dark-purple); color:var(--color-text-light); gap:24px; }
+          #page-starcapture.active { display:flex; }
+          /* Cards */
+          .sc-section-title { font-size:13px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+          .sc-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; }
+          .sc-card { background:#161b22; border:1px solid #30363d; border-radius:14px; padding:20px 16px; cursor:pointer; transition:all 0.18s; display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center; }
+          .sc-card:hover { border-color:#7c6fe0; background:#1c2130; transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,0.3); }
+          .sc-card.active-card { border-color:#10b981; background:rgba(16,185,129,0.08); }
+          .sc-card-icon { width:52px; height:52px; border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:22px; }
+          .sc-card-icon.purple { background:rgba(124,111,224,0.18); color:#a78bfa; }
+          .sc-card-icon.blue   { background:rgba(59,130,246,0.18);  color:#60a5fa; }
+          .sc-card-icon.green  { background:rgba(16,185,129,0.18);  color:#34d399; }
+          .sc-card-icon.red    { background:rgba(239,68,68,0.18);   color:#f87171; }
+          .sc-card-icon.orange { background:rgba(249,115,22,0.18);  color:#fb923c; }
+          .sc-card h3 { margin:0; font-size:14px; font-weight:600; color:#e0e0e0; }
+          .sc-card p  { margin:0; font-size:12px; color:#666; line-height:1.5; }
+          /* Shortcut badges */
+          .sc-shortcuts { display:flex; gap:8px; flex-wrap:wrap; }
+          .sc-kbd { display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,0.04); border:1px solid #30363d; border-radius:8px; padding:6px 12px; font-size:12px; color:#aaa; }
+          .sc-kbd kbd { background:rgba(255,255,255,0.08); border:1px solid #30363d; border-radius:4px; padding:1px 6px; font-size:11px; font-family:monospace; }
+          /* Preview modal */
+          #scPreviewOverlay { display:none; position:fixed; inset:0; z-index:9900; background:rgba(0,0,0,0.8); align-items:center; justify-content:center; }
+          #scPreviewOverlay.open { display:flex; }
+          .sc-preview-box { background:#161b22; border:1px solid #30363d; border-radius:16px; max-width:90vw; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 32px 80px rgba(0,0,0,0.6); }
+          .sc-preview-header { display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid #30363d; flex-shrink:0; }
+          .sc-preview-header h3 { margin:0; font-size:15px; font-weight:600; color:#e0e0e0; flex:1; }
+          .sc-preview-body { flex:1; overflow:auto; display:flex; align-items:center; justify-content:center; padding:16px; background:#0d1117; min-height:200px; }
+          #scPreviewImg { max-width:100%; max-height:60vh; border-radius:8px; display:block; }
+          #scPreviewVideo { max-width:100%; max-height:60vh; border-radius:8px; display:none; }
+          .sc-preview-footer { display:flex; align-items:center; gap:10px; padding:14px 18px; border-top:1px solid #30363d; flex-shrink:0; flex-wrap:wrap; }
+          .sc-preview-info { font-size:12px; color:#666; flex:1; }
+          .sc-btn { padding:8px 18px; border-radius:8px; border:1px solid #30363d; color:#e0e0e0; cursor:pointer; font-size:13px; background:rgba(255,255,255,0.05); transition:all 0.15s; display:flex; align-items:center; gap:6px; }
+          .sc-btn:hover { background:rgba(255,255,255,0.1); }
+          .sc-btn.primary { background:linear-gradient(135deg,#7c6fe0,#a78bfa); border:none; color:#fff; font-weight:600; }
+          .sc-btn.success { background:linear-gradient(135deg,#10b981,#34d399); border:none; color:#fff; font-weight:600; }
+          .sc-btn.danger  { border-color:#ef4444; color:#ef4444; }
+          .sc-btn.danger:hover { background:rgba(239,68,68,0.1); }
+          /* Recording controls bar */
+          #scRecordBar { display:none; position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:rgba(13,17,23,0.97); border:1px solid rgba(239,68,68,0.5); border-radius:50px; padding:10px 20px; gap:14px; align-items:center; z-index:8000; box-shadow:0 8px 32px rgba(0,0,0,0.5); }
+          #scRecordBar.open { display:flex; }
+          .sc-rec-dot { width:10px; height:10px; border-radius:50%; background:#ef4444; animation:scBlink 1s infinite; }
+          @keyframes scBlink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+          .sc-rec-time { font-size:14px; font-weight:600; color:#e0e0e0; font-family:monospace; min-width:60px; }
+          .sc-rec-btn { background:none; border:1px solid #30363d; border-radius:20px; color:#e0e0e0; cursor:pointer; padding:5px 14px; font-size:12px; transition:all 0.15s; }
+          .sc-rec-btn:hover { background:rgba(255,255,255,0.08); }
+          .sc-rec-btn.stop { border-color:#ef4444; color:#ef4444; }
+          .sc-rec-btn.stop:hover { background:rgba(239,68,68,0.1); }
+          /* Loading spinner */
+          .sc-loading { display:flex; flex-direction:column; align-items:center; gap:12px; color:#666; font-size:13px; }
+          .sc-spinner { width:36px; height:36px; border:3px solid #30363d; border-top-color:#7c6fe0; border-radius:50%; animation:spin 0.8s linear infinite; }
+          @keyframes spin { to { transform:rotate(360deg); } }
+          /* Annotation toolbar */
+          #scAnnotateToolbar { display:none; flex-shrink:0; background:#0a0e14; border-bottom:1px solid #30363d; padding:7px 14px; gap:5px; align-items:center; flex-wrap:wrap; }
+          #scAnnotateToolbar.visible { display:flex; }
+          .sc-annot-tool { width:30px; height:30px; border-radius:6px; background:rgba(255,255,255,0.05); border:1px solid #30363d; color:#888; cursor:pointer; font-size:13px; display:flex; align-items:center; justify-content:center; transition:all 0.15s; }
+          .sc-annot-tool:hover { background:rgba(255,255,255,0.1); color:#e0e0e0; }
+          .sc-annot-tool.active { background:rgba(124,111,224,0.25); border-color:#7c6fe0; color:#a78bfa; }
+          .sc-annot-sep { width:1px; height:22px; background:#30363d; margin:0 3px; flex-shrink:0; }
+          .sc-annot-color-dot { width:22px; height:22px; border-radius:50%; border:2px solid #444; cursor:pointer; }
+          .sc-annot-sz { width:28px; height:28px; border-radius:6px; background:rgba(255,255,255,0.04); border:1px solid #30363d; color:#666; cursor:pointer; font-size:9px; display:flex; align-items:center; justify-content:center; transition:all 0.15s; }
+          .sc-annot-sz:hover { color:#e0e0e0; }
+          .sc-annot-sz.active { border-color:#7c6fe0; color:#a78bfa; background:rgba(124,111,224,0.2); }
+          #scAnnotateCanvas { max-width:100%; max-height:60vh; border-radius:8px; display:none; cursor:crosshair; }
+          /* Shortcut customization */
+          .sc-shortcut-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid #1e2530; }
+          .sc-shortcut-row:last-child { border-bottom:none; }
+          .sc-shortcut-label { flex:1; font-size:13px; color:#aaa; }
+          .sc-shortcut-input { background:#0d1117; border:1px solid #30363d; border-radius:6px; color:#e0e0e0; padding:6px 10px; font-size:12px; font-family:monospace; width:220px; }
+          .sc-shortcut-input:focus { outline:none; border-color:#7c6fe0; }
+        </style>
 
-          <input type="hidden" id="vmId" />
+        <!-- Header -->
+        <div>
+          <h2 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#e0e0e0">
+            <i class="bi bi-camera-fill" style="color:#7c6fe0;margin-right:10px"></i><span data-i18n="sc.title">StarCapture</span>
+          </h2>
+          <p style="margin:0;font-size:13px;color:#666" data-i18n="sc.subtitle">Screenshot &amp; screen recording — professional capture tool</p>
+        </div>
 
-          <label for="vmName">Nama VM</label>
-          <input type="text" id="vmName" placeholder="Contoh: Ubuntu Desktop" />
-
-          <label for="vmOsType" style="margin-top: 10px">Jenis OS</label>
-          <select id="vmOsType">
-            <option value="linux">Linux</option>
-            <option value="windows">Windows</option>
-            <option value="other">Other</option>
-          </select>
-
-          <div class="grid-2" style="gap: 12px; margin-top: 10px">
-            <div>
-              <label for="vmCpu">CPU (cores)</label>
-              <input type="number" id="vmCpu" min="1" max="16" value="2" />
+        <!-- Keyboard Shortcuts info + Customization -->
+        <div>
+          <div class="sc-section-title"><i class="bi bi-keyboard"></i><span data-i18n="sc.shortcuts">Keyboard Shortcuts</span></div>
+          <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:14px 18px;max-width:560px">
+            <div class="sc-shortcut-row">
+              <span class="sc-shortcut-label"><i class="bi bi-camera" style="color:#a78bfa;margin-right:6px"></i>Screenshot</span>
+              <input class="sc-shortcut-input" id="scKbScreenshot" placeholder="CommandOrControl+Shift+S" title="Tekan tombol kombinasi">
+              <button class="sc-btn" style="padding:5px 12px;font-size:12px" onclick="scSetShortcutFromInput('screenshot')"><i class="bi bi-check-lg"></i></button>
             </div>
-            <div>
-              <label for="vmMemory">RAM (MB)</label>
-              <input
-                type="number"
-                id="vmMemory"
-                min="512"
-                max="32768"
-                value="2048"
-              />
+            <div class="sc-shortcut-row">
+              <span class="sc-shortcut-label"><i class="bi bi-record-circle" style="color:#f87171;margin-right:6px"></i>Screen Record</span>
+              <input class="sc-shortcut-input" id="scKbRecord" placeholder="CommandOrControl+Shift+R" title="Tekan tombol kombinasi">
+              <button class="sc-btn" style="padding:5px 12px;font-size:12px" onclick="scSetShortcutFromInput('record')"><i class="bi bi-check-lg"></i></button>
+            </div>
+            <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <button class="sc-btn primary" style="padding:6px 16px;font-size:12px" onclick="scSaveShortcuts()"><i class="bi bi-floppy"></i> Simpan Pintasan</button>
+              <button class="sc-btn" style="padding:6px 14px;font-size:12px" onclick="scResetShortcuts()"><i class="bi bi-arrow-counterclockwise"></i> Reset Default</button>
+              <span id="scShortcutStatus" style="font-size:12px;color:#10b981;display:none">✓ Tersimpan</span>
+            </div>
+            <p style="margin:10px 0 0;font-size:11px;color:#555">Format: <code style="background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:3px">CommandOrControl+Shift+S</code> · Pisahkan dengan <code style="background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:3px">+</code> · Modifier: Ctrl, Shift, Alt, Meta, CommandOrControl</p>
+          </div>
+          <div class="sc-shortcuts" style="margin-top:10px">
+            <div class="sc-kbd"><kbd>ESC</kbd> <span>Batalkan capture</span></div>
+            <div class="sc-kbd"><kbd>Enter</kbd> <span>Konfirmasi seleksi</span></div>
+          </div>
+        </div>
+
+        <!-- Screenshot section -->
+        <div>
+          <div class="sc-section-title">
+            <i class="bi bi-camera" style="color:#a78bfa"></i><span data-i18n="sc.section.screenshot">Screenshot</span>
+          </div>
+          <div class="sc-cards">
+            <div class="sc-card" onclick="scTakeScreenshot('full')">
+              <div class="sc-card-icon purple"><i class="bi bi-display"></i></div>
+              <h3 data-i18n="sc.ss.full">Full Screen</h3>
+              <p data-i18n="sc.ss.full_desc">Capture the entire screen</p>
+            </div>
+            <div class="sc-card" onclick="scTakeScreenshot('area')">
+              <div class="sc-card-icon blue"><i class="bi bi-crop"></i></div>
+              <h3 data-i18n="sc.ss.area">Selected Area</h3>
+              <p data-i18n="sc.ss.area_desc">Drag to select a region</p>
+            </div>
+            <div class="sc-card" onclick="scTakeScreenshot('window')">
+              <div class="sc-card-icon green"><i class="bi bi-window"></i></div>
+              <h3 data-i18n="sc.ss.window">Active Window</h3>
+              <p data-i18n="sc.ss.window_desc">Capture the active window</p>
             </div>
           </div>
+        </div>
 
-          <div class="grid-2" style="gap: 12px; margin-top: 10px">
-            <div>
-              <label for="vmStorage">Storage (GB)</label>
-              <input type="number" id="vmStorage" min="5" max="2048" value="20" />
+        <!-- Recording section -->
+        <div>
+          <div class="sc-section-title">
+            <i class="bi bi-record-circle" style="color:#f87171"></i><span data-i18n="sc.section.record">Screen Recording</span>
+          </div>
+          <div class="sc-cards">
+            <div class="sc-card" onclick="scStartRecord('full')">
+              <div class="sc-card-icon red"><i class="bi bi-display-fill"></i></div>
+              <h3 data-i18n="sc.rec.full">Full Screen</h3>
+              <p data-i18n="sc.rec.full_desc">Record the entire screen</p>
             </div>
-            <div>
-              <label for="vmVncPort">VNC Port</label>
-              <input type="number" id="vmVncPort" min="5900" max="65535" value="5901" />
+            <div class="sc-card" onclick="scStartRecord('area')">
+              <div class="sc-card-icon orange"><i class="bi bi-bounding-box"></i></div>
+              <h3 data-i18n="sc.rec.area">Selected Area</h3>
+              <p data-i18n="sc.rec.area_desc">Record a selected region</p>
             </div>
           </div>
+        </div>
 
-          <label for="vmIso" style="margin-top: 10px">ISO Path</label>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <input
-              type="text"
-              id="vmIso"
-              placeholder="Path ke file ISO..."
-              style="flex: 1; height: 46px;"
-            />
-            <button
-              type="button"
-              onclick="browseVmIsoFile()"
-              class="ghost"
-              title="Browse ISO file"
-              style="height: 46px; display: inline-flex; align-items: center; justify-content: center; padding: 0 14px;"
-            >
-              <i class="bi bi-folder2-open"></i>
-            </button>
-          </div>
-          <p class="small-text" style="margin-top: 4px">
-            Pilih ISO lokal atau gunakan opsi download OS ringan di bawah.
-          </p>
-
-          <label for="vmQuickIso" style="margin-top: 10px">Download OS Ringan</label>
-          <div style="display:flex; gap:8px; align-items: center;">
-            <select id="vmQuickIso" style="flex:1; height: 46px;">
-              <option value="">-- Pilih OS ringan --</option>
-              <option value="https://tinycorelinux.net/14.x/x86/release/Core-current.iso">TinyCore (very small)</option>
-              <option value="https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-standard-3.19.1-x86_64.iso">Alpine 3.19</option>
-              <option value="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.5.0-amd64-netinst.iso">Debian Netinst</option>
-            </select>
-            <button
-              type="button"
-              class="ghost"
-              onclick="applyQuickIso()"
-              style="height: 46px; display: inline-flex; align-items: center; justify-content: center; padding: 0 14px;"
-            >
-              <i class="bi bi-download"></i>
-            </button>
-          </div>
-
-          <label for="vmDisk" style="margin-top: 10px">Disk Path (opsional)</label>
-          <input type="text" id="vmDisk" placeholder="Path untuk disk virtual (akan dibuat otomatis)" />
-
-         <div class="modal-buttons" style="margin-top: 1rem; text-align: right">
-           <button onclick="saveVm()">
-             <i class="bi bi-check-circle"></i> Simpan
-           </button>
-           <button onclick="closeVmModal()" class="ghost">Batal</button>
-         </div>
+        <!-- Recent captures gallery placeholder -->
+        <div id="scGallery" style="display:none">
+          <div class="sc-section-title"><i class="bi bi-images" style="color:#60a5fa"></i><span data-i18n="sc.gallery">Recent Captures</span></div>
+          <div id="scGalleryGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px"></div>
         </div>
       </div>
+
+      <!-- Preview overlay (screenshot result) -->
+      <div id="scPreviewOverlay">
+        <div class="sc-preview-box" style="min-width:min(700px,90vw)">
+          <div class="sc-preview-header">
+            <i class="bi bi-image" id="scPreviewIcon" style="font-size:18px;color:#7c6fe0"></i>
+            <h3 id="scPreviewTitle" data-i18n="sc.preview.title">Screenshot Preview</h3>
+            <button onclick="scClosePreview()" style="background:none;border:none;color:#666;cursor:pointer;font-size:20px;line-height:1;padding:0 4px">×</button>
+          </div>
+          <!-- Annotation Toolbar (screenshot only) -->
+          <div id="scAnnotateToolbar">
+            <button class="sc-annot-tool active" id="scToolArrow"   title="Arrow"      onclick="scAnnotation.setTool('arrow')"><i class="bi bi-arrow-up-right"></i></button>
+            <button class="sc-annot-tool"        id="scToolRect"    title="Rectangle"  onclick="scAnnotation.setTool('rect')"><i class="bi bi-square"></i></button>
+            <button class="sc-annot-tool"        id="scToolEllipse" title="Ellipse"    onclick="scAnnotation.setTool('ellipse')"><i class="bi bi-circle"></i></button>
+            <button class="sc-annot-tool"        id="scToolPencil"  title="Freehand"   onclick="scAnnotation.setTool('pencil')"><i class="bi bi-pencil"></i></button>
+            <button class="sc-annot-tool"        id="scToolText"    title="Text"       onclick="scAnnotation.setTool('text')"><i class="bi bi-fonts"></i></button>
+            <button class="sc-annot-tool"        id="scToolBlur"    title="Censor/Blur" onclick="scAnnotation.setTool('blur')"><i class="bi bi-eye-slash"></i></button>
+            <div class="sc-annot-sep"></div>
+            <label title="Color" style="position:relative;cursor:pointer;display:flex;align-items:center;">
+              <div id="scAnnotColorDot" class="sc-annot-color-dot" style="background:#ef4444"></div>
+              <input type="color" id="scAnnotColor" value="#ef4444" style="position:absolute;opacity:0;width:100%;height:100%;cursor:pointer" onchange="scAnnotation.setColor(this.value)">
+            </label>
+            <div class="sc-annot-sep"></div>
+            <button class="sc-annot-sz active" id="scAnnotSz2" title="Thin (2px)"   onclick="scAnnotation.setWidth(2, this)"><i class="bi bi-dash"></i></button>
+            <button class="sc-annot-sz"        id="scAnnotSz4" title="Medium (4px)" onclick="scAnnotation.setWidth(4, this)">━</button>
+            <button class="sc-annot-sz"        id="scAnnotSz8" title="Thick (8px)"  onclick="scAnnotation.setWidth(8, this)"><b>═</b></button>
+            <div class="sc-annot-sep"></div>
+            <button class="sc-btn" style="padding:4px 10px;font-size:12px" onclick="scAnnotation.undo()" title="Undo"><i class="bi bi-arrow-counterclockwise"></i></button>
+            <button class="sc-btn" style="padding:4px 10px;font-size:12px" onclick="scAnnotation.clear()" title="Clear all"><i class="bi bi-trash"></i></button>
+          </div>
+          <div class="sc-preview-body">
+            <div id="scPreviewLoading" class="sc-loading">
+              <div class="sc-spinner"></div>
+              <span data-i18n="sc.preview.loading">Capturing...</span>
+            </div>
+            <canvas id="scAnnotateCanvas"></canvas>
+            <video id="scPreviewVideo" controls></video>
+          </div>
+          <div class="sc-preview-footer">
+            <span class="sc-preview-info" id="scPreviewMeta"></span>
+            <button class="sc-btn" onclick="scCopyToClipboard()" id="scBtnCopy">
+              <i class="bi bi-clipboard"></i><span data-i18n="sc.preview.copy">Copy ke Clipboard</span>
+            </button>
+            <button class="sc-btn success" onclick="scSaveFile()" id="scBtnSave">
+              <i class="bi bi-floppy"></i><span data-i18n="sc.preview.save">Simpan ke File</span>
+            </button>
+            <button class="sc-btn primary" onclick="scSaveBoth()" id="scBtnBoth">
+              <i class="bi bi-archive"></i><span data-i18n="sc.preview.both">Copy &amp; Simpan</span>
+            </button>
+            <button class="sc-btn danger" onclick="scClosePreview()">
+              <i class="bi bi-x-lg"></i><span data-i18n="sc.preview.discard">Buang</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recording floating controls bar -->
+      <div id="scRecordBar">
+        <div class="sc-rec-dot"></div>
+        <span id="scRecordTime" class="sc-rec-time">00:00</span>
+        <button class="sc-rec-btn" onclick="scPauseRecord()" id="scBtnPause" data-i18n="sc.rec.pause">Pause</button>
+        <button class="sc-rec-btn stop" onclick="scStopRecord()" data-i18n="sc.rec.stop">■ Stop</button>
+      </div>
+
+      <!-- Modal: OS Virtual (VM) -->
+      <div id="vmModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.65);align-items:center;justify-content:center;overflow-y:auto;padding:20px 0">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:14px;width:560px;max-width:95vw;box-shadow:0 24px 64px rgba(0,0,0,0.5);display:flex;flex-direction:column;max-height:90vh">
+
+          <!-- Modal header -->
+          <div style="display:flex;align-items:center;gap:10px;padding:18px 20px;border-bottom:1px solid #30363d;flex-shrink:0">
+            <i class="bi bi-display" style="font-size:18px;color:#7c6fe0"></i>
+            <h3 id="vmModalTitle" data-i18n="osv.modal.add" style="margin:0;font-size:16px;font-weight:600;color:#e0e0e0;flex:1">Tambah VM</h3>
+            <button onclick="closeVmModal()" style="background:none;border:none;color:#666;cursor:pointer;font-size:18px;line-height:1;padding:2px 6px;border-radius:4px">×</button>
+          </div>
+
+          <!-- Scrollable body -->
+          <div style="overflow-y:auto;padding:0 20px;flex:1">
+            <input type="hidden" id="vmId" />
+
+            <!-- Tab bar -->
+            <div style="display:flex;gap:0;border-bottom:1px solid #30363d;margin:0 -20px;padding:0 20px">
+              <button class="osv-tab active" onclick="osvTab(this,'osv-tab-basic')" style="padding:10px 16px;background:none;border:none;border-bottom:2px solid #7c6fe0;color:#e0e0e0;cursor:pointer;font-size:13px;font-weight:500" data-i18n="osv.tab.basic">Dasar</button>
+              <button class="osv-tab" onclick="osvTab(this,'osv-tab-storage')" style="padding:10px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#666;cursor:pointer;font-size:13px" data-i18n="osv.tab.storage">Storage</button>
+              <button class="osv-tab" onclick="osvTab(this,'osv-tab-network')" style="padding:10px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#666;cursor:pointer;font-size:13px" data-i18n="osv.tab.network">Jaringan</button>
+              <button class="osv-tab" onclick="osvTab(this,'osv-tab-advanced')" style="padding:10px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#666;cursor:pointer;font-size:13px" data-i18n="osv.tab.advanced">Lanjutan</button>
+            </div>
+
+            <!-- Tab: Dasar -->
+            <div id="osv-tab-basic" class="osv-tab-panel" style="padding:16px 0">
+              <div style="display:grid;grid-template-columns:1fr 160px;gap:12px;margin-bottom:12px">
+                <div>
+                  <label data-i18n="osv.form.name" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Nama VM</label>
+                  <input type="text" id="vmName" placeholder="Contoh: Ubuntu 22.04" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+                </div>
+                <div>
+                  <label data-i18n="osv.form.os_type" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Jenis OS</label>
+                  <select id="vmOsType" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px">
+                    <option value="linux">🐧 Linux</option>
+                    <option value="windows">🪟 Windows</option>
+                    <option value="other">💻 Other</option>
+                  </select>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">CPU (core)</label>
+                  <input type="number" id="vmCpu" min="1" max="16" value="2" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+                </div>
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">RAM (MB)</label>
+                  <input type="number" id="vmMemory" min="512" max="32768" value="2048" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+                </div>
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Storage (GB)</label>
+                  <input type="number" id="vmStorage" min="5" max="2048" value="20" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+                </div>
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">VNC Port</label>
+                  <input type="number" id="vmVncPort" min="5900" max="65535" value="5901" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+                </div>
+              </div>
+              <!-- RAM presets -->
+              <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+                <span style="font-size:11px;color:#555;align-self:center">RAM cepat:</span>
+                <button type="button" onclick="document.getElementById('vmMemory').value=512" style="padding:3px 10px;background:rgba(255,255,255,0.05);border:1px solid #30363d;border-radius:5px;color:#888;font-size:11px;cursor:pointer">512MB</button>
+                <button type="button" onclick="document.getElementById('vmMemory').value=1024" style="padding:3px 10px;background:rgba(255,255,255,0.05);border:1px solid #30363d;border-radius:5px;color:#888;font-size:11px;cursor:pointer">1GB</button>
+                <button type="button" onclick="document.getElementById('vmMemory').value=2048" style="padding:3px 10px;background:rgba(255,255,255,0.05);border:1px solid #30363d;border-radius:5px;color:#888;font-size:11px;cursor:pointer">2GB</button>
+                <button type="button" onclick="document.getElementById('vmMemory').value=4096" style="padding:3px 10px;background:rgba(255,255,255,0.05);border:1px solid #30363d;border-radius:5px;color:#888;font-size:11px;cursor:pointer">4GB</button>
+                <button type="button" onclick="document.getElementById('vmMemory').value=8192" style="padding:3px 10px;background:rgba(255,255,255,0.05);border:1px solid #30363d;border-radius:5px;color:#888;font-size:11px;cursor:pointer">8GB</button>
+              </div>
+            </div>
+
+            <!-- Tab: Storage -->
+            <div id="osv-tab-storage" class="osv-tab-panel" style="padding:16px 0;display:none">
+              <div style="margin-bottom:14px">
+                <label data-i18n="osv.form.iso" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">File ISO</label>
+                <div style="display:flex;gap:8px">
+                  <input type="text" id="vmIso" placeholder="/path/to/ubuntu.iso atau URL" style="flex:1;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px">
+                  <button type="button" onclick="browseVmIsoFile()" title="Browse file" style="padding:8px 12px;background:rgba(255,255,255,0.06);border:1px solid #30363d;border-radius:6px;color:#aaa;cursor:pointer">
+                    <i class="bi bi-folder2-open"></i>
+                  </button>
+                </div>
+              </div>
+              <div style="margin-bottom:14px">
+                <label data-i18n="osv.form.iso_quick" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">OS Ringan (isi otomatis)</label>
+                <select id="vmQuickIso" onchange="applyQuickIso()" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px">
+                  <option value="">-- Pilih &amp; unduh otomatis --</option>
+                  <optgroup label="── Sudah Diunduh ──" id="vmCachedIsoGroup"></optgroup>
+                  <optgroup label="── Super Ringan (&lt;50MB) ──">
+                    <option value="http://distro.ibiblio.org/tinycorelinux/14.x/x86/release/Core-current.iso">TinyCore Linux 14 (~17MB)</option>
+                    <option value="http://distro.ibiblio.org/tinycorelinux/14.x/x86/release/TinyCore-current.iso">TinyCore+ (GUI) 14 (~23MB)</option>
+                    <option value="https://builds.kolibrios.org/eng/latest-unstable.iso">KolibriOS (~4MB)</option>
+                  </optgroup>
+                  <optgroup label="── Ringan (50–500MB) ──">
+                    <option value="https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/alpine-standard-3.20.3-x86_64.iso">Alpine Linux 3.20 (~209MB)</option>
+                    <option value="https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/distributions/1.3/official/FD13-LiveCD.iso">FreeDOS 1.3 LiveCD (~180MB)</option>
+                    <option value="http://distro.ibiblio.org/puppylinux/puppy-9.5/fossapup64-9.5.iso">Puppy Linux 9.5 (~410MB)</option>
+                  </optgroup>
+                  <optgroup label="── Sedang (300MB–1GB) ──">
+                    <option value="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.9.0-amd64-netinst.iso">Debian 12 Netinst (~660MB)</option>
+                    <option value="https://releases.ubuntu.com/24.04/ubuntu-24.04.2-live-server-amd64.iso">Ubuntu Server 24.04 (~2.6GB)</option>
+                  </optgroup>
+                </select>
+                <div id="vmIsoDownloadProgress" style="display:none;flex-direction:column;gap:4px;margin-top:6px">
+                  <div style="display:flex;justify-content:space-between;font-size:11px;color:#888">
+                    <span class="iso-dl-label">Mengunduh...</span>
+                    <span class="iso-dl-pct">0%</span>
+                  </div>
+                  <div style="background:#1a1a2e;border-radius:4px;height:6px;overflow:hidden">
+                    <div class="iso-dl-bar-inner" style="height:100%;width:0%;background:linear-gradient(90deg,#7c6fe0,#a78bfa);transition:width 0.3s"></div>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label data-i18n="osv.form.disk" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Disk Virtual (path, dibuat otomatis jika kosong)</label>
+                <input type="text" id="vmDisk" placeholder="/path/to/disk.qcow2" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+                <p data-i18n="osv.form.disk_hint" style="margin:4px 0 0;font-size:11px;color:#555">Kosongkan untuk membuat disk otomatis di folder userData.</p>
+              </div>
+            </div>
+
+            <!-- Tab: Jaringan -->
+            <div id="osv-tab-network" class="osv-tab-panel" style="padding:16px 0;display:none">
+              <div style="margin-bottom:14px">
+                <label data-i18n="osv.form.network" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Mode Jaringan</label>
+                <select id="vmNetwork" onchange="osvNetworkChange()" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px">
+                  <option value="nat">NAT (default, akses internet via host)</option>
+                  <option value="bridge">Bridge (VM dapat IP jaringan lokal)</option>
+                  <option value="none">None (tanpa jaringan)</option>
+                </select>
+              </div>
+              <div id="vmBridgeGroup" style="display:none;margin-bottom:14px">
+                <label data-i18n="osv.form.bridge_iface" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Interface Bridge</label>
+                <input type="text" id="vmBridge" placeholder="eth0 / en0 / br0" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+              </div>
+              <div>
+                <label data-i18n="osv.form.mac" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">MAC Address (opsional)</label>
+                <input type="text" id="vmMac" placeholder="52:54:00:xx:xx:xx (kosong = acak)" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+              </div>
+            </div>
+
+            <!-- Tab: Lanjutan -->
+            <div id="osv-tab-advanced" class="osv-tab-panel" style="padding:16px 0;display:none">
+              <div style="margin-bottom:14px">
+                <label data-i18n="osv.form.qemu_bin" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">QEMU Binary</label>
+                <input type="text" id="vmQemuBin" value="qemu-system-x86_64" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+                <p style="margin:4px 0 0;font-size:11px;color:#555">Ubah ke <code style="color:#a78bfa">qemu-system-aarch64</code> untuk ARM.</p>
+              </div>
+              <div style="margin-bottom:14px">
+                <label data-i18n="osv.form.boot_order" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Boot Order</label>
+                <select id="vmBootOrder" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px">
+                  <option value="cd">CD dulu → Disk (instalasi)</option>
+                  <option value="dc">Disk dulu → CD (setelah instal)</option>
+                  <option value="c">Disk saja</option>
+                  <option value="d">CD saja</option>
+                </select>
+              </div>
+              <div style="margin-bottom:14px">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                  <input type="checkbox" id="vmAutostart" style="width:16px;height:16px;accent-color:#7c6fe0">
+                  <span data-i18n="osv.form.autostart" style="font-size:13px;color:#ccc">Autostart — jalankan VM otomatis saat StarBox dibuka</span>
+                </label>
+              </div>
+              <div>
+                <label data-i18n="osv.form.notes" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Catatan</label>
+                <textarea id="vmNotes" rows="3" data-i18n-placeholder="osv.form.notes_placeholder" placeholder="Catatan atau deskripsi VM..." style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <!-- Modal footer -->
+          <div style="display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:1px solid #30363d;flex-shrink:0">
+            <button onclick="closeVmModal()" data-i18n="osv.form.cancel" style="padding:8px 20px;background:rgba(255,255,255,0.06);border:1px solid #30363d;border-radius:8px;color:#aaa;cursor:pointer;font-size:13px">Batal</button>
+            <button onclick="saveVm()" style="padding:8px 20px;background:linear-gradient(135deg,#7c6fe0,#a78bfa);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600">
+              <i class="bi bi-floppy" style="margin-right:5px"></i><span data-i18n="osv.form.save">Simpan VM</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <script>
+      // OS Virtual modal tab switcher
+      window.osvTab = function(btn, panelId) {
+        document.querySelectorAll(".osv-tab").forEach((t) => {
+          t.style.borderBottomColor = "transparent";
+          t.style.color = "#666";
+        });
+        btn.style.borderBottomColor = "#7c6fe0";
+        btn.style.color = "#e0e0e0";
+        document.querySelectorAll(".osv-tab-panel").forEach((p) => p.style.display = "none");
+        const panel = document.getElementById(panelId);
+        if (panel) panel.style.display = "";
+      };
+      window.osvNetworkChange = function() {
+        const val = document.getElementById("vmNetwork")?.value;
+        const bg = document.getElementById("vmBridgeGroup");
+        if (bg) bg.style.display = val === "bridge" ? "" : "none";
+      };
+      </script>
 
       <!-- Modal: ADB Tutorial -->
       <div id="adbTutorialModal" class="modal">
@@ -4835,7 +7072,7 @@ adb connect ip:port</code></pre>
           window.refreshEditChromeNativeUI();
         }
 
-        function openEditModal() {
+        window.openEditModal = function openEditModal() {
           const modal = document.getElementById("editModal");
           if (modal) modal.style.display = "flex";
           if (typeof window.refreshEditAutoSenderUI === "function") {
@@ -4859,7 +7096,7 @@ adb connect ip:port</code></pre>
           }, 50);
         }
 
-        function closeEditModal() {
+        window.closeEditModal = function closeEditModal() {
           const modal = document.getElementById("editModal");
           if (modal) modal.style.display = "none";
           window.currentEditUID = null;
@@ -5054,7 +7291,7 @@ adb connect ip:port</code></pre>
       </script>
       <footer class="app-footer">
         <span class="footer-left"
-          >StarBox v1.4.260315 &copy; 2025 Gingin Abdul Goni —
+          >StarBox v1.3.260316 &copy; 2025 Gingin Abdul Goni —
           <a
             href="https://1112-project.com"
             target="_blank"
@@ -5080,6 +7317,28 @@ adb connect ip:port</code></pre>
           overlay.classList.toggle("active");
         }
       }
+
+      // Sidebar mini / collapse toggle
+      (function () {
+        const LS_KEY = "starbox-sidebar-mini";
+
+        function applySidebarMini(mini) {
+          document.body.classList.toggle("sidebar-mini", mini);
+        }
+
+        window.toggleSidebarMini = function () {
+          const isMini = document.body.classList.contains("sidebar-mini");
+          const next = !isMini;
+          applySidebarMini(next);
+          try { localStorage.setItem(LS_KEY, next ? "1" : "0"); } catch {}
+        };
+
+        // Restore on load — default is mini (collapsed)
+        try {
+          const saved = localStorage.getItem(LS_KEY);
+          applySidebarMini(saved === null ? true : saved === "1");
+        } catch { applySidebarMini(true); }
+      })();
 
       // Function to switch between pages
       function switchPage(pageName) {
@@ -5128,6 +7387,13 @@ adb connect ip:port</code></pre>
           if (typeof window.initRemoteControlPage === "function") {
             window.initRemoteControlPage();
           }
+        }
+
+        // Resource Monitor — start/stop polling
+        if (pageName === 'resource-monitor') {
+          if (typeof rmStartPolling === 'function') rmStartPolling();
+        } else {
+          if (typeof rmStopPolling === 'function') rmStopPolling();
         }
 
         // Load WhatsApp Gateway devices when switching to that page
