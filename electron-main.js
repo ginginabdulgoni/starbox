@@ -7656,7 +7656,8 @@ async function doStartVm(id) {
       } catch (_) {}
     }
 
-    const qemuBin = vm.qemuBinary || "qemu-system-x86_64";
+    // Resolve QEMU binary — use vm setting, findQemuBin(), or fallback name
+    const qemuBin = vm.qemuBinary || findQemuBin() || "qemu-system-x86_64";
 
     // Check if QEMU is installed
     try {
@@ -9167,15 +9168,46 @@ ipcMain.handle('cctv-install-ffmpeg', async (event) => {
 });
 
 // ── QEMU check & auto-install ─────────────────────────────────────────────────
-ipcMain.handle('os-vm-check-qemu', async () => {
-  const qemuBin = 'qemu-system-x86_64';
+
+// Helper: find qemu-system-x86_64 binary, including common install paths
+function findQemuBin() {
+  const names = ['qemu-system-x86_64', 'qemu-system-x86_64.exe'];
+  // Common Windows install paths (winget/official installer)
+  const winPaths = [
+    'C:\\Program Files\\qemu\\qemu-system-x86_64.exe',
+    'C:\\Program Files (x86)\\qemu\\qemu-system-x86_64.exe',
+  ];
+  // macOS Homebrew paths
+  const macPaths = [
+    '/opt/homebrew/bin/qemu-system-x86_64',
+    '/usr/local/bin/qemu-system-x86_64',
+  ];
+  const candidates = process.platform === 'win32' ? winPaths
+    : process.platform === 'darwin' ? macPaths
+    : ['/usr/bin/qemu-system-x86_64', '/usr/local/bin/qemu-system-x86_64'];
+
+  // Check explicit paths first
+  for (const p of candidates) {
+    try { if (fs.existsSync(p)) return p; } catch {}
+  }
+  // Fall back to PATH
+  const name = process.platform === 'win32' ? 'qemu-system-x86_64.exe' : 'qemu-system-x86_64';
   try {
-    const r = spawnSync(qemuBin, ['--version'], { timeout: 5000 });
-    if (!r.error) {
-      const ver = (r.stdout || r.stderr || '').toString().split('\n')[0].trim();
-      return { available: true, version: ver, bin: qemuBin };
-    }
+    const r = spawnSync(name, ['--version'], { timeout: 5000 });
+    if (!r.error) return name;
   } catch {}
+  return null;
+}
+
+ipcMain.handle('os-vm-check-qemu', async () => {
+  const bin = findQemuBin();
+  if (bin) {
+    try {
+      const r = spawnSync(bin, ['--version'], { timeout: 5000 });
+      const ver = (r.stdout || r.stderr || '').toString().split('\n')[0].trim();
+      return { available: true, version: ver, bin };
+    } catch {}
+  }
   return { available: false, platform: process.platform };
 });
 
@@ -9234,12 +9266,12 @@ ipcMain.handle('os-vm-install-qemu', async (event) => {
       });
     });
 
-    // Verify
-    const verCheck = spawnSync('qemu-system-x86_64', ['--version'], { timeout: 5000 });
-    if (verCheck.error) {
-      sendProgress('QEMU terinstall tapi perlu restart aplikasi agar terdeteksi.', true);
+    // Verify — use findQemuBin() to check known install paths too
+    const foundBin = findQemuBin();
+    if (foundBin) {
+      sendProgress(`QEMU berhasil diinstall! (${foundBin})`, true);
     } else {
-      sendProgress('QEMU berhasil diinstall!', true);
+      sendProgress('QEMU terinstall. Jika banner masih muncul, restart StarBox.', true);
     }
     return { success: true };
   } catch (err) {
