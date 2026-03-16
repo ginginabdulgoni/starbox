@@ -203,8 +203,8 @@
     <button class="at-btn"        id="toolBlur"    title="Sensor/Blur"  onclick="setTool('blur')">⊘</button>
     <div class="at-sep"></div>
     <label style="position:relative;cursor:pointer;display:flex;align-items:center" title="Pilih warna">
-      <div class="at-color" id="colorDot" style="background:#ef4444"></div>
-      <input type="color" id="colorPicker" value="#ef4444"
+      <div class="at-color" id="colorDot" style="background:#000000"></div>
+      <input type="color" id="colorPicker" value="#000000"
              style="position:absolute;opacity:0;inset:0;cursor:pointer;width:22px;height:22px"
              onchange="setColor(this.value)">
     </label>
@@ -356,8 +356,9 @@
 
     // ── Editor mode ─────────────────────────────────────────────
     let annotCanvas, annotCtx, baseImg;
-    let annotations=[], activeTool='arrow', activeColor='#ef4444', activeWidth=2;
+    let annotations=[], activeTool='arrow', activeColor='#000000', activeWidth=2;
     let edDrawing=false, edSX=0, edSY=0, pencilPoints=[], edEventsBound=false;
+    let isDragText=false, dragTextIdx=-1, dragOffX=0, dragOffY=0;
 
     function showEditorMode(dataUrl) {
       inEditorMode=true;
@@ -462,77 +463,90 @@
       }catch(e){}
     }
 
-    function showEdTextInput(screenX, screenY, canvasX, canvasY){
+    function hitTestText(ann,cx,cy){
+      if(ann.type!=='text') return false;
+      const fs=Math.max(14,ann.width*6);
+      annotCtx.font=`bold ${fs}px -apple-system,sans-serif`;
+      const w=annotCtx.measureText(ann.text).width;
+      return cx>=ann.x-6&&cx<=ann.x+w+6&&cy>=ann.y-fs-6&&cy<=ann.y+8;
+    }
+
+    function showEdTextInput(canvasX, canvasY){
       const existing=document.getElementById('edTextInputOverlay');
       if(existing) existing.remove();
-      const fs=Math.max(16, activeWidth*7);
-      const top=Math.max(10, screenY-fs-14);
-
-      // Wrapper: input + confirm button
-      const wrap=document.createElement('div');
-      wrap.id='edTextInputOverlay';
-      wrap.style.cssText=`position:fixed;left:${screenX}px;top:${top}px;display:flex;align-items:stretch;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,0.7);`;
+      const rect=annotCanvas.getBoundingClientRect();
+      const sx=rect.width/annotCanvas.width, sy=rect.height/annotCanvas.height;
+      const fs=Math.max(14,activeWidth*6);
+      const screenFs=Math.max(12,Math.round(fs*sy));
+      const screenX=rect.left+canvasX*sx;
+      const screenY=rect.top+canvasY*sy;
+      const borderColor=activeColor==='#000000'||activeColor==='#000'?'rgba(100,100,100,0.8)':activeColor;
 
       const inp=document.createElement('input');
+      inp.id='edTextInputOverlay';
       inp.type='text';
-      inp.placeholder='Ketik teks...';
+      inp.placeholder='Ketik...';
       inp.style.cssText=`
-        background:rgba(0,0,0,0.92);color:${activeColor};
-        border:2px solid ${activeColor};border-right:none;border-radius:6px 0 0 6px;
-        padding:6px 12px;font-size:${fs}px;font-weight:700;
-        font-family:-apple-system,sans-serif;outline:none;
-        min-width:180px;max-width:380px;
+        position:fixed;left:${screenX}px;top:${screenY-screenFs-2}px;
+        background:transparent;color:${activeColor};
+        border:none;border-bottom:2px dashed ${borderColor};
+        outline:none;font-size:${screenFs}px;font-weight:bold;
+        font-family:-apple-system,sans-serif;padding:0 2px;
+        min-width:60px;max-width:600px;z-index:99999;
+        caret-color:${activeColor};
+        text-shadow:${activeColor==='#000000'||activeColor==='#000'?'0 0 4px rgba(255,255,255,0.9)':'0 0 4px rgba(0,0,0,0.7)'};
       `;
-
-      const btn=document.createElement('button');
-      btn.textContent='✓';
-      btn.title='Konfirmasi (Enter)';
-      btn.style.cssText=`
-        background:${activeColor};color:#000;
-        border:2px solid ${activeColor};border-radius:0 6px 6px 0;
-        padding:6px 14px;font-size:${fs}px;font-weight:900;
-        cursor:pointer;outline:none;flex-shrink:0;
-      `;
-
       const commit=()=>{
-        const txt=inp.value.trim(); wrap.remove();
+        const txt=inp.value.trim(); inp.remove();
         if(txt){annotations.push({type:'text',x:canvasX,y:canvasY,text:txt,color:activeColor,width:activeWidth});redrawAnnot();}
       };
-
       inp.addEventListener('keydown',e=>{
         if(e.key==='Enter'){e.preventDefault();commit();}
-        if(e.key==='Escape'){e.preventDefault();wrap.remove();}
+        if(e.key==='Escape'){e.preventDefault();inp.remove();}
         e.stopPropagation();
       });
-      // Prevent input blur when clicking the ✓ button
-      btn.addEventListener('mousedown',e=>{e.preventDefault();});
-      btn.addEventListener('click',commit);
-
-      wrap.appendChild(inp);
-      wrap.appendChild(btn);
-      document.body.appendChild(wrap);
-      // Delay focus to avoid immediate blur from canvas mouseup
-      setTimeout(()=>inp.focus(), 50);
+      document.body.appendChild(inp);
+      setTimeout(()=>inp.focus(),50);
     }
 
     function bindEditorEvents(){
       annotCanvas.addEventListener('mousedown',e=>{
         if(e.button!==0) return;
-        edDrawing=true;
-        const{x,y}=edCoords(e); edSX=x; edSY=y;
-        if(activeTool==='pencil') pencilPoints=[{x,y}];
+        const{x,y}=edCoords(e);
         if(activeTool==='text'){
           edDrawing=false;
-          showEdTextInput(e.clientX, e.clientY, x, y);
+          // Hit existing text → drag it
+          let hit=-1;
+          for(let i=annotations.length-1;i>=0;i--){if(hitTestText(annotations[i],x,y)){hit=i;break;}}
+          if(hit>=0){
+            isDragText=true; dragTextIdx=hit;
+            dragOffX=x-annotations[hit].x; dragOffY=y-annotations[hit].y;
+          } else {
+            showEdTextInput(x,y);
+          }
+          return;
         }
+        edDrawing=true; edSX=x; edSY=y;
+        if(activeTool==='pencil') pencilPoints=[{x,y}];
       });
       annotCanvas.addEventListener('mousemove',e=>{
-        if(!edDrawing) return;
         const{x,y}=edCoords(e);
+        if(activeTool==='text'){
+          if(isDragText&&dragTextIdx>=0){
+            annotations[dragTextIdx].x=x-dragOffX;
+            annotations[dragTextIdx].y=y-dragOffY;
+            redrawAnnot();
+          } else {
+            annotCanvas.style.cursor=annotations.some(a=>hitTestText(a,x,y))?'move':'text';
+          }
+          return;
+        }
+        if(!edDrawing) return;
         if(activeTool==='pencil'){pencilPoints.push({x,y});redrawAnnot({type:'pencil',points:[...pencilPoints],color:activeColor,width:activeWidth});}
-        else if(activeTool!=='text') redrawAnnot({type:activeTool,x1:edSX,y1:edSY,x2:x,y2:y,color:activeColor,width:activeWidth});
+        else redrawAnnot({type:activeTool,x1:edSX,y1:edSY,x2:x,y2:y,color:activeColor,width:activeWidth});
       });
       const onUp=e=>{
+        if(isDragText){isDragText=false;dragTextIdx=-1;redrawAnnot();return;}
         if(!edDrawing) return; edDrawing=false;
         const{x,y}=edCoords(e);
         if(activeTool==='pencil'){

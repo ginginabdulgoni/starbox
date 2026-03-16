@@ -10738,13 +10738,14 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
     let canvas, ctx, baseImg;
     let annotations = [];
     let activeTool  = 'arrow';
-    let activeColor = '#ef4444';
+    let activeColor = '#000000';
     let activeWidth = 2;
     let isDrawing   = false;
     let startX = 0, startY = 0;
     let pencilPoints = [];
     let eventsBound  = false;
     let hasImage     = false;
+    let isDragText = false, dragTextIdx = -1, dragOffX = 0, dragOffY = 0;
 
     function coords(e) {
       const r = canvas.getBoundingClientRect();
@@ -10827,84 +10828,96 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
       } catch(e){}
     }
 
-    function showTextInput(screenX, screenY, canvasX, canvasY) {
+    function hitTestText(ann, cx, cy) {
+      if(ann.type !== 'text') return false;
+      const fs = Math.max(14, ann.width * 6);
+      ctx.font = `bold ${fs}px -apple-system,sans-serif`;
+      const w = ctx.measureText(ann.text).width;
+      return cx >= ann.x - 6 && cx <= ann.x + w + 6 && cy >= ann.y - fs - 6 && cy <= ann.y + 8;
+    }
+
+    function showTextInput(canvasX, canvasY) {
       const existing = document.getElementById('scTextInputOverlay');
       if(existing) existing.remove();
-      const fs = Math.max(16, activeWidth * 7);
-      const top = Math.max(10, screenY - fs - 14);
-
-      // Wrapper: input + confirm button
-      const wrap = document.createElement('div');
-      wrap.id = 'scTextInputOverlay';
-      wrap.style.cssText = `position:fixed;left:${screenX}px;top:${top}px;display:flex;align-items:stretch;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,0.7);`;
+      const rect = canvas.getBoundingClientRect();
+      const sx = rect.width / canvas.width, sy = rect.height / canvas.height;
+      const fs = Math.max(14, activeWidth * 6);
+      const screenFs = Math.max(12, Math.round(fs * sy));
+      const screenX = rect.left + canvasX * sx;
+      const screenY = rect.top + canvasY * sy;
+      const borderColor = activeColor === '#000000' || activeColor === '#000' ? 'rgba(100,100,100,0.8)' : activeColor;
 
       const inp = document.createElement('input');
+      inp.id = 'scTextInputOverlay';
       inp.type = 'text';
-      inp.placeholder = 'Ketik teks...';
+      inp.placeholder = 'Ketik...';
       inp.style.cssText = `
-        background:rgba(0,0,0,0.92);color:${activeColor};
-        border:2px solid ${activeColor};border-right:none;border-radius:6px 0 0 6px;
-        padding:6px 12px;font-size:${fs}px;font-weight:700;
-        font-family:-apple-system,sans-serif;outline:none;
-        min-width:180px;max-width:380px;
+        position:fixed;left:${screenX}px;top:${screenY - screenFs - 2}px;
+        background:transparent;color:${activeColor};
+        border:none;border-bottom:2px dashed ${borderColor};
+        outline:none;font-size:${screenFs}px;font-weight:bold;
+        font-family:-apple-system,sans-serif;padding:0 2px;
+        min-width:60px;max-width:600px;z-index:99999;
+        caret-color:${activeColor};
+        text-shadow:${activeColor==='#000000'||activeColor==='#000'?'0 0 4px rgba(255,255,255,0.9)':'0 0 4px rgba(0,0,0,0.7)'};
       `;
-
-      const btn = document.createElement('button');
-      btn.textContent = '✓';
-      btn.title = 'Konfirmasi (Enter)';
-      btn.style.cssText = `
-        background:${activeColor};color:#000;
-        border:2px solid ${activeColor};border-radius:0 6px 6px 0;
-        padding:6px 14px;font-size:${fs}px;font-weight:900;
-        cursor:pointer;outline:none;flex-shrink:0;
-      `;
-
       const commit = () => {
-        const txt = inp.value.trim(); wrap.remove();
+        const txt = inp.value.trim(); inp.remove();
         if(txt) { annotations.push({type:'text',x:canvasX,y:canvasY,text:txt,color:activeColor,width:activeWidth}); redraw(); }
       };
-
       inp.addEventListener('keydown', e => {
         if(e.key==='Enter') { e.preventDefault(); commit(); }
-        if(e.key==='Escape') { e.preventDefault(); wrap.remove(); }
+        if(e.key==='Escape') { e.preventDefault(); inp.remove(); }
         e.stopPropagation();
       });
-      // Prevent input blur when clicking the ✓ button
-      btn.addEventListener('mousedown', e => { e.preventDefault(); });
-      btn.addEventListener('click', commit);
-
-      wrap.appendChild(inp);
-      wrap.appendChild(btn);
-      document.body.appendChild(wrap);
-      // Delay focus to avoid immediate blur from canvas mouseup
+      document.body.appendChild(inp);
       setTimeout(() => inp.focus(), 50);
     }
 
     function onDown(e) {
-      if(!hasImage||e.button!==0)return;
-      isDrawing=true;
-      const {x,y}=coords(e); startX=x; startY=y;
-      if(activeTool==='pencil') pencilPoints=[{x,y}];
-      if(activeTool==='text') {
-        isDrawing=false;
-        showTextInput(e.clientX, e.clientY, x, y);
+      if(!hasImage || e.button !== 0) return;
+      const {x, y} = coords(e);
+      if(activeTool === 'text') {
+        isDrawing = false;
+        let hit = -1;
+        for(let i = annotations.length - 1; i >= 0; i--) { if(hitTestText(annotations[i], x, y)) { hit = i; break; } }
+        if(hit >= 0) {
+          isDragText = true; dragTextIdx = hit;
+          dragOffX = x - annotations[hit].x; dragOffY = y - annotations[hit].y;
+        } else {
+          showTextInput(x, y);
+        }
+        return;
       }
+      isDrawing = true; startX = x; startY = y;
+      if(activeTool === 'pencil') pencilPoints = [{x, y}];
     }
     function onMove(e) {
-      if(!isDrawing)return;
-      const {x,y}=coords(e);
-      if(activeTool==='pencil'){pencilPoints.push({x,y});redraw({type:'pencil',points:[...pencilPoints],color:activeColor,width:activeWidth});}
-      else if(activeTool!=='text'){redraw({type:activeTool,x1:startX,y1:startY,x2:x,y2:y,color:activeColor,width:activeWidth});}
+      const {x, y} = coords(e);
+      if(activeTool === 'text') {
+        if(isDragText && dragTextIdx >= 0) {
+          annotations[dragTextIdx].x = x - dragOffX;
+          annotations[dragTextIdx].y = y - dragOffY;
+          redraw();
+        } else {
+          canvas.style.cursor = annotations.some(a => hitTestText(a, x, y)) ? 'move' : 'text';
+        }
+        return;
+      }
+      if(!isDrawing) return;
+      if(activeTool === 'pencil') { pencilPoints.push({x,y}); redraw({type:'pencil',points:[...pencilPoints],color:activeColor,width:activeWidth}); }
+      else { redraw({type:activeTool,x1:startX,y1:startY,x2:x,y2:y,color:activeColor,width:activeWidth}); }
     }
     function onUp(e) {
-      if(!isDrawing)return; isDrawing=false;
-      const {x,y}=coords(e);
-      if(activeTool==='pencil'){
-        if(pencilPoints.length>1) annotations.push({type:'pencil',points:[...pencilPoints],color:activeColor,width:activeWidth});
-      } else if(activeTool!=='text'){
-        if(Math.abs(x-startX)>2||Math.abs(y-startY)>2) annotations.push({type:activeTool,x1:startX,y1:startY,x2:x,y2:y,color:activeColor,width:activeWidth});
+      if(isDragText) { isDragText = false; dragTextIdx = -1; redraw(); return; }
+      if(!isDrawing) return; isDrawing = false;
+      const {x, y} = coords(e);
+      if(activeTool === 'pencil') {
+        if(pencilPoints.length > 1) annotations.push({type:'pencil',points:[...pencilPoints],color:activeColor,width:activeWidth});
+      } else if(activeTool !== 'text') {
+        if(Math.abs(x-startX) > 2 || Math.abs(y-startY) > 2) annotations.push({type:activeTool,x1:startX,y1:startY,x2:x,y2:y,color:activeColor,width:activeWidth});
       }
-      pencilPoints=[]; redraw();
+      pencilPoints = []; redraw();
     }
 
     function bindEvents() {
