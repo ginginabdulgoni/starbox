@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <title>StarDesk – Remote PC</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #080714;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex; flex-direction: column;
+      height: 100vh; overflow: hidden; user-select: none;
+    }
+
+    /* ── Toolbar ── */
+    #toolbar {
+      display: flex; align-items: center; gap: 5px;
+      padding: 5px 10px;
+      background: linear-gradient(180deg, #1e1a38 0%, #15122a 100%);
+      border-bottom: 1px solid rgba(124,111,224,0.22);
+      flex-shrink: 0; z-index: 20;
+    }
+    .tb-title {
+      font-size: 0.82rem; font-weight: 600; color: #c4b5fd;
+      display: flex; align-items: center; gap: 5px; white-space: nowrap;
+    }
+    .tb-title i { color: #7c6fe0; font-size: 0.95rem; }
+    .tb-sep { width: 1px; height: 18px; background: rgba(255,255,255,0.1); margin: 0 3px; flex-shrink: 0; }
+    .spacer { flex: 1; }
+
+    /* Badges */
+    .badge {
+      font-size: 0.63rem; padding: 2px 8px; border-radius: 20px; font-weight: 500;
+      display: inline-flex; align-items: center; gap: 4px; border: 1px solid; white-space: nowrap;
+    }
+    .badge.live  { background: rgba(34,197,94,0.14);  color: #4ade80; border-color: rgba(34,197,94,0.28); }
+    .badge.ctrl  { background: rgba(124,111,224,0.18); color: #a78bfa; border-color: rgba(124,111,224,0.38); }
+    .badge.conn  { background: rgba(251,191,36,0.11);  color: #fbbf24; border-color: rgba(251,191,36,0.28); }
+    .badge.err   { background: rgba(239,68,68,0.14);   color: #f87171; border-color: rgba(239,68,68,0.32); }
+    .badge.paused{ background: rgba(99,102,241,0.12);  color: #818cf8; border-color: rgba(99,102,241,0.28); }
+
+    /* Buttons */
+    .tb-btn {
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 6px; color: rgba(255,255,255,0.78);
+      padding: 3px 9px; font-size: 0.74rem; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+      transition: background 0.13s, border-color 0.13s;
+    }
+    .tb-btn:hover { background: rgba(255,255,255,0.11); border-color: rgba(255,255,255,0.2); }
+    .tb-btn.active { background: rgba(124,111,224,0.22); border-color: rgba(124,111,224,0.45); color: #c4b5fd; }
+    .tb-btn.danger { color: #f87171; border-color: rgba(239,68,68,0.24); }
+    .tb-btn.danger:hover { background: rgba(239,68,68,0.14); border-color: rgba(239,68,68,0.4); }
+
+    /* Selects */
+    .tb-select {
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 6px; color: rgba(255,255,255,0.78);
+      padding: 3px 6px; font-size: 0.72rem; cursor: pointer; outline: none;
+    }
+    .tb-select option { background: #1a1630; }
+    .tb-label { font-size: 0.67rem; color: rgba(255,255,255,0.32); white-space: nowrap; }
+
+    /* Custom zoom */
+    #zoomPanel { display: none; align-items: center; gap: 5px; }
+    #zoomRange { width: 72px; accent-color: #7c6fe0; cursor: pointer; }
+    #zoomVal { font-size: 0.68rem; color: rgba(255,255,255,0.45); min-width: 34px; }
+
+    /* ── Screen area ── */
+    #screenWrap {
+      flex: 1; position: relative; overflow: hidden;
+      background: #000; outline: none;
+    }
+    #screenWrap.overflow-scroll { overflow: auto; }
+    #screenWrap.ctrl-active { cursor: none; }
+
+    #screenCanvas {
+      display: block; position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+    }
+    /* In original/custom mode, canvas is relative so scrolling works */
+    #screenWrap.overflow-scroll #screenCanvas {
+      position: relative; top: auto; left: auto; transform: none;
+      margin: auto;
+    }
+
+    /* ── Status overlay ── */
+    #statusOverlay {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: rgba(8,7,20,0.93);
+      text-align: center; gap: 12px;
+      backdrop-filter: blur(6px);
+    }
+    .ov-icon { font-size: 2.6rem; color: rgba(124,111,224,0.55); }
+    .ov-text { font-size: 0.86rem; color: rgba(255,255,255,0.42); white-space: pre-line; line-height: 1.6; }
+    .ov-sub  { font-size: 0.7rem;  color: rgba(255,255,255,0.22); }
+
+    /* ── Cursor dot ── */
+    #cursorDot {
+      position: absolute; pointer-events: none; z-index: 30; display: none;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: rgba(167,139,250,0.65);
+      border: 2px solid rgba(255,255,255,0.92);
+      box-shadow: 0 0 10px rgba(124,111,224,0.75), 0 0 0 1px rgba(0,0,0,0.35);
+      transform: translate(-50%, -50%);
+    }
+
+    /* ── Bottom info bar ── */
+    #statsBar {
+      position: absolute; bottom: 7px; right: 9px;
+      font-size: 0.62rem; color: rgba(255,255,255,0.2);
+      pointer-events: none; font-variant-numeric: tabular-nums;
+      background: rgba(0,0,0,0.35); padding: 2px 7px; border-radius: 5px;
+    }
+    #ctrlHint {
+      position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%);
+      font-size: 0.63rem; color: rgba(255,255,255,0.22);
+      pointer-events: none; white-space: nowrap;
+      background: rgba(0,0,0,0.35); padding: 2px 8px; border-radius: 5px;
+      transition: opacity 0.3s;
+    }
+    #ctrlHint.hide { opacity: 0; }
+  </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+</head>
+<body>
+  <div id="toolbar">
+    <span class="tb-title"><i class="bi bi-display-fill"></i> <span id="titleText">StarDesk</span></span>
+    <span class="badge conn" id="statusBadge">Menghubungkan...</span>
+    <span class="badge ctrl" id="ctrlBadge" style="display:none;"><i class="bi bi-mouse2"></i> Kontrol Aktif</span>
+
+    <div class="tb-sep"></div>
+
+    <!-- Scale -->
+    <span class="tb-label">Skala:</span>
+    <select id="scaleSelect" class="tb-select" onchange="setScaleMode(this.value)">
+      <option value="adaptive" selected>Adaptif</option>
+      <option value="original">Original (1:1)</option>
+      <option value="stretch">Stretch</option>
+      <option value="custom">Custom</option>
+    </select>
+    <div id="zoomPanel">
+      <input type="range" id="zoomRange" min="25" max="300" value="100" oninput="setCustomZoom(this.value)">
+      <span id="zoomVal">100%</span>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <!-- Quality -->
+    <span class="tb-label">Kualitas:</span>
+    <select id="qualitySelect" class="tb-select">
+      <option value="0.8">Tinggi</option>
+      <option value="0.5" selected>Sedang</option>
+      <option value="0.3">Rendah</option>
+    </select>
+
+    <div class="spacer"></div>
+
+    <button class="tb-btn active" id="btnCtrl" onclick="toggleControl()">
+      <i class="bi bi-mouse2" id="btnCtrlIcon"></i> <span id="btnCtrlLabel">Kontrol ON</span>
+    </button>
+
+    <div class="tb-sep"></div>
+    <button class="tb-btn" onclick="reconnect()" title="Hubungkan ulang"><i class="bi bi-arrow-clockwise"></i></button>
+    <button class="tb-btn" onclick="toggleFullscreen()" title="Layar penuh"><i class="bi bi-fullscreen"></i></button>
+    <button class="tb-btn danger" onclick="window.close()" title="Tutup"><i class="bi bi-x-lg"></i></button>
+  </div>
+
+  <div id="screenWrap" tabindex="0" class="ctrl-active">
+    <canvas id="screenCanvas"></canvas>
+    <div id="statusOverlay">
+      <i class="bi bi-wifi ov-icon" id="statusIcon"></i>
+      <p class="ov-text" id="statusText">Menghubungkan ke perangkat remote...</p>
+      <p class="ov-sub"  id="statusSub"></p>
+    </div>
+    <div id="cursorDot"></div>
+    <span id="statsBar"></span>
+    <span id="ctrlHint">ESC = tahan kontrol</span>
+  </div>
+
+  <script>
+    "use strict";
+    const { ipcRenderer } = require("electron");
+
+    const canvas        = document.getElementById("screenCanvas");
+    const ctx           = canvas.getContext("2d");
+    const statusOverlay = document.getElementById("statusOverlay");
+    const statusText    = document.getElementById("statusText");
+    const statusSub     = document.getElementById("statusSub");
+    const statusIcon    = document.getElementById("statusIcon");
+    const statusBadge   = document.getElementById("statusBadge");
+    const ctrlBadge     = document.getElementById("ctrlBadge");
+    const btnCtrl       = document.getElementById("btnCtrl");
+    const btnCtrlIcon   = document.getElementById("btnCtrlIcon");
+    const btnCtrlLabel  = document.getElementById("btnCtrlLabel");
+    const cursorDot     = document.getElementById("cursorDot");
+    const statsBar      = document.getElementById("statsBar");
+    const ctrlHint      = document.getElementById("ctrlHint");
+    const screenWrap    = document.getElementById("screenWrap");
+    const titleText     = document.getElementById("titleText");
+    const scaleSelect   = document.getElementById("scaleSelect");
+    const zoomPanel     = document.getElementById("zoomPanel");
+    const zoomRange     = document.getElementById("zoomRange");
+    const zoomVal       = document.getElementById("zoomVal");
+
+    let targetClientId  = null;
+    let controlMode     = true;   // ON by default — no button press needed
+    let scaleMode       = "adaptive";
+    let customZoom      = 100;
+    let remoteScreenW   = 1920;
+    let remoteScreenH   = 1080;
+    let frameW          = 960;
+    let frameH          = 540;
+    let lastStatsMs     = 0;
+    let fpsCount        = 0;
+    let _pendingMove    = null;
+    let _moveRafId      = null;
+    let _lastMoveSentAt = 0;
+    let _connected      = false;
+    let _decoding       = false;
+    let _pendingFrame   = null;
+
+    // ── Scale modes ──────────────────────────────────────────────
+    function fitCanvas() {
+      if (!canvas.width || !canvas.height) return;
+      const ww = screenWrap.clientWidth;
+      const wh = screenWrap.clientHeight;
+      if (!ww || !wh) return;
+
+      let dispW, dispH;
+      if (scaleMode === "stretch") {
+        dispW = ww; dispH = wh;
+      } else if (scaleMode === "original") {
+        dispW = canvas.width; dispH = canvas.height;
+      } else if (scaleMode === "custom") {
+        dispW = Math.round(canvas.width  * customZoom / 100);
+        dispH = Math.round(canvas.height * customZoom / 100);
+      } else {
+        // adaptive: contain within bounds, maintain AR
+        const canvasAR = canvas.width / canvas.height;
+        const wrapAR   = ww / wh;
+        if (canvasAR >= wrapAR) { dispW = ww; dispH = Math.round(ww / canvasAR); }
+        else                    { dispH = wh; dispW = Math.round(wh * canvasAR); }
+      }
+      canvas.style.width  = dispW + "px";
+      canvas.style.height = dispH + "px";
+    }
+
+    window.setScaleMode = function(mode) {
+      scaleMode = mode;
+      const scrollable = mode === "original" || mode === "custom";
+      screenWrap.classList.toggle("overflow-scroll", scrollable);
+      zoomPanel.style.display = mode === "custom" ? "flex" : "none";
+      fitCanvas();
+    };
+    window.setCustomZoom = function(val) {
+      customZoom = Number(val);
+      zoomVal.textContent = customZoom + "%";
+      fitCanvas();
+    };
+
+    const _ro = new ResizeObserver(() => fitCanvas());
+    _ro.observe(screenWrap);
+
+    // ── Init ─────────────────────────────────────────────────────
+    ipcRenderer.on("stardesk:viewer-init", (_, { targetClientId: id, deviceName }) => {
+      targetClientId = id;
+      if (deviceName) titleText.textContent = deviceName;
+      requestStream();
+    });
+
+    let _retryTimer = null;
+    async function requestStream() {
+      if (_retryTimer) clearTimeout(_retryTimer);
+      setStatus("conn", "bi-hourglass-split", "Menghubungkan ke perangkat remote...", "");
+      try {
+        await ipcRenderer.invoke("stardesk:stream-request", { targetClientId });
+        _retryTimer = setTimeout(() => { if (!_connected) requestStream(); }, 6000);
+      } catch (err) {
+        setStatus("err", "bi-exclamation-triangle", "Gagal terhubung", err.message);
+      }
+    }
+
+    window.reconnect = function() {
+      _connected = false; canvas.width = 0; requestStream();
+    };
+
+    // ── Stream events ─────────────────────────────────────────────
+    ipcRenderer.on("stardesk:viewer-ready", () => {
+      _connected = true;
+      if (_retryTimer) { clearTimeout(_retryTimer); _retryTimer = null; }
+      setStatus("conn", "bi-wifi", "Menunggu frame pertama...", "");
+    });
+
+    ipcRenderer.on("stardesk:viewer-error", (_, { reason }) => {
+      const msgs = { TARGET_OFFLINE: "Perangkat target offline", FORBIDDEN: "Akses ditolak" };
+      setStatus("err", "bi-exclamation-triangle", msgs[reason] || `Error: ${reason}`, "Klik ↻ untuk coba lagi");
+    });
+
+    ipcRenderer.on("stardesk:viewer-frame", (_, frameData) => {
+      if (frameData.error) {
+        setStatus("err", "bi-exclamation-triangle",
+          `Gagal capture di perangkat target:\n${frameData.error}`, "Klik ↻ untuk coba lagi");
+        return;
+      }
+      if (!frameData.data) return;
+      if (_decoding) { _pendingFrame = frameData; return; }
+      renderFrame(frameData);
+    });
+
+    async function renderFrame({ data, w, h, sw, sh }) {
+      _decoding = true;
+      try {
+        // First good frame: hide overlay, enable control, focus
+        if (statusOverlay.style.display !== "none") {
+          statusOverlay.style.display = "none";
+          statusBadge.className = "badge live";
+          statusBadge.textContent = "● LIVE";
+          setControlMode(true);
+          screenWrap.focus();
+        }
+
+        if (w)  frameW = w;
+        if (h)  frameH = h;
+        if (sw) remoteScreenW = sw;
+        if (sh) remoteScreenH = sh;
+
+        const b64Start = data.indexOf(',') + 1;
+        const bytes    = Buffer.from(data.slice(b64Start), 'base64');
+        const blob     = new Blob([bytes], { type: 'image/jpeg' });
+        const bmp      = await createImageBitmap(blob);
+        const changed  = (canvas.width !== bmp.width || canvas.height !== bmp.height);
+        canvas.width   = bmp.width;
+        canvas.height  = bmp.height;
+        ctx.drawImage(bmp, 0, 0);
+        bmp.close();
+        if (changed) fitCanvas();
+        fpsCount++;
+
+        const now = Date.now();
+        if (now - lastStatsMs >= 1000) {
+          statsBar.textContent = `${fpsCount} fps · ${Math.round((data.length * 0.75) / 1024)} KB/f`;
+          fpsCount = 0; lastStatsMs = now;
+        }
+      } catch {}
+      _decoding = false;
+      if (_pendingFrame) {
+        const next = _pendingFrame; _pendingFrame = null; renderFrame(next);
+      }
+    }
+
+    // ── Coordinate mapping ────────────────────────────────────────
+    function toRemoteCoords(ex, ey) {
+      const rect = canvas.getBoundingClientRect();
+      if (ex < rect.left || ex > rect.right || ey < rect.top || ey > rect.bottom) return null;
+      const pixX = (ex - rect.left) * (canvas.width  / rect.width);
+      const pixY = (ey - rect.top)  * (canvas.height / rect.height);
+      return {
+        x: Math.round(pixX / frameW * remoteScreenW),
+        y: Math.round(pixY / frameH * remoteScreenH),
+      };
+    }
+
+    // ── Input relay ───────────────────────────────────────────────
+    const MAC_KEY_CODES = {
+      'Enter':36,'Return':36,'NumpadEnter':76,'Backspace':51,'Delete':117,
+      'Tab':48,'Escape':53,'ArrowLeft':123,'ArrowRight':124,'ArrowDown':125,'ArrowUp':126,
+      'Home':115,'End':119,'PageUp':116,'PageDown':121,
+      'F1':122,'F2':120,'F3':99,'F4':118,'F5':96,
+      'F6':97,'F7':98,'F8':100,'F9':101,'F10':109,'F11':103,'F12':111,
+    };
+
+    function sendInput(d) {
+      if (!targetClientId) return;
+      ipcRenderer.send("stardesk:stream-input", { targetClientId, ...d });
+    }
+
+    screenWrap.addEventListener("mousemove", (e) => {
+      if (!controlMode) return;
+      const r = screenWrap.getBoundingClientRect();
+      cursorDot.style.left = (e.clientX - r.left) + "px";
+      cursorDot.style.top  = (e.clientY - r.top)  + "px";
+      const c = toRemoteCoords(e.clientX, e.clientY);
+      if (!c) return;
+      _pendingMove = c;
+      if (!_moveRafId) {
+        _moveRafId = requestAnimationFrame(() => {
+          _moveRafId = null;
+          const now = Date.now();
+          if (_pendingMove && now - _lastMoveSentAt >= 16) {
+            sendInput({ type: "mousemove", ..._pendingMove });
+            _lastMoveSentAt = now;
+          }
+          _pendingMove = null;
+        });
+      }
+    });
+
+    screenWrap.addEventListener("mousedown", (e) => {
+      if (!controlMode) {
+        // Click anywhere on screen resumes control
+        setControlMode(true);
+        return;
+      }
+      e.preventDefault();
+      const c = toRemoteCoords(e.clientX, e.clientY);
+      if (c) sendInput({ type: "mousedown", ...c, button: e.button === 2 ? "right" : e.button === 1 ? "middle" : "left" });
+    });
+
+    screenWrap.addEventListener("mouseup", (e) => {
+      if (!controlMode) return;
+      e.preventDefault();
+      const c = toRemoteCoords(e.clientX, e.clientY);
+      if (c) sendInput({ type: "mouseup", ...c, button: e.button === 2 ? "right" : e.button === 1 ? "middle" : "left" });
+    });
+
+    screenWrap.addEventListener("dblclick", (e) => {
+      if (!controlMode) return;
+      e.preventDefault();
+      const c = toRemoteCoords(e.clientX, e.clientY);
+      if (c) sendInput({ type: "dblclick", ...c });
+    });
+
+    screenWrap.addEventListener("wheel", (e) => {
+      if (!controlMode) return;
+      e.preventDefault();
+      sendInput({ type: "scroll", deltaX: Math.round(e.deltaX), deltaY: Math.round(e.deltaY) });
+    }, { passive: false });
+
+    screenWrap.addEventListener("contextmenu", (e) => { if (controlMode) e.preventDefault(); });
+
+    screenWrap.addEventListener("keydown", (e) => {
+      // ESC = pause control (doesn't send ESC to remote)
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setControlMode(false);
+        return;
+      }
+      if (!controlMode) return;
+      e.preventDefault(); e.stopPropagation();
+      const mods = [];
+      if (e.ctrlKey)  mods.push("ctrl");
+      if (e.metaKey)  mods.push("meta");
+      if (e.altKey)   mods.push("alt");
+      if (e.shiftKey) mods.push("shift");
+      const kc = MAC_KEY_CODES[e.key];
+      if (kc !== undefined)       sendInput({ type: "keycode",   keyCode: kc, modifiers: mods });
+      else if (e.key.length === 1) sendInput({ type: "keystroke", text: e.key, modifiers: mods });
+    });
+
+    // Catch mouseup outside wrap
+    window.addEventListener("mouseup", (e) => {
+      if (!controlMode) return;
+      const c = toRemoteCoords(e.clientX, e.clientY);
+      if (c) sendInput({ type: "mouseup", ...c, button: e.button === 2 ? "right" : e.button === 1 ? "middle" : "left" });
+    });
+
+    // ── Control toggle ────────────────────────────────────────────
+    function setControlMode(on) {
+      controlMode = on;
+      screenWrap.classList.toggle("ctrl-active", on);
+      ctrlBadge.style.display = on ? "inline-flex" : "none";
+      btnCtrl.classList.toggle("active", on);
+      btnCtrlIcon.className = on ? "bi bi-mouse2" : "bi bi-pause-circle";
+      btnCtrlLabel.textContent = on ? "Kontrol ON" : "Kontrol OFF";
+      cursorDot.style.display = on ? "block" : "none";
+      ctrlHint.textContent = on
+        ? "ESC = tahan kontrol"
+        : "Klik layar untuk aktifkan kontrol";
+      if (on) screenWrap.focus();
+    }
+
+    window.toggleControl = function() { setControlMode(!controlMode); };
+
+    // Auto-focus + show cursor on hover
+    screenWrap.addEventListener("click",      () => { if (controlMode) screenWrap.focus(); });
+    window.addEventListener("focus",          () => { if (controlMode) screenWrap.focus(); });
+    screenWrap.addEventListener("mouseleave", () => { cursorDot.style.display = "none"; });
+    screenWrap.addEventListener("mouseenter", () => { if (controlMode) cursorDot.style.display = "block"; });
+
+    // ── Misc ──────────────────────────────────────────────────────
+    function setStatus(type, icon, msg, sub) {
+      statusOverlay.style.display = "flex";
+      statusIcon.className = `bi ${icon} ov-icon`;
+      statusText.textContent = msg;
+      statusSub.textContent = sub || "";
+      statusBadge.className = `badge ${type}`;
+      statusBadge.textContent = type === "err" ? "Error" : "Menghubungkan...";
+    }
+
+    window.toggleFullscreen = function() {
+      if (!document.fullscreenElement)
+        screenWrap.requestFullscreen().catch(() => document.documentElement.requestFullscreen());
+      else document.exitFullscreen();
+    };
+
+    // Init: control ON immediately
+    setControlMode(true);
+  </script>
+</body>
+</html>

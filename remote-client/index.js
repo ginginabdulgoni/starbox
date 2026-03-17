@@ -34,14 +34,22 @@ const os     = require("os");
 const { v4: uuidv4 } = require("uuid");
 
 class RemoteClient {
-  constructor() {
+  /**
+   * @param {object} [opts]
+   * @param {string} [opts.clientId]  - ID stabil dari luar (misal: machine ID). Jika tidak diset, di-generate sekali.
+   */
+  constructor(opts = {}) {
     this.socketClient = null;
     this.bridge       = null;
     this.started      = false;
 
-    /** clientId stabil: dibuat sekali dan dipakai ulang setiap start() */
-    const hostname = os.hostname().replace(/[^a-zA-Z0-9-]/g, "").slice(0, 20);
-    this._stableClientId = `starbox-${hostname}-${uuidv4().slice(0, 8)}`;
+    /** clientId stabil: gunakan yang dikirim dari luar (machine ID) agar tidak berubah tiap restart */
+    if (opts.clientId) {
+      this._stableClientId = opts.clientId;
+    } else {
+      const hostname = os.hostname().replace(/[^a-zA-Z0-9-]/g, "").slice(0, 20);
+      this._stableClientId = `starbox-${hostname}-${uuidv4().slice(0, 8)}`;
+    }
 
     /** Daftar client online milik user yang sama (dikembalikan dari server) */
     this.onlineClients = [];

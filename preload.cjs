@@ -404,7 +404,50 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** Event: update metadata monitor window (jika window lama dipakai ulang) */
     onMonitorMetaUpdate: (cb) =>
       ipcRenderer.on('remote:monitor:update-meta', (_e, data) => cb(data)),
-  }
+  },
+
+  stardesk: {
+    /** Ambil semua device milik user (online + offline) dari remote server */
+    getMyDevices: () => ipcRenderer.invoke('stardesk:get-my-devices'),
+
+    /** Status agent lokal – apakah sedang terhubung ke remote server */
+    getAgentStatus: () => ipcRenderer.invoke('stardesk:agent-status'),
+
+    /** Ganti nama device ini */
+    renameDevice: (deviceName) => ipcRenderer.invoke('stardesk:rename-device', { deviceName }),
+
+    /** Generate OTP agar user lain bisa remote masuk ke device ini */
+    generateOtp: () => ipcRenderer.invoke('stardesk:generate-otp'),
+
+    /** Hubungkan ke perangkat orang lain dengan Device ID + OTP */
+    connectByCode: (clientId, code) => ipcRenderer.invoke('stardesk:connect-by-code', { clientId, code }),
+
+    /** Hubungkan ke perangkat orang lain dengan Device ID + PIN permanen */
+    connectByPin: (clientId, pin) => ipcRenderer.invoke('stardesk:connect-by-pin', { clientId, pin }),
+
+    /** Ambil pengaturan StarDesk lokal (PIN, permission toggles) */
+    getSettings: () => ipcRenderer.invoke('stardesk:get-settings'),
+
+    /** Simpan pengaturan StarDesk lokal */
+    saveSettings: (settings) => ipcRenderer.invoke('stardesk:save-settings', settings),
+
+    /** Ambil PIN guest (auto-generate jika belum ada) */
+    getGuestPin: () => ipcRenderer.invoke('stardesk:guest-pin-get'),
+
+    /** Refresh PIN guest (generate baru) */
+    refreshGuestPin: () => ipcRenderer.invoke('stardesk:guest-pin-refresh'),
+
+    /** Buka jendela preview layar perangkat ini */
+    openSelfPreview: () => ipcRenderer.invoke('stardesk:open-self-preview'),
+
+    /** Buka jendela remote viewer untuk perangkat lain */
+    openRemoteViewer: (targetClientId, deviceName) =>
+      ipcRenderer.invoke('stardesk:open-remote-viewer', { targetClientId, deviceName }),
+
+    /** Event: device lain dalam akun user yang sama online */
+    onDeviceOnline: (cb) =>
+      ipcRenderer.on('remote:clients-updated', (_e, data) => cb(data)),
+  },
 });
 
 // Guard MediaSession action handler for browsers that do not support PIP actions.

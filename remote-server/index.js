@@ -15,6 +15,7 @@ const { handleConnection } = require("./handlers/connection-handler");
 const { startHeartbeatSweeper } = require("./handlers/heartbeat");
 const { clientSocketMap } = require("./handlers/connection-handler");
 const { purgeOlderThan }   = require("./db/repositories/audit-log");
+const { registerStarDeskRoutes } = require("./handlers/stardesk-api");
 
 async function main() {
   // ─── Init Database (async karena sql.js pakai WASM) ──────────────────────
@@ -45,6 +46,9 @@ async function main() {
     });
     res.json({ logs });
   });
+
+  // ─── StarDesk REST API ───────────────────────────────────────────────────
+  registerStarDeskRoutes(app, clientSocketMap);
 
   // ─── HTTP / HTTPS + Socket.IO Server ─────────────────────────────────────
   // Jika SSL_CERT dan SSL_KEY di-set di .env → pakai HTTPS (untuk port 4200 langsung)

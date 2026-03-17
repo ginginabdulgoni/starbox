@@ -1,4 +1,6 @@
 dist/
 sessions/
 node_modules/
+.DS_Store
+remote-server/data/*.db
 repo/remote-server/data/*.db

@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <title>StarDesk – Preview Perangkat Ini</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0d0b1a;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: #1a1730;
+      border-bottom: 1px solid rgba(124,111,224,0.25);
+      flex-shrink: 0;
+    }
+    #toolbar .title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #a78bfa;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    #toolbar .badge {
+      font-size: 0.68rem;
+      background: rgba(34,197,94,0.2);
+      color: #4ade80;
+      border: 1px solid rgba(34,197,94,0.3);
+      padding: 1px 7px;
+      border-radius: 10px;
+    }
+    #toolbar .badge.ctrl-badge {
+      background: rgba(124,111,224,0.2);
+      color: #a78bfa;
+      border-color: rgba(124,111,224,0.35);
+    }
+    #toolbar .spacer { flex: 1; }
+    #toolbar select, #toolbar button {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 6px;
+      color: #fff;
+      padding: 4px 9px;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+    #toolbar select option { background: #1a1730; }
+    #toolbar button:hover { background: rgba(255,255,255,0.15); }
+    #toolbar button.active {
+      background: rgba(124,111,224,0.3);
+      border-color: rgba(124,111,224,0.6);
+    }
+    #screenWrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: #000;
+      position: relative;
+      outline: none;
+    }
+    #screenWrap.control-mode { cursor: none; }
+    #screenVideo {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: none;
+      pointer-events: none;
+    }
+    #statusMsg {
+      position: absolute;
+      text-align: center;
+      color: rgba(255,255,255,0.4);
+      font-size: 0.9rem;
+    }
+    #statusMsg i { font-size: 2rem; display: block; margin-bottom: 8px; opacity: 0.5; }
+    #fps {
+      position: absolute;
+      bottom: 8px;
+      right: 10px;
+      font-size: 0.7rem;
+      color: rgba(255,255,255,0.25);
+      pointer-events: none;
+    }
+    /* Custom cursor overlay */
+    #cursorDot {
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #7c6fe0;
+      border-radius: 50%;
+      background: rgba(124,111,224,0.25);
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      display: none;
+      transition: transform 0.05s ease;
+      z-index: 10;
+    }
+    #inputHint {
+      position: absolute;
+      bottom: 8px;
+      left: 10px;
+      font-size: 0.7rem;
+      color: rgba(255,255,255,0.25);
+      pointer-events: none;
+    }
+  </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+</head>
+<body>
+  <div id="toolbar">
+    <span class="title">
+      <i class="bi bi-display"></i>
+      Preview Perangkat Ini
+    </span>
+    <span class="badge" id="liveBadge" style="display:none;">● LIVE</span>
+    <span class="badge ctrl-badge" id="ctrlBadge" style="display:none;"><i class="bi bi-mouse2"></i> Kontrol Aktif</span>
+    <span class="spacer"></span>
+    <label style="font-size:0.75rem;color:rgba(255,255,255,0.45);">Monitor:</label>
+    <select id="sourceSelect" onchange="switchSource(this.value)"></select>
+    <button id="btnControl" onclick="toggleControl()" title="Aktifkan / Nonaktifkan kontrol mouse & keyboard">
+      <i class="bi bi-mouse2"></i> Kontrol
+    </button>
+    <button onclick="toggleFullscreen()" title="Fullscreen"><i class="bi bi-fullscreen"></i></button>
+    <button onclick="window.close()" style="color:#f87171;border-color:rgba(239,68,68,0.3);" title="Tutup">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+
+  <div id="screenWrap" tabindex="0">
+    <video id="screenVideo" autoplay muted playsinline></video>
+    <div id="statusMsg">
+      <i class="bi bi-hourglass-split"></i>
+      Memuat layar...
+    </div>
+    <div id="cursorDot"></div>
+    <span id="fps"></span>
+    <span id="inputHint">Klik "Kontrol" untuk mengaktifkan input mouse &amp; keyboard</span>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    const video      = document.getElementById('screenVideo');
+    const statusMsg  = document.getElementById('statusMsg');
+    const sourceSelect = document.getElementById('sourceSelect');
+    const liveBadge  = document.getElementById('liveBadge');
+    const ctrlBadge  = document.getElementById('ctrlBadge');
+    const fpsEl      = document.getElementById('fps');
+    const screenWrap = document.getElementById('screenWrap');
+    const cursorDot  = document.getElementById('cursorDot');
+    const btnControl = document.getElementById('btnControl');
+    const inputHint  = document.getElementById('inputHint');
+
+    let currentStream = null;
+    let allSources    = [];
+    let _lastFpsTime  = Date.now();
+    let _frameCount   = 0;
+    let controlMode   = false;
+    let screenInfo    = { width: 1920, height: 1080, scaleFactor: 1 };
+    let _lastMove     = 0;    // throttle mousemove
+
+    // ── Mac virtual key code table ──────────────────────────────
+    const KEY_CODES = {
+      'Enter': 36, 'Return': 36, 'NumpadEnter': 76,
+      'Backspace': 51, 'Delete': 117, 'Tab': 48, 'Escape': 53,
+      'ArrowLeft': 123, 'ArrowRight': 124, 'ArrowDown': 125, 'ArrowUp': 126,
+      'Home': 115, 'End': 119, 'PageUp': 116, 'PageDown': 121,
+      'F1': 122, 'F2': 120, 'F3': 99, 'F4': 118, 'F5': 96, 'F6': 97,
+      'F7': 98, 'F8': 100, 'F9': 101, 'F10': 109, 'F11': 103, 'F12': 111,
+    };
+
+    // ── Coordinate mapping ──────────────────────────────────────
+    // Returns the content rect of the video element (accounting for letterboxing).
+    function getContentRect() {
+      const vW = screenWrap.clientWidth;
+      const vH = screenWrap.clientHeight;
+      const vidW = video.videoWidth;
+      const vidH = video.videoHeight;
+      if (!vidW || !vidH) return { ox: 0, oy: 0, cw: vW, ch: vH, vidW: vW, vidH: vH };
+
+      const scale = Math.min(vW / vidW, vH / vidH);
+      const cw = vidW * scale;
+      const ch = vidH * scale;
+      const ox = (vW - cw) / 2;
+      const oy = (vH - ch) / 2;
+      return { ox, oy, cw, ch, vidW, vidH };
+    }
+
+    // Converts click position (relative to screenWrap) to logical screen coordinates.
+    function toScreenCoords(ex, ey) {
+      const r = getContentRect();
+      const relX = (ex - r.ox) / r.cw;
+      const relY = (ey - r.oy) / r.ch;
+      if (relX < 0 || relX > 1 || relY < 0 || relY > 1) return null;
+
+      // videoWidth/Height is in physical pixels; divide by scaleFactor for logical coords
+      const sx = Math.round(relX * r.vidW / screenInfo.scaleFactor);
+      const sy = Math.round(relY * r.vidH / screenInfo.scaleFactor);
+      return { x: sx, y: sy };
+    }
+
+    // ── Load screen info (size + DPI scale) ─────────────────────
+    async function loadScreenInfo() {
+      try {
+        const info = await ipcRenderer.invoke('stardesk:get-screen-size');
+        if (info) screenInfo = info;
+      } catch {}
+    }
+
+    // ── Source capture ──────────────────────────────────────────
+    async function loadSources() {
+      try {
+        const sources = await ipcRenderer.invoke('starcapture:get-screen-sources');
+        allSources = sources || [];
+        sourceSelect.innerHTML = allSources.map(s =>
+          `<option value="${s.id}">${s.name}</option>`
+        ).join('');
+        if (allSources.length > 0) await startCapture(allSources[0].id);
+      } catch (err) {
+        statusMsg.innerHTML = `<i class="bi bi-exclamation-triangle"></i>Gagal memuat layar:<br>${err.message}`;
+      }
+    }
+
+    async function startCapture(sourceId) {
+      if (currentStream) { currentStream.getTracks().forEach(t => t.stop()); currentStream = null; }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId,
+              minWidth: 1280, maxWidth: 3840,
+              minHeight: 720, maxHeight: 2160,
+              maxFrameRate: 30,
+            }
+          }
+        });
+        currentStream = stream;
+        video.srcObject = stream;
+        video.style.display = 'block';
+        statusMsg.style.display = 'none';
+        liveBadge.style.display = 'inline-block';
+
+        video.addEventListener('timeupdate', () => {
+          _frameCount++;
+          const now = Date.now();
+          if (now - _lastFpsTime >= 1000) {
+            fpsEl.textContent = `${_frameCount} fps`;
+            _frameCount = 0; _lastFpsTime = now;
+          }
+        }, { once: false });
+      } catch (err) {
+        statusMsg.innerHTML = `<i class="bi bi-exclamation-triangle"></i>Gagal capture layar:<br>${err.message}`;
+        statusMsg.style.display = 'block';
+      }
+    }
+
+    async function switchSource(sourceId) {
+      statusMsg.innerHTML = '<i class="bi bi-hourglass-split"></i>Beralih layar...';
+      statusMsg.style.display = 'block';
+      video.style.display = 'none';
+      liveBadge.style.display = 'none';
+      await startCapture(sourceId);
+    }
+
+    // ── Control mode toggle ─────────────────────────────────────
+    function toggleControl() {
+      controlMode = !controlMode;
+      btnControl.classList.toggle('active', controlMode);
+      ctrlBadge.style.display = controlMode ? 'inline-block' : 'none';
+      inputHint.style.display = controlMode ? 'none' : 'block';
+
+      if (controlMode) {
+        screenWrap.classList.add('control-mode');
+        cursorDot.style.display = 'block';
+        screenWrap.focus();
+      } else {
+        screenWrap.classList.remove('control-mode');
+        cursorDot.style.display = 'none';
+      }
+    }
+
+    // ── Mouse events ────────────────────────────────────────────
+    screenWrap.addEventListener('mousemove', (e) => {
+      if (!controlMode) return;
+      // Move cursor dot
+      cursorDot.style.left = e.clientX + 'px';
+      cursorDot.style.top  = (e.clientY - screenWrap.getBoundingClientRect().top) + 'px';
+      // Throttle to ~30fps
+      const now = Date.now();
+      if (now - _lastMove < 33) return;
+      _lastMove = now;
+      const coords = toScreenCoords(e.offsetX, e.offsetY);
+      if (coords) ipcRenderer.send('stardesk:send-input', { type: 'mousemove', ...coords });
+    });
+
+    screenWrap.addEventListener('mousedown', (e) => {
+      if (!controlMode) return;
+      e.preventDefault();
+      const coords = toScreenCoords(e.offsetX, e.offsetY);
+      if (coords) ipcRenderer.send('stardesk:send-input', {
+        type: 'mousedown', ...coords,
+        button: e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left',
+      });
+    });
+
+    screenWrap.addEventListener('mouseup', (e) => {
+      if (!controlMode) return;
+      e.preventDefault();
+      const coords = toScreenCoords(e.offsetX, e.offsetY);
+      if (coords) ipcRenderer.send('stardesk:send-input', {
+        type: 'mouseup', ...coords,
+        button: e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left',
+      });
+    });
+
+    screenWrap.addEventListener('dblclick', (e) => {
+      if (!controlMode) return;
+      e.preventDefault();
+      const coords = toScreenCoords(e.offsetX, e.offsetY);
+      if (coords) ipcRenderer.send('stardesk:send-input', { type: 'dblclick', ...coords });
+    });
+
+    screenWrap.addEventListener('wheel', (e) => {
+      if (!controlMode) return;
+      e.preventDefault();
+      ipcRenderer.send('stardesk:send-input', {
+        type: 'scroll',
+        deltaX: Math.round(e.deltaX),
+        deltaY: Math.round(e.deltaY),
+      });
+    }, { passive: false });
+
+    screenWrap.addEventListener('contextmenu', (e) => {
+      if (controlMode) e.preventDefault();
+    });
+
+    // ── Keyboard events ─────────────────────────────────────────
+    screenWrap.addEventListener('keydown', (e) => {
+      if (!controlMode) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const mods = [];
+      if (e.ctrlKey)  mods.push('ctrl');
+      if (e.metaKey)  mods.push('meta');
+      if (e.altKey)   mods.push('alt');
+      if (e.shiftKey) mods.push('shift');
+
+      const keyCode = KEY_CODES[e.key];
+      if (keyCode !== undefined) {
+        // Special key (Enter, Backspace, Arrows, etc.)
+        ipcRenderer.send('stardesk:send-input', { type: 'keycode', keyCode, modifiers: mods });
+      } else if (e.key.length === 1) {
+        // Printable character
+        ipcRenderer.send('stardesk:send-input', { type: 'keystroke', text: e.key, modifiers: mods });
+      }
+    });
+
+    // ── Misc ────────────────────────────────────────────────────
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        screenWrap.requestFullscreen().catch(() => document.documentElement.requestFullscreen());
+      } else {
+        document.exitFullscreen();
+      }
+    }
+
+    window.addEventListener('beforeunload', () => {
+      if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+    });
+
+    // init
+    loadScreenInfo();
+    loadSources();
+  </script>
+</body>
+</html>

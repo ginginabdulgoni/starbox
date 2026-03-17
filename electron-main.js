@@ -5,6 +5,14 @@ console.log("✅ Electron.app:", !!electron.app);
 console.log("✅ Electron.ipcMain:", !!electron.ipcMain);
 
 const app = electron.app;
+
+// Prevent Chromium from throttling hidden/background renderer processes.
+// This ensures the StarDesk stream sender window keeps capturing at full rate
+// even when the StarBox main window is minimized or the app is backgrounded.
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-background-timer-throttling");
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+
 const BrowserWindow = electron.BrowserWindow;
 const ipcMain = electron.ipcMain;
 const screen = electron.screen;
@@ -2114,7 +2122,18 @@ let cctvManager = null;
 
 const deviceWindows = {}; // Untuk melacak window yang terbuka
 const monitorWindows = {}; // Untuk melacak window monitor automasi
-const remoteClient = new RemoteClient(); // Remote control antar StarBox instance
+// Gunakan machine ID sebagai client ID stabil agar tidak duplicate tiap restart
+const _stableRemoteClientId = (() => {
+  try {
+    const { machineIdSync: _mid } = require("node-machine-id");
+    const mid = _mid().replace(/[^a-zA-Z0-9]/g, "").slice(0, 24);
+    const host = require("os").hostname().replace(/[^a-zA-Z0-9-]/g, "").slice(0, 16);
+    return `sb-${host}-${mid}`;
+  } catch {
+    return `sb-${require("os").hostname().replace(/[^a-zA-Z0-9-]/g, "").slice(0, 20)}-fallback`;
+  }
+})();
+const remoteClient = new RemoteClient({ clientId: _stableRemoteClientId }); // Remote control antar StarBox instance
 const remoteMonitorWindows = new Map(); // key: `${toClientId}::${uid}` -> BrowserWindow
 const monitorWindowState = {
   collapsed: false,
@@ -7657,7 +7676,8 @@ async function doStartVm(id) {
     }
 
     // Resolve QEMU binary — use vm setting, findQemuBin(), or fallback name
-    const qemuBin = vm.qemuBinary || findQemuBin() || "qemu-system-x86_64";
+    const _qemuFallback = process.platform === 'win32' ? 'qemu-system-x86_64.exe' : 'qemu-system-x86_64';
+    const qemuBin = vm.qemuBinary || findQemuBin() || _qemuFallback;
 
     // Check if QEMU is installed
     try {
@@ -9122,8 +9142,8 @@ ipcMain.handle('cctv-install-ffmpeg', async (event) => {
           if (hops > 10) { reject(new Error('Terlalu banyak redirect')); return; }
           const mod  = url.startsWith('https') ? require('https') : require('http');
           const file = fs.createWriteStream(zipPath);
-          let downloaded = 0, total = 0;
-          const req = mod.get(url, { timeout: 60000 }, (res) => {
+          let downloaded = 0, total = 0, lastPct = -1;
+          const req = mod.get(url, { timeout: 120000 }, (res) => {
             if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
               file.close(); fs.unlink(zipPath, () => {});
               const loc = res.headers.location;
@@ -9136,16 +9156,25 @@ ipcMain.handle('cctv-install-ffmpeg', async (event) => {
               reject(new Error(`HTTP ${res.statusCode}`)); return;
             }
             total = parseInt(res.headers['content-length'] || '0', 10);
-            res.pipe(file);
+            send('download', 0, total > 0 ? `Total: ${(total / 1024 / 1024).toFixed(1)} MB` : 'Mengunduh FFmpeg...');
+            // Manually track progress then pipe to file
             res.on('data', (chunk) => {
               downloaded += chunk.length;
               const pct = total > 0 ? Math.round((downloaded / total) * 100) : -1;
-              send('download', pct, `Mengunduh FFmpeg... ${pct >= 0 ? pct + '%' : ''}`);
+              // Only send progress every 1% change to avoid flooding IPC
+              if (pct !== lastPct) {
+                lastPct = pct;
+                const mb = (downloaded / 1024 / 1024).toFixed(1);
+                const totalMb = total > 0 ? `/${(total / 1024 / 1024).toFixed(1)} MB` : ' MB';
+                send('download', pct >= 0 ? pct : 0, `Mengunduh: ${mb}${totalMb}${pct >= 0 ? ` (${pct}%)` : ''}`);
+              }
+              file.write(chunk);
             });
-            file.on('finish', () => { file.close(); resolve(); });
+            res.on('end', () => { file.end(); });
+            file.on('finish', () => { resolve(); });
           });
           req.on('error', (e) => { file.close(); fs.unlink(zipPath, () => {}); reject(e); });
-          req.on('timeout', () => { req.destroy(); file.close(); fs.unlink(zipPath, () => {}); reject(new Error('Timeout')); });
+          req.on('timeout', () => { req.destroy(); file.close(); fs.unlink(zipPath, () => {}); reject(new Error('Download timeout — koneksi terlalu lambat')); });
         };
         doGet(downloadUrl);
       });
@@ -9206,26 +9235,79 @@ ipcMain.handle('cctv-install-ffmpeg', async (event) => {
 
 // Helper: find qemu-system-x86_64 binary, including common install paths
 function findQemuBin() {
-  const names = ['qemu-system-x86_64', 'qemu-system-x86_64.exe'];
-  // Common Windows install paths (winget/official installer)
-  const winPaths = [
-    'C:\\Program Files\\qemu\\qemu-system-x86_64.exe',
-    'C:\\Program Files (x86)\\qemu\\qemu-system-x86_64.exe',
-  ];
-  // macOS Homebrew paths
-  const macPaths = [
-    '/opt/homebrew/bin/qemu-system-x86_64',
-    '/usr/local/bin/qemu-system-x86_64',
-  ];
-  const candidates = process.platform === 'win32' ? winPaths
-    : process.platform === 'darwin' ? macPaths
-    : ['/usr/bin/qemu-system-x86_64', '/usr/local/bin/qemu-system-x86_64'];
+  if (process.platform === 'win32') {
+    // Build Windows candidate paths using env vars (covers all drive letters / user installs)
+    const pf    = process.env.PROGRAMFILES          || 'C:\\Program Files';
+    const pf86  = process.env['PROGRAMFILES(X86)']  || 'C:\\Program Files (x86)';
+    const local = process.env.LOCALAPPDATA          || '';
 
-  // Check explicit paths first
-  for (const p of candidates) {
-    try { if (fs.existsSync(p)) return p; } catch {}
+    // Direct paths (most common: official installer puts exe directly in qemu folder)
+    const winPaths = [
+      path.join(pf,   'qemu', 'qemu-system-x86_64.exe'),
+      path.join(pf,   'QEMU', 'qemu-system-x86_64.exe'),
+      path.join(pf86, 'qemu', 'qemu-system-x86_64.exe'),
+      path.join(pf86, 'QEMU', 'qemu-system-x86_64.exe'),
+    ];
+    if (local) {
+      winPaths.push(
+        path.join(local, 'Programs', 'qemu', 'qemu-system-x86_64.exe'),
+        path.join(local, 'Programs', 'QEMU', 'qemu-system-x86_64.exe'),
+        path.join(local, 'qemu', 'qemu-system-x86_64.exe'),
+      );
+    }
+    for (const p of winPaths) {
+      try { if (fs.existsSync(p)) return p; } catch {}
+    }
+
+    // Scan subdirs of Program Files for any qemu* directory (handles version-suffixed installs)
+    const scanParent = (parentDir) => {
+      try {
+        const entries = fs.readdirSync(parentDir, { withFileTypes: true });
+        for (const e of entries) {
+          if (!e.isDirectory()) continue;
+          if (!e.name.toLowerCase().startsWith('qemu')) continue;
+          const candidate = path.join(parentDir, e.name, 'qemu-system-x86_64.exe');
+          try { if (fs.existsSync(candidate)) return candidate; } catch {}
+          const binCandidate = path.join(parentDir, e.name, 'bin', 'qemu-system-x86_64.exe');
+          try { if (fs.existsSync(binCandidate)) return binCandidate; } catch {}
+        }
+      } catch {}
+      return null;
+    };
+    for (const parent of [pf, pf86, local ? path.join(local, 'Programs') : null].filter(Boolean)) {
+      const found = scanParent(parent);
+      if (found) return found;
+    }
+
+    // Use where.exe to search PATH (handles installs that register in PATH registry)
+    try {
+      const r = spawnSync('where.exe', ['qemu-system-x86_64.exe'], { timeout: 5000 });
+      if (!r.error && r.status === 0) {
+        const found = r.stdout.toString().trim().split(/\r?\n/)[0].trim();
+        if (found) { try { if (fs.existsSync(found)) return found; } catch {} }
+      }
+    } catch {}
+    return null;
   }
-  // Fall back to PATH
+
+  // macOS Homebrew paths
+  if (process.platform === 'darwin') {
+    const macPaths = [
+      '/opt/homebrew/bin/qemu-system-x86_64',
+      '/usr/local/bin/qemu-system-x86_64',
+    ];
+    for (const p of macPaths) {
+      try { if (fs.existsSync(p)) return p; } catch {}
+    }
+  } else {
+    // Linux
+    const linuxPaths = ['/usr/bin/qemu-system-x86_64', '/usr/local/bin/qemu-system-x86_64'];
+    for (const p of linuxPaths) {
+      try { if (fs.existsSync(p)) return p; } catch {}
+    }
+  }
+
+  // Fall back to PATH via spawn
   const name = process.platform === 'win32' ? 'qemu-system-x86_64.exe' : 'qemu-system-x86_64';
   try {
     const r = spawnSync(name, ['--version'], { timeout: 5000 });
@@ -11653,13 +11735,22 @@ function broadcastRemoteEvent(channel, data) {
  * Mulai remote client setelah user login.
  */
 function startRemoteClient() {
-  if (!authSession.isLoggedIn || !authSession.token) return;
+  // Boleh dipanggil tanpa login — akan berjalan dalam mode guest (tanpa token)
+  // Token hanya digunakan jika user sedang login
+
+  // Auto-generate share PIN jika belum ada (terpisah dari permanentPin)
+  try {
+    if (!store.get("stardeskSharePin")) {
+      store.set("stardeskSharePin", String(Math.floor(100000 + Math.random() * 900000)));
+    }
+  } catch {}
+
   try {
     const serverUrl = process.env.STARBOX_REMOTE_URL ||
       (IS_DEV_BUILD ? "http://localhost:4200" : "https://starbox.weagate.com:4200");
 
     remoteClient.start({
-      token:        authSession.token,
+      token:        authSession?.token || null,  // null = guest mode (tanpa akun)
       appVersion:   APP_VERSION,
       serverUrl,
       deviceWindows,
@@ -11771,6 +11862,15 @@ function startRemoteClient() {
     });
     remoteClient.onConnectionChange(({ connected }) => {
       broadcastRemoteEvent("remote:connection-changed", { connected });
+      // Saat terhubung, kirim share PIN ke server (berlaku untuk semua user, bukan permanentPin)
+      if (connected) {
+        try {
+          const sharePin = store.get("stardeskSharePin") || "";
+          if (sharePin) {
+            remoteClient.socketClient?.socket?.emit("device:register-pin", { pin: sharePin });
+          }
+        } catch {}
+      }
     });
     remoteClient.onAuthInvalid(async () => {
       console.warn("[Remote] AUTH_INVALID — refresh token dan reconnect...");
@@ -11786,6 +11886,8 @@ function startRemoteClient() {
     });
 
     console.log("[Remote] Client started, ID:", remoteClient.clientId);
+    // Attach StarDesk stream socket handlers immediately (socket instance exists after start)
+    _attachStarDeskStreamHandlers();
     startRemoteWatchdog();
   } catch (err) {
     console.error("[Remote] Gagal start remote client:", err.message);
@@ -11815,7 +11917,6 @@ let _remoteWatchdogTimer = null;
 function startRemoteWatchdog() {
   stopRemoteWatchdog();
   _remoteWatchdogTimer = setInterval(() => {
-    if (!authSession.isLoggedIn || !authSession.token) return;
     if (remoteClient.isConnected) return;
 
     // Socket terputus tapi user masih login — restart
@@ -12783,7 +12884,7 @@ ipcMain.handle('starcapture:set-shortcuts', (_, shortcuts) => {
   }
 });
 
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => { globalShortcut.unregisterAll(); _stopCaptureTimer(); });
 
 // ── Screenshot helpers ───────────────────────────────────────
 async function scCaptureFullScreen() {
@@ -12985,4 +13086,613 @@ ipcMain.handle('starcapture:save-video', async (_, { buffer, format, defaultName
 ipcMain.handle('starcapture:open-file', (_, filePath) => {
   shell.showItemInFolder(filePath);
   return true;
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── STARDESK – Device Registry & MyStarBox ─────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+/** Ambil daftar semua device milik user (online + offline) dari remote server */
+ipcMain.handle("stardesk:get-my-devices", async () => {
+  if (!authSession?.isLoggedIn || !authSession?.token) {
+    return { devices: [], error: "NOT_LOGGED_IN" };
+  }
+  const serverUrl = process.env.STARBOX_REMOTE_URL ||
+    (IS_DEV_BUILD ? "http://localhost:4200" : "https://starbox.weagate.com:4200");
+  try {
+    const res = await fetch(`${serverUrl}/api/stardesk/my-devices`, {
+      headers: { Authorization: `Bearer ${authSession.token}` },
+    });
+    if (!res.ok) return { devices: [], error: `HTTP_${res.status}` };
+    const data = await res.json();
+
+    // Terapkan nama lokal jika ada (override untuk device ini sendiri)
+    const localName = (() => { try { return store.get("stardeskDeviceName") || ""; } catch { return ""; } })();
+    const myClientId = remoteClient.clientId;
+    if (localName && myClientId && Array.isArray(data.devices)) {
+      data.devices = data.devices.map(d =>
+        d.client_id === myClientId ? { ...d, device_name: localName } : d
+      );
+    }
+    return data;
+  } catch (err) {
+    console.error("[StarDesk] get-my-devices error:", err.message);
+    return { devices: [], error: err.message };
+  }
+});
+
+/** Status agent lokal (apakah remoteClient sedang terhubung dan client ID-nya) */
+ipcMain.handle("stardesk:agent-status", () => ({
+  connected:  remoteClient.isConnected,
+  clientId:   remoteClient._stableClientId,  // selalu ada, bahkan saat guest / belum connect
+  deviceName: remoteClient.deviceName || os.hostname(),
+  platform:   process.platform,
+  hostname:   os.hostname(),
+}));
+
+/** Ganti nama device ini — simpan lokal dulu, lalu sinkron ke server */
+ipcMain.handle("stardesk:rename-device", async (_, { deviceName }) => {
+  if (!deviceName || typeof deviceName !== "string" || !deviceName.trim()) {
+    return { ok: false, error: "device_name wajib diisi" };
+  }
+  const trimmed = deviceName.trim();
+
+  // Simpan lokal terlebih dahulu (selalu berhasil)
+  try { store.set("stardeskDeviceName", trimmed); } catch {}
+
+  // Coba sinkron ke server (best-effort)
+  if (authSession?.isLoggedIn && authSession?.token && remoteClient.clientId) {
+    const serverUrl = process.env.STARBOX_REMOTE_URL ||
+      (IS_DEV_BUILD ? "http://localhost:4200" : "https://starbox.weagate.com:4200");
+    try {
+      await fetch(`${serverUrl}/api/stardesk/devices/${remoteClient.clientId}/rename`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${authSession.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ device_name: trimmed }),
+      });
+    } catch { /* server tidak tersedia – lokal sudah disimpan */ }
+  }
+  return { ok: true };
+});
+
+/** Ambil share PIN (PIN acak untuk berbagi, terpisah dari permanentPin) */
+ipcMain.handle("stardesk:guest-pin-get", () => {
+  try {
+    let pin = store.get("stardeskSharePin");
+    if (!pin) {
+      pin = String(Math.floor(100000 + Math.random() * 900000));
+      store.set("stardeskSharePin", pin);
+    }
+    return { pin };
+  } catch { return { pin: "" }; }
+});
+
+/** Refresh share PIN – generate baru dan update socket server */
+ipcMain.handle("stardesk:guest-pin-refresh", () => {
+  try {
+    const pin = String(Math.floor(100000 + Math.random() * 900000));
+    store.set("stardeskSharePin", pin);
+    // Kirim ke server (berlaku untuk semua user)
+    {
+      remoteClient.socketClient?.socket?.emit("device:register-pin", { pin });
+    }
+    return { pin };
+  } catch { return { pin: "" }; }
+});
+
+/** Ambil settings StarDesk dari electron-store */
+ipcMain.handle("stardesk:get-settings", () => {
+  const defaults = { allowIncoming: true, viewOnly: false, requireApproval: false, permanentPin: "" };
+  try {
+    return { ...defaults, ...(store.get("stardeskSettings") || {}), deviceName: store.get("stardeskDeviceName") || "" };
+  } catch { return defaults; }
+});
+
+/** Simpan settings StarDesk, sinkron PIN ke server jika perlu */
+ipcMain.handle("stardesk:save-settings", async (_, settings) => {
+  try { store.set("stardeskSettings", settings); } catch {}
+
+  // Sinkron PIN permanen ke server jika ada
+  if (settings.permanentPin && authSession?.isLoggedIn && authSession?.token && remoteClient.clientId) {
+    const serverUrl = process.env.STARBOX_REMOTE_URL ||
+      (IS_DEV_BUILD ? "http://localhost:4200" : "https://starbox.weagate.com:4200");
+    try {
+      await fetch(`${serverUrl}/api/stardesk/devices/${remoteClient.clientId}/set-pin`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authSession.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: settings.permanentPin }),
+      });
+    } catch {}
+  }
+  return { ok: true };
+});
+
+/** Buka window preview layar sendiri (self-remote untuk testing) */
+ipcMain.handle("stardesk:open-self-preview", () => {
+  const existing = BrowserWindow.getAllWindows().find(
+    (w) => !w.isDestroyed() && w.webContents.getURL().includes("stardesk-preview.html")
+  );
+  if (existing) { if (existing.isMinimized()) existing.restore(); existing.focus(); return { ok: true }; }
+
+  const win = new BrowserWindow({
+    width: 1000, height: 700,
+    minWidth: 600, minHeight: 400,
+    title: "StarDesk – Preview Perangkat Ini",
+    backgroundColor: "#0d0b1a",
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+  win.loadFile(path.join(__dirname, "stardesk-preview.html"));
+  return { ok: true };
+});
+
+/** Generate OTP agar user lain bisa remote masuk ke device ini */
+ipcMain.handle("stardesk:generate-otp", async () => {
+  if (!authSession?.isLoggedIn || !authSession?.token) return { ok: false, error: "NOT_LOGGED_IN" };
+  const clientId = remoteClient.clientId;
+  if (!clientId) return { ok: false, error: "Agent belum terhubung" };
+
+  const serverUrl = process.env.STARBOX_REMOTE_URL ||
+    (IS_DEV_BUILD ? "http://localhost:4200" : "https://starbox.weagate.com:4200");
+  try {
+    const res = await fetch(`${serverUrl}/api/stardesk/devices/${clientId}/generate-otp`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${authSession.token}` },
+    });
+    if (!res.ok) return { ok: false, error: `HTTP_${res.status}` };
+    return await res.json();
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+/** Hubungkan ke perangkat orang lain menggunakan Device ID + kode OTP */
+ipcMain.handle("stardesk:connect-by-code", async (_, { clientId, code }) => {
+  if (!clientId || !code) return { ok: false, error: "clientId dan code wajib diisi" };
+
+  const serverUrl = process.env.STARBOX_REMOTE_URL ||
+    (IS_DEV_BUILD ? "http://localhost:4200" : "https://starbox.weagate.com:4200");
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (authSession?.token) headers.Authorization = `Bearer ${authSession.token}`;
+    const res = await fetch(`${serverUrl}/api/stardesk/connect-by-code`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ client_id: clientId, code }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { ok: false, error: data.error || `HTTP_${res.status}` };
+    return data;
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// ── StarDesk: screen size for coordinate mapping ────────────────────────────
+ipcMain.handle("stardesk:get-screen-size", () => {
+  const { screen } = require("electron");
+  const d = screen.getPrimaryDisplay();
+  return {
+    width:       d.bounds.width,
+    height:      d.bounds.height,
+    scaleFactor: d.scaleFactor,
+  };
+});
+
+// ── StarDesk: OS-level input simulation ──────────────────────────────────────
+
+let _darwinAccessChecked = false;
+let _darwinMovePending  = false;   // throttle: skip mousemove if previous osascript still running
+let _winInputProc = null;
+
+// macOS virtual keycode → Windows SendKeys string
+const _MAC_KC_TO_WIN_SENDKEY = {
+  36: "{ENTER}", 76: "{ENTER}", 51: "{BACKSPACE}", 117: "{DELETE}",
+  48: "{TAB}", 53: "{ESCAPE}", 123: "{LEFT}", 124: "{RIGHT}",
+  125: "{DOWN}", 126: "{UP}", 115: "{HOME}", 119: "{END}",
+  116: "{PGUP}", 121: "{PGDN}",
+  122: "{F1}", 120: "{F2}", 99: "{F3}", 118: "{F4}", 96: "{F5}",
+  97: "{F6}", 98: "{F7}", 100: "{F8}", 101: "{F9}", 109: "{F10}",
+  103: "{F11}", 111: "{F12}",
+};
+
+// macOS virtual keycode → xdotool key name
+const _MAC_KC_TO_XDOTOOL = {
+  36: "Return", 76: "KP_Enter", 51: "BackSpace", 117: "Delete",
+  48: "Tab", 53: "Escape", 123: "Left", 124: "Right",
+  125: "Down", 126: "Up", 115: "Home", 119: "End",
+  116: "Prior", 121: "Next",
+  122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5",
+  97: "F6", 98: "F7", 100: "F8", 101: "F9", 109: "F10",
+  103: "F11", 111: "F12",
+};
+
+function _getWinInputProc() {
+  if (_winInputProc && !_winInputProc.killed) return _winInputProc;
+  const { spawn } = require("child_process");
+  const fsMod = require("fs");
+  const osMod = require("os");
+  const pathMod = require("path");
+
+  const scriptPath = pathMod.join(osMod.tmpdir(), "starbox-input.ps1");
+  // Uses SendInput with explicit field offsets to match Windows x64 INPUT struct (40 bytes).
+  // INPUT: type(4)+pad(4)=8, then MOUSEINPUT: dx(4)dy(4)data(4)flags(4)time(4)+pad(4)+extra(8) = 32 → total 40.
+  const psScript = `
+$ErrorActionPreference = 'SilentlyContinue'
+if (-not ([System.Management.Automation.PSTypeName]'SBI').Type) {
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class SBI {
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern uint SendInput(uint n, INPUT[] i, int cb);
+  [StructLayout(LayoutKind.Explicit, Size=40)]
+  public struct INPUT {
+    [FieldOffset(0)]  public int type;
+    [FieldOffset(8)]  public int dx;
+    [FieldOffset(12)] public int dy;
+    [FieldOffset(16)] public uint data;
+    [FieldOffset(20)] public uint flags;
+    [FieldOffset(24)] public uint time;
+    [FieldOffset(32)] public IntPtr extra;
+  }
+  public static void Mouse(uint flags, uint data=0) {
+    var a = new INPUT[1]; a[0].type=0; a[0].flags=flags; a[0].data=data;
+    SendInput(1, a, 40);
+  }
+  public const uint LD=2,LU=4,RD=8,RU=16,MD=32,MU=64,WH=2048;
+}
+"@
+}
+Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+while ($true) {
+  $line = [Console]::ReadLine()
+  if ($null -eq $line) { break }
+  try {
+    $c = $line | ConvertFrom-Json
+    switch ($c.type) {
+      "mousemove" { [SBI]::SetCursorPos([int]$c.x,[int]$c.y) }
+      "mousedown" {
+        [SBI]::SetCursorPos([int]$c.x,[int]$c.y)
+        if ($c.button -eq "right") { [SBI]::Mouse([SBI]::RD) }
+        elseif ($c.button -eq "middle") { [SBI]::Mouse([SBI]::MD) }
+        else { [SBI]::Mouse([SBI]::LD) }
+      }
+      "mouseup" {
+        [SBI]::SetCursorPos([int]$c.x,[int]$c.y)
+        if ($c.button -eq "right") { [SBI]::Mouse([SBI]::RU) }
+        elseif ($c.button -eq "middle") { [SBI]::Mouse([SBI]::MU) }
+        else { [SBI]::Mouse([SBI]::LU) }
+      }
+      "dblclick" {
+        [SBI]::SetCursorPos([int]$c.x,[int]$c.y)
+        [SBI]::Mouse([SBI]::LD); [SBI]::Mouse([SBI]::LU)
+        Start-Sleep -Milliseconds 40
+        [SBI]::Mouse([SBI]::LD); [SBI]::Mouse([SBI]::LU)
+      }
+      "scroll" {
+        $d = [uint32]([int]($c.deltaY) * -12)
+        [SBI]::Mouse([SBI]::WH, $d)
+      }
+      "keystroke" {
+        $t = [string]$c.text
+        $mods = @($c.modifiers)
+        $prefix = ""
+        if ($mods -contains "ctrl")  { $prefix += "^" }
+        if ($mods -contains "alt")   { $prefix += "%" }
+        if ($mods -contains "shift") { $prefix += "+" }
+        $escaped = $t -replace '([+^%~(){}])', '{$1}'
+        [System.Windows.Forms.SendKeys]::SendWait($prefix + $escaped)
+      }
+      "sendkey" {
+        $k = [string]$c.key; $mods = @($c.modifiers); $prefix = ""
+        if ($mods -contains "ctrl")  { $prefix += "^" }
+        if ($mods -contains "alt")   { $prefix += "%" }
+        if ($mods -contains "shift") { $prefix += "+" }
+        [System.Windows.Forms.SendKeys]::SendWait($prefix + $k)
+      }
+    }
+  } catch {}
+}
+`;
+  try {
+    fsMod.writeFileSync(scriptPath, psScript, "utf8");
+    _winInputProc = spawn("powershell", [
+      "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath,
+    ], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    // Log PowerShell errors so VM/policy failures are visible in Electron logs
+    _winInputProc.stderr.on("data", (d) => {
+      const msg = d.toString().trim();
+      if (msg) console.warn(`[WinInput] PS stderr: ${msg}`);
+    });
+    _winInputProc.stdout.on("data", (d) => {
+      const msg = d.toString().trim();
+      if (msg) console.log(`[WinInput] PS stdout: ${msg}`);
+    });
+    _winInputProc.on("error", (e) => { console.error(`[WinInput] spawn error: ${e.message}`); _winInputProc = null; });
+    _winInputProc.on("exit",  (code) => { console.warn(`[WinInput] PS exited code=${code}`); _winInputProc = null; });
+  } catch (e) { console.error(`[WinInput] failed to start: ${e.message}`); _winInputProc = null; }
+  return _winInputProc;
+}
+
+function _executeOsInput({ type, x, y, button, deltaX, deltaY, text, keyCode, modifiers = [] }) {
+  const platform = process.platform;
+
+  if (platform === "darwin") {
+    // Prompt for Accessibility permission the first time input is attempted
+    if (!_darwinAccessChecked) {
+      _darwinAccessChecked = true;
+      try {
+        const { systemPreferences } = require("electron");
+        if (!systemPreferences.isTrustedAccessibilityClient(false)) {
+          systemPreferences.isTrustedAccessibilityClient(true);
+        }
+      } catch {}
+    }
+
+    const { exec } = require("child_process");
+    const modMap = { ctrl: "control down", meta: "command down", alt: "option down", shift: "shift down" };
+    const modStr = modifiers.map(m => modMap[m]).filter(Boolean);
+    const usingStr = modStr.length ? ` using {${modStr.join(", ")}}` : "";
+
+    if (type === "mousemove") {
+      if (_darwinMovePending) return;   // drop if previous move still executing
+      _darwinMovePending = true;
+      exec(`osascript -e 'tell application "System Events" to set the mouse location to {${x}, ${y}}'`,
+        () => { _darwinMovePending = false; });
+    } else if (type === "mousedown") {
+      const btn = button === "right" ? "right click" : "click";
+      exec(`osascript -e 'tell application "System Events" to ${btn} at {${x}, ${y}}'`);
+    } else if (type === "mouseup") {
+      // no-op: osascript click is already down+up in one command
+    } else if (type === "dblclick") {
+      exec(`osascript -e 'tell application "System Events" to double click at {${x}, ${y}}'`);
+    } else if (type === "scroll") {
+      // Use python3 + Quartz (pyobjc, built-in on macOS dev machines)
+      const dy = Math.round((deltaY || 0) * -3);
+      exec(`python3 -c "import Quartz;e=Quartz.CGEventCreateScrollWheelEvent(None,Quartz.kCGScrollEventUnitPixel,1,${dy});Quartz.CGEventPost(Quartz.kCGHIDEventTap,e)" 2>/dev/null`);
+    } else if (type === "keystroke" && text) {
+      const safe = text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      exec(`osascript -e 'tell application "System Events" to keystroke "${safe}"${usingStr}'`);
+    } else if (type === "keycode" && keyCode !== undefined) {
+      exec(`osascript -e 'tell application "System Events" to key code ${keyCode}${usingStr}'`);
+    }
+
+  } else if (platform === "win32") {
+    const proc = _getWinInputProc();
+
+    // Primary path: persistent PS process via stdin (fast)
+    if (proc && !proc.killed && proc.stdin.writable) {
+      let cmd;
+      if (type === "keycode" && keyCode !== undefined) {
+        const winKey = _MAC_KC_TO_WIN_SENDKEY[keyCode];
+        if (!winKey) return;
+        cmd = { type: "sendkey", key: winKey, modifiers };
+      } else {
+        cmd = { type, x, y, button, deltaX, deltaY, text, modifiers };
+      }
+      try { proc.stdin.write(JSON.stringify(cmd) + "\n"); return; } catch {}
+    }
+
+    // Fallback: per-event powershell -Command (slower, works in restricted VM envs)
+    const { exec } = require("child_process");
+    if (type === "mousemove") {
+      exec(`powershell -NoProfile -Command "[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${x|0},${y|0})" -Args (Add-Type -AssemblyName System.Windows.Forms)`, { windowsHide: true });
+    } else if (type === "mousedown" || type === "mouseup" || type === "dblclick") {
+      // Use cursor move + click via WScript.Shell automation
+      const clicks = type === "dblclick" ? 2 : 1;
+      exec(`powershell -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${x|0},${y|0}); for($i=0;$i -lt ${clicks};$i++){[System.Windows.Forms.Application]::DoEvents()}"`, { windowsHide: true });
+    } else if ((type === "keystroke" && text) || type === "sendkey") {
+      const k = type === "sendkey" ? (keyCode !== undefined ? (_MAC_KC_TO_WIN_SENDKEY[keyCode] || "") : text) : text;
+      if (k) exec(`powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${k.replace(/'/g, "''")}')"`, { windowsHide: true });
+    }
+
+  } else {
+    // Linux: xdotool
+    const { exec } = require("child_process");
+    const xdoMod = modifiers.map(m =>
+      m === "ctrl" ? "ctrl" : m === "meta" ? "super" : m === "alt" ? "alt" : "shift"
+    ).join("+");
+    if (type === "mousemove") {
+      exec(`xdotool mousemove ${x} ${y}`);
+    } else if (type === "mousedown") {
+      const btn = button === "right" ? 3 : button === "middle" ? 2 : 1;
+      exec(`xdotool mousemove ${x} ${y} mousedown ${btn}`);
+    } else if (type === "mouseup") {
+      const btn = button === "right" ? 3 : button === "middle" ? 2 : 1;
+      exec(`xdotool mouseup ${btn}`);
+    } else if (type === "dblclick") {
+      exec(`xdotool mousemove ${x} ${y} click --repeat 2 1`);
+    } else if (type === "scroll") {
+      const btn = (deltaY || 0) > 0 ? 5 : 4;
+      const cnt = Math.max(1, Math.round(Math.abs(deltaY || 0) / 50));
+      exec(`xdotool click --repeat ${cnt} ${btn}`);
+    } else if (type === "keystroke" && text) {
+      exec(`xdotool type -- "${text.replace(/"/g, '\\"')}"`);
+    } else if (type === "keycode" && keyCode !== undefined) {
+      const k = _MAC_KC_TO_XDOTOOL[keyCode];
+      if (k) exec(`xdotool key ${xdoMod ? xdoMod + "+" : ""}${k}`);
+    }
+  }
+}
+
+ipcMain.on("stardesk:send-input", (_, event) => _executeOsInput(event));
+
+// ── StarDesk: PC Remote Stream ───────────────────────────────────────────────
+// getUserMedia in a hidden BrowserWindow gives real-time frames (no stale OS cache).
+// --disable-renderer-backgrounding is already applied globally, preventing throttle
+// even when the main StarBox window is minimized.
+
+// Map: viewerClientId → sender BrowserWindow (hidden, captures screen via getUserMedia)
+const _streamSenderWins = new Map();
+// Map: targetClientId → viewer BrowserWindow
+const _streamViewerWins = new Map();
+
+function _startStreamSender(viewerClientId) {
+  if (_streamSenderWins.has(viewerClientId)) return;
+  const win = new BrowserWindow({
+    width: 1, height: 1, show: false,
+    webPreferences: {
+      nodeIntegration: true, contextIsolation: false,
+      backgroundThrottling: false,   // belt-and-suspenders
+    },
+  });
+  win.loadFile(path.join(__dirname, "stardesk-stream-sender.html"), {
+    hash: encodeURIComponent(viewerClientId),
+  });
+  _streamSenderWins.set(viewerClientId, win);
+  win.on("closed", () => _streamSenderWins.delete(viewerClientId));
+}
+
+function _stopStreamSender(viewerClientId) {
+  _clearFrameAck(viewerClientId);  // unblock immediately on disconnect
+  const win = _streamSenderWins.get(viewerClientId);
+  if (win && !win.isDestroyed()) {
+    win.webContents.send("stardesk:stop-capture");
+    setTimeout(() => { try { win.close(); } catch {} }, 500);
+  }
+  _streamSenderWins.delete(viewerClientId);
+}
+
+// No-op stubs so will-quit cleanup still compiles
+function _stopCaptureTimer() {}
+
+/** Attach StarDesk stream socket handlers (called after socket is ready) */
+function _attachStarDeskStreamHandlers() {
+  const socket = remoteClient?.socketClient?.socket;
+  if (!socket) return;
+
+  // Pre-warm Windows input process so it's ready when user starts controlling
+  if (process.platform === "win32") _getWinInputProc();
+
+  // Remove old listeners to avoid duplicates on reconnect
+  socket.off("stardesk:stream:start");
+  socket.off("stardesk:stream:stop");
+  socket.off("stardesk:stream:input");
+  socket.off("stardesk:stream:ready");
+  socket.off("stardesk:stream:error");
+  socket.off("stardesk:frame");
+
+  // We're the TARGET: viewer wants to watch our screen
+  socket.on("stardesk:stream:start", ({ viewer_client_id }) => {
+    _startStreamSender(viewer_client_id);
+  });
+  socket.on("stardesk:stream:stop", ({ viewer_client_id }) => {
+    _stopStreamSender(viewer_client_id);
+  });
+  // We're the TARGET: viewer sends input to us
+  socket.on("stardesk:stream:input", (inputData) => {
+    _executeOsInput(inputData);
+  });
+
+  // We're the VIEWER: target accepted our request
+  socket.on("stardesk:stream:ready", ({ target_client_id }) => {
+    const win = _streamViewerWins.get(target_client_id);
+    if (win && !win.isDestroyed()) win.webContents.send("stardesk:viewer-ready");
+  });
+  socket.on("stardesk:stream:error", ({ reason }) => {
+    for (const [, win] of _streamViewerWins) {
+      if (!win.isDestroyed()) win.webContents.send("stardesk:viewer-error", { reason });
+    }
+  });
+
+  // We're the VIEWER: frame from target arrives (pass all fields including error)
+  socket.on("stardesk:frame", (payload) => {
+    for (const [, win] of _streamViewerWins) {
+      if (!win.isDestroyed()) win.webContents.send("stardesk:viewer-frame", payload);
+    }
+  });
+}
+
+// IPC: open remote viewer window for a target device
+ipcMain.handle("stardesk:open-remote-viewer", (_, { targetClientId, deviceName }) => {
+  const existing = _streamViewerWins.get(targetClientId);
+  if (existing && !existing.isDestroyed()) { existing.focus(); return { ok: true }; }
+
+  const win = new BrowserWindow({
+    width: 1200, height: 800, minWidth: 800, minHeight: 500,
+    title: `StarDesk Remote – ${deviceName || targetClientId}`,
+    backgroundColor: "#0d0b1a",
+    webPreferences: { nodeIntegration: true, contextIsolation: false },
+  });
+  win.loadFile(path.join(__dirname, "stardesk-remote-viewer.html"));
+  win.webContents.once("did-finish-load", () => {
+    win.webContents.send("stardesk:viewer-init", {
+      targetClientId,
+      deviceName: deviceName || targetClientId,
+    });
+  });
+  _streamViewerWins.set(targetClientId, win);
+  win.on("closed", () => {
+    _streamViewerWins.delete(targetClientId);
+    remoteClient?.socketClient?.socket?.emit("stardesk:stream:stop", { target_client_id: targetClientId });
+  });
+  return { ok: true };
+});
+
+// IPC: viewer requests stream from target
+ipcMain.handle("stardesk:stream-request", (_, { targetClientId }) => {
+  remoteClient?.socketClient?.socket?.emit("stardesk:stream:request", { target_client_id: targetClientId });
+  return { ok: true };
+});
+
+// IPC: viewer sends input event to target
+ipcMain.on("stardesk:stream-input", (_, { targetClientId, ...inputData }) => {
+  remoteClient?.socketClient?.socket?.emit("stardesk:stream:input", { target_client_id: targetClientId, ...inputData });
+});
+
+// Ack-based flow control: track in-flight frames per viewer.
+// Only one frame in-flight at a time → TCP buffer never accumulates → no latency drift.
+const _frameAckPending = new Map(); // viewerClientId → timer handle
+const FRAME_ACK_TIMEOUT_MS = 250;   // if server doesn't ack within 250ms, unblock anyway
+
+function _clearFrameAck(viewerClientId) {
+  const t = _frameAckPending.get(viewerClientId);
+  if (t) clearTimeout(t);
+  _frameAckPending.delete(viewerClientId);
+}
+
+// IPC: sender BrowserWindow relays a captured frame
+ipcMain.on("stardesk:stream-frame", (_, { viewerClientId, data, w, h, sw, sh, error }) => {
+  const socket = remoteClient?.socketClient?.socket;
+  if (!socket?.connected) return;
+  if (error) {
+    socket.emit("stardesk:frame", { viewer_client_id: viewerClientId, error });
+    return;
+  }
+  // Drop frame if still waiting for server ack on previous frame
+  if (_frameAckPending.has(viewerClientId)) return;
+
+  // Mark as pending; server will call ack() when it has forwarded the frame
+  const timer = setTimeout(() => _frameAckPending.delete(viewerClientId), FRAME_ACK_TIMEOUT_MS);
+  _frameAckPending.set(viewerClientId, timer);
+
+  socket.compress(false).emit(
+    "stardesk:frame",
+    { viewer_client_id: viewerClientId, data, w, h, sw, sh },
+    () => _clearFrameAck(viewerClientId),  // server ack callback
+  );
+});
+
+ipcMain.handle("stardesk:connect-by-pin", async (_, { clientId, pin }) => {
+  if (!clientId || !pin) return { ok: false, error: "clientId dan pin wajib diisi" };
+
+  const serverUrl = process.env.STARBOX_REMOTE_URL ||
+    (IS_DEV_BUILD ? "http://localhost:4200" : "https://starbox.weagate.com:4200");
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (authSession?.token) headers.Authorization = `Bearer ${authSession.token}`;
+    const res = await fetch(`${serverUrl}/api/stardesk/connect-by-pin`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ client_id: clientId, pin }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { ok: false, error: data.error || `HTTP_${res.status}` };
+    return data;
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });

@@ -60,7 +60,8 @@ class RemoteSocketClient {
 
     this.socket = io(this.serverUrl, {
       auth: {
-        token: `Bearer ${this.token}`,
+        // Kirim token hanya jika ada — tanpa token = guest mode
+        ...(this.token ? { token: `Bearer ${this.token}` } : {}),
         meta: this._authMeta,
       },
       reconnection:         true,
@@ -142,8 +143,8 @@ class RemoteSocketClient {
     s.on("connect_error", (err) => {
       logger.error(`[RemoteClient] Connection error: ${err.message}`);
       this.connected = false;
-      if (err.message === "AUTH_REQUIRED" || err.message === "AUTH_INVALID") {
-        // Hentikan auto-reconnect sementara, minta parent refresh token
+      if (err.message === "AUTH_INVALID" && this.token) {
+        // Hentikan auto-reconnect sementara, minta parent refresh token (hanya jika ada token)
         logger.warn(`[RemoteClient] Auth error — meminta refresh token, reconnect setelah token baru`);
         s.io.reconnection(false);
         s.disconnect();

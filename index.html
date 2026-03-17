@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StarBox v1.3.260316 – MultiService Emulator</title>
+    <title>StarBox v1.3.260317 – MultiService Emulator</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
@@ -232,6 +232,11 @@
           data-label="StarCapture" onclick="switchPage('starcapture')">
           <i class="bi bi-camera-fill"></i>
           <span data-i18n="sidebar.starcapture">StarCapture</span>
+        </a>
+        <a href="#" class="sidebar-item" data-page="mystarbox"
+          data-label="StarDesk" onclick="switchPage('mystarbox')">
+          <i class="bi bi-display-fill"></i>
+          <span>StarDesk</span>
         </a>
       </div>
 
@@ -760,6 +765,58 @@
           .rmx-form-row .rmx-form-group { flex: 1; }
           .rmx-pk-toggle { font-size: 11px; color: var(--color-accent-purple); cursor: pointer; text-decoration: underline; }
           #rmxPkField { display: none; }
+
+          /* ── Group headers in sidebar ── */
+          .rmx-group-header {
+            display: flex; align-items: center; gap: 5px;
+            padding: 10px 12px 3px;
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.9px; color: rgba(139,92,246,0.65);
+            cursor: pointer; user-select: none; transition: color 0.15s;
+          }
+          .rmx-group-header:hover { color: rgba(139,92,246,1); }
+          .rmx-group-header .rmx-group-arrow { font-size: 9px; transition: transform 0.18s; margin-right: 2px; }
+          .rmx-group-header.collapsed .rmx-group-arrow { transform: rotate(-90deg); }
+          .rmx-group-items.hidden { display: none; }
+          .rmx-group-count { margin-left: auto; font-size: 9px; background: rgba(139,92,246,0.15);
+            color: rgba(139,92,246,0.7); padding: 1px 5px; border-radius: 8px; }
+
+          /* ── Tab connect modal ── */
+          #rmxTabModal {
+            display: none; position: fixed; inset: 0; z-index: 9100;
+            background: rgba(0,0,0,0.55); align-items: center; justify-content: center;
+          }
+          #rmxTabModal.open { display: flex; }
+          .rmx-tab-modal-box {
+            background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+            width: 400px; max-width: 96vw; max-height: 72vh;
+            display: flex; flex-direction: column;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.65);
+            overflow: hidden;
+          }
+          .rmx-tab-modal-head {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 13px 16px; border-bottom: 1px solid #21262d; flex-shrink: 0;
+          }
+          .rmx-tab-modal-head span { font-size: 13px; font-weight: 600; color: #e0e0e0; }
+          .rmx-tab-modal-close {
+            background: none; border: none; color: #666; cursor: pointer;
+            font-size: 17px; padding: 0 2px; border-radius: 4px; line-height: 1;
+          }
+          .rmx-tab-modal-close:hover { color: #ccc; background: rgba(255,255,255,0.08); }
+          .rmx-tab-modal-body { overflow-y: auto; flex: 1; padding: 6px 0; }
+          .rmx-tab-modal-group-label {
+            padding: 8px 14px 2px; font-size: 10px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.8px; color: rgba(139,92,246,0.55);
+          }
+          .rmx-tab-modal-item {
+            display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+            cursor: pointer; transition: background 0.12s;
+          }
+          .rmx-tab-modal-item:hover { background: rgba(124,111,224,0.16); }
+          .rmx-tab-modal-item .rmx-tmi-name { font-size: 13px; font-weight: 500; color: #ddd; }
+          .rmx-tab-modal-item .rmx-tmi-meta { font-size: 11px; color: #555; margin-top: 1px; }
+          .rmx-tab-modal-empty { padding: 20px 16px; text-align: center; font-size: 13px; color: #555; }
         </style>
 
         <div class="rmx-topbar">
@@ -789,11 +846,7 @@
           <!-- Terminal area -->
           <div class="rmx-terminal-area">
             <div class="rmx-tabs" id="rmxTabs">
-              <div class="rmx-tab-add" id="rmxTabAddBtn" onclick="rmxToggleTabDropdown()" data-i18n-title="remox.open_new.title" title="Open new connection">+</div>
-              <div class="rmx-tab-dropdown" id="rmxTabDropdown">
-                <div class="rmx-tab-dropdown-title" data-i18n="remox.open_connection">Open Connection</div>
-                <div id="rmxTabDropdownList"></div>
-              </div>
+              <div class="rmx-tab-add" id="rmxTabAddBtn" onclick="rmxOpenTabModal()" title="Buka koneksi baru">+</div>
             </div>
             <div class="rmx-terminal-panels" id="rmxPanels">
               <div class="rmx-splash" id="rmxSplash">
@@ -817,9 +870,16 @@
               </button>
             </div>
             <input type="hidden" id="rmxEditId" value="">
-            <div class="rmx-form-group">
-              <label data-i18n="remox.form.name">Connection Name</label>
-              <input type="text" id="rmxFormName" placeholder="contoh: Web Server Production">
+            <div class="rmx-form-row">
+              <div class="rmx-form-group" style="flex:2">
+                <label data-i18n="remox.form.name">Connection Name</label>
+                <input type="text" id="rmxFormName" placeholder="contoh: Web Server Production">
+              </div>
+              <div class="rmx-form-group" style="flex:1">
+                <label>Group <span style="font-size:10px;color:#666;font-weight:400">(opsional)</span></label>
+                <input type="text" id="rmxFormGroup" list="rmxGroupList" placeholder="Production">
+                <datalist id="rmxGroupList"></datalist>
+              </div>
             </div>
             <div class="rmx-form-row">
               <div class="rmx-form-group">
@@ -867,6 +927,16 @@
                 <i class="bi bi-floppy"></i> <span data-i18n="remox.form.save">Save</span>
               </button>
             </div>
+          </div>
+        </div>
+        <!-- Tab Connect Modal -->
+        <div id="rmxTabModal">
+          <div class="rmx-tab-modal-box">
+            <div class="rmx-tab-modal-head">
+              <span><i class="bi bi-plug" style="color:#7c6fe0;margin-right:6px"></i>Buka Koneksi</span>
+              <button class="rmx-tab-modal-close" onclick="rmxCloseTabModal()"><i class="bi bi-x"></i></button>
+            </div>
+            <div class="rmx-tab-modal-body" id="rmxTabModalBody"></div>
           </div>
         </div>
       </div>
@@ -936,61 +1006,122 @@
           rmxPingAll();
         }
 
+        // ─── Groups ───────────────────────────────────────────────────────────
+        const rmxCollapsedGroups = new Set();
+
+        function rmxGetGroups() {
+          // Returns ordered unique group names; ungrouped last
+          const groups = [];
+          rmxConnections.forEach((c) => {
+            const g = (c.group || "").trim();
+            if (g && !groups.includes(g)) groups.push(g);
+          });
+          return groups;
+        }
+
+        function rmxUpdateGroupDatalist() {
+          const dl = document.getElementById("rmxGroupList");
+          if (!dl) return;
+          dl.innerHTML = rmxGetGroups().map(g => `<option value="${rmxEsc(g)}">`).join("");
+        }
+
+        function rmxToggleGroup(groupName) {
+          if (rmxCollapsedGroups.has(groupName)) rmxCollapsedGroups.delete(groupName);
+          else rmxCollapsedGroups.add(groupName);
+          rmxRefreshSidebar();
+        }
+
         // ─── Sidebar ──────────────────────────────────────────────────────────
+        function rmxConnItemHTML(c) {
+          const activeTab = rmxTabs.find((t) => t.connId === c.id && t.status !== "disconnected");
+          const isActive = !!activeTab;
+          const isRdp = c.type === "rdp";
+          const ping = isRdp ? null : rmxPingCache.get(c.id);
+          let pingClass = "", pingLabel = "–", pingTitle = "Klik untuk ping";
+          if (isRdp) {
+            pingClass = ""; pingLabel = "RDP"; pingTitle = "RDP";
+          } else if (ping) {
+            if (ping.checking) { pingClass = "checking"; pingLabel = "..."; }
+            else if (ping.reachable) { pingClass = "ok"; pingLabel = ping.latency + "ms"; }
+            else { pingClass = "fail"; pingLabel = "Gagal"; }
+            pingTitle = `Dicek ${rmxTimeAgo(ping.ts)} lalu`;
+          }
+          return `<div class="rmx-conn-item${isActive ? " active" : ""}" onclick="rmxConnectOrFocus('${c.id}')">
+            <div class="rmx-conn-icon ${c.type}">
+              <i class="bi bi-${c.type === "ssh" ? "shield-lock" : c.type === "rdp" ? "display" : "terminal"}"></i>
+            </div>
+            <div class="rmx-conn-info">
+              <div class="rmx-conn-name">${rmxEsc(c.name)}</div>
+              <div class="rmx-conn-meta">${rmxEsc(c.type.toUpperCase())} · ${rmxEsc(c.host)}:${c.port}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+              <span class="rmx-ping-badge ${pingClass}" title="${pingTitle}"
+                onclick="event.stopPropagation();${isRdp ? "" : "rmxPingOne('" + c.id + "')"}">
+                <span class="rmx-ping-dot"></span>${rmxEsc(pingLabel)}
+              </span>
+              <div class="rmx-conn-actions" style="opacity:0">
+                <button class="rmx-conn-btn" onclick="event.stopPropagation();rmxOpenEditModal('${c.id}')" title="Edit"><i class="bi bi-pencil"></i></button>
+                <button class="rmx-conn-btn danger" onclick="event.stopPropagation();rmxDeleteConnection('${c.id}')" title="Hapus"><i class="bi bi-trash"></i></button>
+              </div>
+            </div>
+          </div>`;
+        }
+
         function rmxRefreshSidebar() {
           const list = document.getElementById("rmxConnList");
           if (!list) return;
           if (!rmxConnections.length) {
-            list.innerHTML = `<div class="rmx-conn-empty">${window.t('remox.empty_hint')}</div>`;
-            rmxUpdateTabDropdown();
+            list.innerHTML = `<div class="rmx-conn-empty">Belum ada koneksi tersimpan.</div>`;
+            rmxUpdateGroupDatalist();
             return;
           }
-          list.innerHTML = rmxConnections.map((c) => {
-            const activeTab = rmxTabs.find((t) => t.connId === c.id && t.status !== "disconnected");
-            const isActive = !!activeTab;
-            const isRdp = c.type === "rdp";
-            const ping = isRdp ? null : rmxPingCache.get(c.id);
-            let pingClass = "", pingLabel = "–", pingTitle = window.t('remox.ping.click');
-            if (isRdp) {
-              // RDP: Windows Firewall sering blokir TCP probe — tampilkan badge netral
-              pingClass = ""; pingLabel = "RDP"; pingTitle = window.t('remox.ping.rdp');
-            } else if (ping) {
-              if (ping.checking) {
-                pingClass = "checking"; pingLabel = "...";
-              } else if (ping.reachable) {
-                pingClass = "ok"; pingLabel = ping.latency + "ms";
-              } else {
-                pingClass = "fail"; pingLabel = window.t('remox.ping.fail');
-              }
-              pingTitle = `Dicek ${rmxTimeAgo(ping.ts)} lalu — klik untuk ping ulang`;
-            }
-            return `<div class="rmx-conn-item${isActive ? " active" : ""}" onclick="rmxConnectOrFocus('${c.id}')">
-              <div class="rmx-conn-icon ${c.type}">
-                <i class="bi bi-${c.type === "ssh" ? "shield-lock" : c.type === "rdp" ? "display" : "terminal"}"></i>
-              </div>
-              <div class="rmx-conn-info">
-                <div class="rmx-conn-name">${rmxEsc(c.name)}</div>
-                <div class="rmx-conn-meta">${rmxEsc(c.type.toUpperCase())} · ${rmxEsc(c.host)}:${c.port}${c.domain ? " · " + rmxEsc(c.domain) : ""}</div>
-              </div>
-              <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
-                <span class="rmx-ping-badge ${pingClass}" title="${pingTitle}"
-                  onclick="event.stopPropagation();${isRdp ? "" : "rmxPingOne('" + c.id + "')"}">
-                  <span class="rmx-ping-dot"></span>${rmxEsc(pingLabel)}
-                </span>
-                <div class="rmx-conn-actions" style="opacity:0">
-                  <button class="rmx-conn-btn" onclick="event.stopPropagation();rmxOpenEditModal('${c.id}')" title="Edit"><i class="bi bi-pencil"></i></button>
-                  <button class="rmx-conn-btn danger" onclick="event.stopPropagation();rmxDeleteConnection('${c.id}')" title="Hapus"><i class="bi bi-trash"></i></button>
-                </div>
-              </div>
+
+          const namedGroups = rmxGetGroups();
+          const ungrouped   = rmxConnections.filter(c => !(c.group || "").trim());
+          let html = "";
+
+          // Named groups
+          namedGroups.forEach(g => {
+            const members  = rmxConnections.filter(c => (c.group || "").trim() === g);
+            const collapsed = rmxCollapsedGroups.has(g);
+            html += `<div class="rmx-group-header${collapsed ? " collapsed" : ""}"
+              onclick="rmxToggleGroup('${rmxEsc(g)}')">
+              <i class="bi bi-chevron-down rmx-group-arrow"></i>
+              <i class="bi bi-folder2" style="font-size:11px;opacity:0.7"></i>
+              ${rmxEsc(g)}
+              <span class="rmx-group-count">${members.length}</span>
             </div>`;
-          }).join("");
-          // Re-enable hover visibility for actions
+            html += `<div class="rmx-group-items${collapsed ? " hidden" : ""}">`;
+            members.forEach(c => { html += rmxConnItemHTML(c); });
+            html += `</div>`;
+          });
+
+          // Ungrouped (no header if all connections are ungrouped)
+          if (ungrouped.length) {
+            if (namedGroups.length) {
+              const collapsed = rmxCollapsedGroups.has("__ungrouped__");
+              html += `<div class="rmx-group-header${collapsed ? " collapsed" : ""}"
+                onclick="rmxToggleGroup('__ungrouped__')">
+                <i class="bi bi-chevron-down rmx-group-arrow"></i>
+                <i class="bi bi-hdd-network" style="font-size:11px;opacity:0.7"></i>
+                Tanpa Grup
+                <span class="rmx-group-count">${ungrouped.length}</span>
+              </div>`;
+              html += `<div class="rmx-group-items${collapsed ? " hidden" : ""}">`;
+              ungrouped.forEach(c => { html += rmxConnItemHTML(c); });
+              html += `</div>`;
+            } else {
+              ungrouped.forEach(c => { html += rmxConnItemHTML(c); });
+            }
+          }
+
+          list.innerHTML = html;
           list.querySelectorAll(".rmx-conn-item").forEach((el) => {
             const actions = el.querySelector(".rmx-conn-actions");
             el.addEventListener("mouseenter", () => actions && (actions.style.opacity = "1"));
             el.addEventListener("mouseleave", () => actions && (actions.style.opacity = "0"));
           });
-          rmxUpdateTabDropdown();
+          rmxUpdateGroupDatalist();
         }
 
         // ─── Ping ─────────────────────────────────────────────────────────────
@@ -1029,55 +1160,52 @@
           return Math.floor(s / 60) + "m";
         }
 
-        // ─── Tab dropdown (connect from tab bar) ─────────────────────────────
-        function rmxUpdateTabDropdown() {
-          const dl = document.getElementById("rmxTabDropdownList");
-          if (!dl) return;
+        // ─── Tab connect modal ────────────────────────────────────────────────
+        window.rmxOpenTabModal = function () {
+          const body = document.getElementById("rmxTabModalBody");
+          if (!body) return;
           if (!rmxConnections.length) {
-            dl.innerHTML = `<div class="rmx-tab-dropdown-empty">${window.t('remox.tab_dropdown.empty')}</div>`;
-            return;
+            body.innerHTML = `<div class="rmx-tab-modal-empty">Belum ada koneksi tersimpan.<br>Klik <strong>+</strong> di sidebar untuk menambah.</div>`;
+          } else {
+            const namedGroups = rmxGetGroups();
+            const ungrouped   = rmxConnections.filter(c => !(c.group || "").trim());
+            let html = "";
+            const itemHTML = (c) => {
+              const ping = rmxPingCache.get(c.id);
+              const dotColor = !ping ? "#444" : ping.checking ? "#f0a040" : ping.reachable ? "#50c878" : "#e87070";
+              const latency  = ping?.reachable ? ping.latency + "ms" : "";
+              return `<div class="rmx-tab-modal-item" onclick="rmxCloseTabModal();rmxConnectOrFocus('${c.id}')">
+                <div class="rmx-conn-icon ${c.type}" style="width:28px;height:28px;font-size:12px;border-radius:6px;flex-shrink:0">
+                  <i class="bi bi-${c.type === "ssh" ? "shield-lock" : c.type === "rdp" ? "display" : "terminal"}"></i>
+                </div>
+                <div style="flex:1;min-width:0">
+                  <div class="rmx-tmi-name">${rmxEsc(c.name)}</div>
+                  <div class="rmx-tmi-meta">${rmxEsc(c.type.toUpperCase())} · ${rmxEsc(c.host)}:${c.port}</div>
+                </div>
+                <span style="width:7px;height:7px;border-radius:50%;background:${dotColor};flex-shrink:0;${latency ? "box-shadow:0 0 4px " + dotColor + "88" : ""}" title="${latency}"></span>
+              </div>`;
+            };
+            namedGroups.forEach(g => {
+              html += `<div class="rmx-tab-modal-group-label"><i class="bi bi-folder2" style="margin-right:4px;opacity:0.7"></i>${rmxEsc(g)}</div>`;
+              rmxConnections.filter(c => (c.group || "").trim() === g).forEach(c => { html += itemHTML(c); });
+            });
+            if (ungrouped.length) {
+              if (namedGroups.length) html += `<div class="rmx-tab-modal-group-label"><i class="bi bi-hdd-network" style="margin-right:4px;opacity:0.7"></i>Tanpa Grup</div>`;
+              ungrouped.forEach(c => { html += itemHTML(c); });
+            }
+            body.innerHTML = html;
           }
-          dl.innerHTML = rmxConnections.map((c) => {
-            const ping = rmxPingCache.get(c.id);
-            const dot = ping ? (ping.checking ? "checking" : ping.reachable ? "ok" : "fail") : "";
-            return `<div class="rmx-tab-dropdown-item" onclick="rmxCloseTabDropdown();rmxConnectOrFocus('${c.id}')">
-              <div class="rmx-conn-icon ${c.type}" style="width:24px;height:24px;font-size:11px;border-radius:4px">
-                <i class="bi bi-${c.type === "ssh" ? "shield-lock" : c.type === "rdp" ? "display" : "terminal"}"></i>
-              </div>
-              <div style="flex:1;min-width:0">
-                <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${rmxEsc(c.name)}</div>
-                <div style="font-size:11px;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${rmxEsc(c.host)}:${c.port}</div>
-              </div>
-              ${dot ? `<span class="rmx-ping-dot ${dot}" style="width:7px;height:7px;border-radius:50%;background:${dot==="ok"?"#50c878":dot==="fail"?"#e87070":"#f0a040"};flex-shrink:0"></span>` : ""}
-            </div>`;
-          }).join("");
-        }
-
-        window.rmxToggleTabDropdown = function () {
-          const dd = document.getElementById("rmxTabDropdown");
-          if (!dd) return;
-          const isOpen = dd.classList.contains("open");
-          if (isOpen) { dd.classList.remove("open"); return; }
-          rmxUpdateTabDropdown();
-          dd.classList.add("open");
-          // Position dropdown near the + button
-          const btn = document.getElementById("rmxTabAddBtn");
-          if (btn) { dd.style.left = btn.offsetLeft + "px"; }
-          // Close on outside click
-          setTimeout(() => {
-            document.addEventListener("click", rmxCloseTabDropdownOnce, { once: true });
-          }, 0);
+          document.getElementById("rmxTabModal").classList.add("open");
         };
 
-        function rmxCloseTabDropdownOnce(e) {
-          const dd = document.getElementById("rmxTabDropdown");
-          const btn = document.getElementById("rmxTabAddBtn");
-          if (dd && !dd.contains(e.target) && e.target !== btn) dd.classList.remove("open");
-        }
-
-        window.rmxCloseTabDropdown = function () {
-          document.getElementById("rmxTabDropdown")?.classList.remove("open");
+        window.rmxCloseTabModal = function () {
+          document.getElementById("rmxTabModal")?.classList.remove("open");
         };
+
+        // Close on backdrop click
+        document.getElementById("rmxTabModal")?.addEventListener("click", function(e) {
+          if (e.target === this) rmxCloseTabModal();
+        });
 
         // ─── Tabs ─────────────────────────────────────────────────────────────
         function rmxRenderTabs() {
@@ -1308,6 +1436,7 @@
           document.getElementById("rmxEditId").value = "";
           document.getElementById("rmxModalTitle").textContent = window.t('remox.modal.add');
           document.getElementById("rmxFormName").value = "";
+          document.getElementById("rmxFormGroup").value = "";
           document.getElementById("rmxFormType").value = "ssh";
           document.getElementById("rmxFormHost").value = "";
           document.getElementById("rmxFormPort").value = "22";
@@ -1329,6 +1458,7 @@
           document.getElementById("rmxEditId").value = c.id;
           document.getElementById("rmxModalTitle").textContent = window.t('remox.modal.edit');
           document.getElementById("rmxFormName").value = c.name || "";
+          document.getElementById("rmxFormGroup").value = c.group || "";
           document.getElementById("rmxFormType").value = c.type || "ssh";
           document.getElementById("rmxFormHost").value = c.host || "";
           document.getElementById("rmxFormPort").value = c.port || 22;
@@ -1382,7 +1512,8 @@
           if (type === "ssh" && !username) { alert("Username wajib diisi untuk SSH"); return; }
           if (type === "rdp" && !username) { alert("Username wajib diisi untuk RDP"); return; }
 
-          const conn = { type, host, port, username, password, privateKey, domain };
+          const group = document.getElementById("rmxFormGroup").value.trim();
+          const conn = { type, host, port, username, password, privateKey, domain, group };
           if (editId) conn.id = editId;
           conn.name = name;
 
@@ -4697,6 +4828,229 @@
         </div>
       </div>
 
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- Page: StarDesk – Remote Control & MyStarBox             -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div id="page-mystarbox" class="page-content">
+      <style>
+        #page-mystarbox { display:none; flex-direction:column; overflow:hidden; background:var(--color-dark-purple); color:var(--color-text-light); }
+        #page-mystarbox.active { display:flex; }
+
+        /* Top header */
+        .sds-topbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:16px 24px 0; flex-shrink:0; }
+        .sds-topbar h2 { margin:0; font-size:1.3rem; font-weight:700; display:flex; align-items:center; gap:10px; }
+        .sds-topbar-actions { display:flex; gap:8px; align-items:center; }
+
+        /* Tab navigation */
+        .sds-tab-nav { display:flex; gap:2px; padding:14px 24px 0; flex-shrink:0; border-bottom:1px solid rgba(124,111,224,0.2); }
+        .sds-tab-btn { padding:8px 18px; border-radius:8px 8px 0 0; border:1px solid transparent; border-bottom:none; cursor:pointer; font-size:0.87rem; font-weight:500; transition:all .15s; background:transparent; color:rgba(255,255,255,0.45); display:flex; align-items:center; gap:7px; margin-bottom:-1px; }
+        .sds-tab-btn:hover { color:rgba(255,255,255,0.8); background:rgba(124,111,224,0.1); }
+        .sds-tab-btn.active { background:var(--color-dark-purple,#120d2b); color:#a78bfa; border-color:rgba(124,111,224,0.3); border-bottom-color:var(--color-dark-purple,#120d2b); }
+
+        /* Panels */
+        .sds-panels { flex:1; overflow:hidden; display:flex; flex-direction:column; min-height:0; }
+        .sds-panel { display:none; flex-direction:column; overflow-y:auto; padding:20px 24px; gap:20px; flex:1; }
+        .sds-panel.active { display:flex; }
+
+        /* Agent status */
+        .msb-agent-status { display:flex; align-items:center; gap:8px; padding:8px 14px; border-radius:8px; background:rgba(124,111,224,0.12); border:1px solid rgba(124,111,224,0.2); font-size:0.85rem; }
+        .msb-agent-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+        .msb-agent-dot.online { background:#22c55e; box-shadow:0 0 6px #22c55e88; }
+        .msb-agent-dot.offline { background:#ef4444; }
+
+        /* Device grid */
+        .msb-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap:16px; }
+        .msb-card { background:rgba(124,111,224,0.08); border:1px solid rgba(124,111,224,0.2); border-radius:12px; padding:18px; display:flex; flex-direction:column; gap:12px; transition:border-color .2s,box-shadow .2s; }
+        .msb-card:hover { border-color:rgba(124,111,224,0.55); box-shadow:0 4px 20px rgba(124,111,224,0.15); }
+        .msb-card.is-self { border-color:rgba(124,111,224,0.5); background:rgba(124,111,224,0.12); }
+        .msb-self-badge { display:inline-block; font-size:0.68rem; font-weight:600; background:#7c6fe0; color:#fff; padding:1px 7px; border-radius:10px; white-space:nowrap; vertical-align:middle; margin-top:-2px; }
+        .msb-card-top { display:flex; align-items:flex-start; gap:12px; }
+        .msb-card-icon { width:44px; height:44px; border-radius:10px; background:rgba(124,111,224,0.25); display:flex; align-items:center; justify-content:center; font-size:1.3rem; flex-shrink:0; color:#a78bfa; }
+        .msb-card-title { flex:1; min-width:0; }
+        .msb-card-title h3 { margin:0 0 3px; font-size:1rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .msb-card-title .msb-hostname { font-size:0.8rem; color:rgba(255,255,255,0.5); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .msb-status-badge { display:inline-flex; align-items:center; gap:5px; font-size:0.78rem; padding:3px 10px; border-radius:20px; font-weight:600; flex-shrink:0; }
+        .msb-status-badge.online { background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.3); }
+        .msb-status-badge.offline { background:rgba(239,68,68,0.12); color:#f87171; border:1px solid rgba(239,68,68,0.25); }
+        .msb-status-badge .dot { width:7px; height:7px; border-radius:50%; }
+        .msb-status-badge.online .dot { background:#22c55e; }
+        .msb-status-badge.offline .dot { background:#ef4444; }
+        .msb-card-meta { display:flex; flex-direction:column; gap:5px; font-size:0.8rem; color:rgba(255,255,255,0.55); }
+        .msb-card-meta span { display:flex; align-items:center; gap:6px; }
+        .msb-card-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.06); }
+        .msb-btn { padding:6px 14px; border-radius:7px; border:none; cursor:pointer; font-size:0.82rem; font-weight:500; display:flex; align-items:center; gap:6px; transition:background .15s,opacity .15s; }
+        .msb-btn:disabled { opacity:0.35; cursor:not-allowed; }
+        .msb-btn-primary { background:#7c6fe0; color:#fff; }
+        .msb-btn-primary:hover:not(:disabled) { background:#6b5fd4; }
+        .msb-btn-secondary { background:rgba(255,255,255,0.1); color:var(--color-text-light,#fff); border:1px solid rgba(255,255,255,0.15); }
+        .msb-btn-secondary:hover:not(:disabled) { background:rgba(255,255,255,0.18); }
+        .msb-empty { text-align:center; padding:60px 20px; color:rgba(255,255,255,0.35); }
+        .msb-empty i { font-size:3rem; display:block; margin-bottom:12px; }
+        .msb-loading { text-align:center; padding:40px; color:rgba(255,255,255,0.4); }
+
+        /* Inline connect form */
+        .sds-connect-box { background:rgba(124,111,224,0.1); border:1px solid rgba(124,111,224,0.25); border-radius:12px; padding:16px 20px; display:flex; flex-direction:column; gap:10px; flex-shrink:0; }
+        .sds-connect-title { font-size:0.88rem; font-weight:600; color:#a78bfa; display:flex; align-items:center; gap:8px; }
+        .sds-connect-row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+        .sds-connect-field { display:flex; flex-direction:column; gap:5px; min-width:160px; }
+        .sds-connect-field label { font-size:0.78rem; color:rgba(255,255,255,0.5); font-weight:500; }
+        .sds-connect-field input { background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:9px 12px; color:#fff; font-size:0.9rem; outline:none; font-family:inherit; transition:border-color .15s; }
+        .sds-connect-field input:focus { border-color:rgba(124,111,224,0.6); background:rgba(255,255,255,0.1); }
+        .sds-connect-field input::placeholder { color:rgba(255,255,255,0.3); }
+        .sds-connect-go { padding:9px 20px; align-self:flex-end; font-size:0.88rem; }
+        .sds-connect-err { font-size:0.8rem; color:#f87171; min-height:16px; }
+        body.theme-mode-light .sds-connect-box { background:rgba(124,111,224,0.07); border-color:rgba(124,111,224,0.22); }
+        body.theme-mode-light .sds-connect-title { color:#7c6fe0; }
+        body.theme-mode-light .sds-connect-field label { color:#6b7280; }
+        body.theme-mode-light .sds-connect-field input { background:#fff; border-color:rgba(124,111,224,0.25); color:#1e1a3f; }
+        body.theme-mode-light .sds-connect-field input:focus { border-color:#7c6fe0; }
+        body.theme-mode-light .sds-connect-field input::placeholder { color:#9ca3af; }
+
+        /* Session history */
+        .sds-section-title { font-size:0.85rem; font-weight:600; color:rgba(255,255,255,0.45); display:flex; align-items:center; gap:8px; padding-bottom:10px; border-bottom:1px solid rgba(124,111,224,0.15); }
+        .sds-session-list { display:flex; flex-direction:column; gap:6px; }
+        .sds-session-item { display:flex; align-items:center; gap:12px; padding:10px 14px; border-radius:8px; background:rgba(124,111,224,0.06); border:1px solid rgba(124,111,224,0.12); font-size:0.83rem; }
+        .sds-si-icon { width:32px; height:32px; border-radius:8px; background:rgba(124,111,224,0.2); display:flex; align-items:center; justify-content:center; color:#a78bfa; font-size:1rem; flex-shrink:0; }
+        .sds-si-info { flex:1; min-width:0; }
+        .sds-si-name { font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .sds-si-sub { font-size:0.75rem; color:rgba(255,255,255,0.4); margin-top:2px; }
+        .sds-si-time { font-size:0.75rem; color:rgba(255,255,255,0.35); white-space:nowrap; }
+        .sds-session-empty { text-align:center; padding:20px; color:rgba(255,255,255,0.3); font-size:0.85rem; }
+
+        /* MyStarBox account tab */
+        .sds-account-card { background:rgba(124,111,224,0.08); border:1px solid rgba(124,111,224,0.2); border-radius:12px; padding:20px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+        .sds-account-avatar { width:52px; height:52px; border-radius:50%; background:linear-gradient(135deg,#7c6fe0,#a78bfa); display:flex; align-items:center; justify-content:center; font-size:1.5rem; color:#fff; flex-shrink:0; font-weight:700; }
+        .sds-account-info { flex:1; min-width:0; }
+        .sds-account-info h3 { margin:0 0 3px; font-size:1rem; font-weight:600; }
+        .sds-account-info p { margin:0; font-size:0.83rem; color:rgba(255,255,255,0.5); }
+        .sds-plan-badge { display:inline-flex; align-items:center; gap:5px; font-size:0.72rem; padding:3px 10px; border-radius:20px; font-weight:600; margin-top:7px; }
+        .sds-plan-badge.free { background:rgba(255,255,255,0.1); color:rgba(255,255,255,0.55); }
+        .sds-plan-badge.pro { background:rgba(124,111,224,0.25); color:#a78bfa; border:1px solid rgba(124,111,224,0.4); }
+        .sds-mybox-login { text-align:center; padding:60px 20px; color:rgba(255,255,255,0.35); }
+        .sds-mybox-login i { font-size:3rem; display:block; margin-bottom:14px; opacity:0.45; }
+        .sds-mybox-login p { margin:0 0 18px; line-height:1.6; }
+        .sds-mybox-devices { display:flex; flex-direction:column; gap:8px; }
+        .sds-mybox-device-row { display:flex; align-items:center; gap:12px; padding:10px 14px; border-radius:9px; background:rgba(124,111,224,0.07); border:1px solid rgba(124,111,224,0.14); font-size:0.85rem; }
+        .sds-mybox-device-row .sds-si-icon { background:rgba(124,111,224,0.18); }
+
+        /* Light mode */
+        body.theme-mode-light #page-mystarbox { background:#f0eeff; color:#1e1a3f; }
+        body.theme-mode-light .sds-tab-btn { color:rgba(30,26,63,0.45); }
+        body.theme-mode-light .sds-tab-btn:hover { color:#3d3480; background:rgba(124,111,224,0.08); }
+        body.theme-mode-light .sds-tab-btn.active { background:#f0eeff; color:#7c6fe0; border-color:rgba(124,111,224,0.3); border-bottom-color:#f0eeff; }
+        body.theme-mode-light .sds-tab-nav { border-bottom-color:rgba(124,111,224,0.22); }
+        body.theme-mode-light .sds-topbar h2 { color:#1e1a3f; }
+        body.theme-mode-light .msb-agent-status { background:rgba(124,111,224,0.1); border-color:rgba(124,111,224,0.3); color:#3d3480; }
+        body.theme-mode-light .msb-card { background:#fff; border-color:rgba(124,111,224,0.25); box-shadow:0 2px 8px rgba(124,111,224,0.08); }
+        body.theme-mode-light .msb-card:hover { border-color:#7c6fe0; box-shadow:0 4px 16px rgba(124,111,224,0.18); }
+        body.theme-mode-light .msb-card.is-self { background:#f5f2ff; border-color:rgba(124,111,224,0.5); }
+        body.theme-mode-light .msb-self-badge { background:#7c6fe0; color:#fff; }
+        body.theme-mode-light .msb-card-icon { background:rgba(124,111,224,0.12); color:#7c6fe0; }
+        body.theme-mode-light .msb-card-title h3 { color:#1e1a3f; }
+        body.theme-mode-light .msb-card-title .msb-hostname { color:#6b7280; }
+        body.theme-mode-light .msb-card-meta { color:#6b7280; }
+        body.theme-mode-light .msb-card-actions { border-top-color:rgba(0,0,0,0.06); }
+        body.theme-mode-light .msb-btn-secondary { background:rgba(124,111,224,0.08); color:#3d3480; border-color:rgba(124,111,224,0.25); }
+        body.theme-mode-light .msb-btn-secondary:hover:not(:disabled) { background:rgba(124,111,224,0.16); }
+        body.theme-mode-light .msb-status-badge.online { background:rgba(34,197,94,0.1); color:#16a34a; border-color:rgba(34,197,94,0.3); }
+        body.theme-mode-light .msb-status-badge.offline { background:rgba(239,68,68,0.08); color:#dc2626; border-color:rgba(239,68,68,0.25); }
+        body.theme-mode-light .msb-empty { color:#9ca3af; }
+        body.theme-mode-light .msb-loading { color:#9ca3af; }
+        body.theme-mode-light .sds-section-title { color:rgba(30,26,63,0.45); border-bottom-color:rgba(124,111,224,0.15); }
+        body.theme-mode-light .sds-session-item { background:rgba(124,111,224,0.05); border-color:rgba(124,111,224,0.14); }
+        body.theme-mode-light .sds-si-icon { background:rgba(124,111,224,0.12); }
+        body.theme-mode-light .sds-si-sub,.sds-si-time { color:rgba(30,26,63,0.4); }
+        body.theme-mode-light .sds-session-empty { color:#9ca3af; }
+        body.theme-mode-light .sds-account-card { background:#fff; border-color:rgba(124,111,224,0.25); }
+        body.theme-mode-light .sds-account-info p { color:#6b7280; }
+        body.theme-mode-light .sds-plan-badge.free { background:rgba(0,0,0,0.06); color:#6b7280; }
+        body.theme-mode-light .sds-mybox-login { color:#9ca3af; }
+        body.theme-mode-light .sds-mybox-device-row { background:rgba(124,111,224,0.05); border-color:rgba(124,111,224,0.14); }
+      </style>
+
+      <!-- Header -->
+      <div class="sds-topbar">
+        <h2>
+          <i class="bi bi-display-fill" style="color:#7c6fe0"></i>
+          StarDesk
+        </h2>
+        <div class="sds-topbar-actions">
+          <div class="msb-agent-status" id="msbAgentStatus">
+            <span class="msb-agent-dot offline" id="msbAgentDot"></span>
+            <span id="msbAgentStatusText">Tidak terhubung</span>
+          </div>
+          <button class="msb-btn msb-btn-primary" onclick="sdsFocusConnect()" style="gap:6px;">
+            <i class="bi bi-plug-fill"></i> Hubungkan
+          </button>
+          <button class="msb-btn msb-btn-secondary" onclick="msbRefresh()">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab navigation -->
+      <div class="sds-tab-nav">
+        <button class="sds-tab-btn active" id="sdsTabBtnStardesk" onclick="sdsSwitchTab('stardesk')">
+          <i class="bi bi-display"></i> StarDesk
+        </button>
+        <button class="sds-tab-btn" id="sdsTabBtnMystarbox" onclick="sdsSwitchTab('mystarbox')">
+          <i class="bi bi-person-circle"></i> MyStarBox
+        </button>
+      </div>
+
+      <!-- Tab panels -->
+      <div class="sds-panels">
+
+        <!-- Tab: StarDesk – remote control -->
+        <div class="sds-panel active" id="sdsPanelStardesk">
+
+          <!-- Inline connect form -->
+          <div class="sds-connect-box">
+            <div class="sds-connect-title"><i class="bi bi-plug-fill"></i> Hubungkan ke Perangkat</div>
+            <div class="sds-connect-row">
+              <div class="sds-connect-field" style="flex:2;">
+                <label>Device ID</label>
+                <input id="sdsConnectId" type="text" placeholder="Masukkan Device ID..." autocomplete="off" spellcheck="false" oninput="sdsConnectValidate()" onkeydown="if(event.key==='Enter') sdsDoConnect()" />
+              </div>
+              <div class="sds-connect-field" style="flex:1;">
+                <label>Kode OTP / PIN <span style="font-weight:400;opacity:0.55;">(opsional)</span></label>
+                <input id="sdsConnectPin" type="text" placeholder="Masukkan OTP atau PIN" maxlength="8" autocomplete="off" spellcheck="false" oninput="sdsConnectValidate()" onkeydown="if(event.key==='Enter') sdsDoConnect()" />
+              </div>
+              <button id="sdsConnectBtn" class="msb-btn msb-btn-primary sds-connect-go" onclick="sdsDoConnect()" disabled>
+                <i class="bi bi-display"></i> Remote
+              </button>
+            </div>
+            <div id="sdsConnectErr" class="sds-connect-err"></div>
+          </div>
+
+          <div id="msbDeviceGrid" class="msb-grid">
+            <div class="msb-loading"><i class="bi bi-hourglass-split"></i> Memuat perangkat...</div>
+          </div>
+
+          <!-- Session history -->
+          <div>
+            <div class="sds-section-title">
+              <i class="bi bi-clock-history"></i> Riwayat Session
+              <button class="msb-btn msb-btn-secondary" style="margin-left:auto;font-size:0.75rem;padding:3px 10px;" onclick="sdsClearHistory()">
+                <i class="bi bi-trash3"></i> Hapus
+              </button>
+            </div>
+            <div id="sdsSessionList" class="sds-session-list">
+              <div class="sds-session-empty">Belum ada riwayat session remote</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: MyStarBox – account data -->
+        <div class="sds-panel" id="sdsPanelMystarbox">
+          <div id="sdsMyboxContent">
+            <div class="msb-loading"><i class="bi bi-hourglass-split"></i> Memuat data akun...</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
       <!-- Preview overlay (screenshot result) -->
       <div id="scPreviewOverlay">
         <div class="sc-preview-box" style="min-width:min(700px,90vw)">
@@ -7303,7 +7657,7 @@ adb connect ip:port</code></pre>
       </script>
       <footer class="app-footer">
         <span class="footer-left"
-          >StarBox v1.3.260316 &copy; 2025 Gingin Abdul Goni —
+          >StarBox v1.3.260317 &copy; 2025 Gingin Abdul Goni —
           <a
             href="https://1112-project.com"
             target="_blank"
@@ -10594,5 +10948,7 @@ adb connect ip:port</code></pre>
       })();
     })();
     </script>
+
+
   </body>
 </html>

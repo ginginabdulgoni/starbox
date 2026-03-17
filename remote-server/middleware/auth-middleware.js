@@ -18,8 +18,13 @@ function authMiddleware(socket, next) {
   const token = raw.startsWith("Bearer ") ? raw.slice(7) : raw;
 
   if (!token) {
-    logger.warn(`[Auth] Koneksi ditolak (no token): ${socket.handshake.address}`);
-    return next(new Error("AUTH_REQUIRED"));
+    // Izinkan guest connection — tidak ada kepemilikan user, hanya bisa menerima StarDesk stream
+    socket.userId    = null;
+    socket.userEmail = "";
+    socket.userName  = "Guest";
+    socket.isGuest   = true;
+    logger.info(`[Auth] Guest socket dari ${socket.handshake.address}`);
+    return next();
   }
 
   validateToken(token)
@@ -28,6 +33,7 @@ function authMiddleware(socket, next) {
       socket.userEmail = email;
       socket.userName  = name;
       socket.rawToken  = token;
+      socket.isGuest   = false;
       logger.info(`[Auth] Socket ${socket.id} authenticated: user ${userId}`);
       next();
     })

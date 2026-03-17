@@ -221,6 +221,35 @@ function getMigrations() {
         );
       `,
     },
+    {
+      version: 2,
+      description: "Tambah kolom device_name ke client_registry",
+      sql: `
+        ALTER TABLE client_registry ADD COLUMN device_name TEXT NOT NULL DEFAULT '';
+      `,
+    },
+    {
+      version: 3,
+      description: "Tambah kolom permanent_pin ke client_registry",
+      sql: `ALTER TABLE client_registry ADD COLUMN permanent_pin TEXT DEFAULT NULL;`,
+    },
+    {
+      version: 4,
+      description: "Buat tabel device_access_codes untuk OTP remote access",
+      sql: `
+        CREATE TABLE IF NOT EXISTS device_access_codes (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          client_id   TEXT    NOT NULL,
+          owner_id    TEXT    NOT NULL,
+          code        TEXT    NOT NULL UNIQUE,
+          used        INTEGER NOT NULL DEFAULT 0,
+          created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+          expires_at  DATETIME NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_dac_code      ON device_access_codes(code);
+        CREATE INDEX IF NOT EXISTS idx_dac_client_id ON device_access_codes(client_id);
+      `,
+    },
   ];
 }
 
@@ -264,9 +293,21 @@ async function init() {
   // Buka atau buat database dari file
   let sqlJsDb;
   if (fs.existsSync(dbPath)) {
-    const fileBuffer = fs.readFileSync(dbPath);
-    sqlJsDb = new SQL.Database(fileBuffer);
-    logger.info(`[DB] Database dimuat dari: ${dbPath}`);
+    let fileBuffer;
+    try {
+      fileBuffer = fs.readFileSync(dbPath);
+      sqlJsDb = new SQL.Database(fileBuffer);
+      // Quick integrity check
+      sqlJsDb.run("SELECT 1");
+      logger.info(`[DB] Database dimuat dari: ${dbPath}`);
+    } catch (loadErr) {
+      logger.warn(`[DB] File database rusak (${loadErr.message}), mereset ke database baru...`);
+      // Rename file rusak sebagai backup
+      const backupPath = `${dbPath}.corrupted.${Date.now()}`;
+      try { fs.renameSync(dbPath, backupPath); logger.warn(`[DB] File rusak disimpan ke: ${backupPath}`); } catch {}
+      sqlJsDb = new SQL.Database();
+      logger.info(`[DB] Database baru dibuat: ${dbPath}`);
+    }
   } else {
     sqlJsDb = new SQL.Database();
     logger.info(`[DB] Database baru dibuat: ${dbPath}`);
