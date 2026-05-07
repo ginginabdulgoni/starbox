@@ -795,6 +795,15 @@ function buildSystemInfoPayload(context = {}) {
       ? network.ipAddresses
       : null;
 
+  // Remox payload: total connections
+  let remoxPayload = null;
+  try {
+    const remoxConns = typeof loadRemoxConnections === "function" ? loadRemoxConnections() : [];
+    remoxPayload = {
+      total: Array.isArray(remoxConns) ? remoxConns.length : 0,
+    };
+  } catch {}
+
   const payload = {
     timestamp: new Date().toISOString(),
     appVersion: APP_VERSION,
@@ -826,6 +835,8 @@ function buildSystemInfoPayload(context = {}) {
     devices: deviceDetails,
     auth: authSnapshot,
     whatsappGateway: collectWhatsAppGatewaySnapshot(),
+    remox_payload: remoxPayload,
+    remoteClientId: _stableRemoteClientId || null,
   };
 
   if (context.eventType) {
@@ -7236,6 +7247,8 @@ ipcMain.handle("auth-login", async (_event, credentials = {}) => {
     });
     await refreshPackageInfo();
     startRemoteClient();
+    // Auto-pull Remox dari server setelah login (tidak blocking, tidak perlu menunggu)
+    pullRemoxFromCloud().catch(() => {});
     return {
       success: true,
       session,
@@ -7348,6 +7361,38 @@ ipcMain.handle("auth-register", async (_event, payload = {}) => {
       success: false,
       message:
         err?.message || "Registrasi gagal. Silakan coba lagi beberapa saat.",
+      details: err?.details || null,
+    };
+  }
+});
+
+ipcMain.handle("auth-change-password", async (_event, payload = {}) => {
+  const currentPassword = payload.currentPassword || "";
+  const newPassword = payload.newPassword || "";
+  const confirmPassword = payload.confirmPassword || "";
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    return { success: false, message: "Semua field password wajib diisi." };
+  }
+  if (newPassword !== confirmPassword) {
+    return { success: false, message: "Password baru dan konfirmasi tidak cocok." };
+  }
+  if (newPassword.length < 8) {
+    return { success: false, message: "Password baru minimal 8 karakter." };
+  }
+
+  try {
+    const data = await callAuthEndpoint("change-password", {
+      current_password: currentPassword,
+      password: newPassword,
+      password_confirmation: confirmPassword,
+    });
+    return { success: true, message: data?.message || "Password berhasil diubah." };
+  } catch (err) {
+    console.error("❌ Ganti password gagal:", err?.message || err);
+    return {
+      success: false,
+      message: err?.message || "Gagal mengubah password. Periksa password lama Anda.",
       details: err?.details || null,
     };
   }
@@ -10944,6 +10989,33 @@ ipcMain.handle("wa-set-auto-reply-enabled", (_event, deviceId, enabled) => {
   }
 });
 
+ipcMain.handle("wa-set-auto-reject-calls", (_event, deviceId, enabled) => {
+  try {
+    const result = BaileysManager.updateDevice(deviceId, {
+      auto_reject_calls: enabled ? 1 : 0,
+    });
+    return { success: true, device: result };
+  } catch (error) {
+    console.error("❌ Failed to set auto reject calls:", error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle("toggle-remote-enabled", (_event, uid, enabled) => {
+  try {
+    const raw = fs.readFileSync(DB_PATH, "utf8");
+    const data = JSON.parse(raw);
+    const index = data.devices.findIndex((d) => d.uid === uid || d.token === uid);
+    if (index === -1) return { success: false, message: "Device tidak ditemukan" };
+    data.devices[index].remoteEnabled = enabled !== false;
+    fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+    return { success: true, remoteEnabled: data.devices[index].remoteEnabled };
+  } catch (err) {
+    console.error("❌ Failed to toggle remote enabled:", err);
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle("wa-get-schedules", (_event, deviceId) => {
   try {
     const schedules = BaileysManager.getSchedules(deviceId);
@@ -11757,6 +11829,8 @@ function startRemoteClient() {
       getDeviceConfig,
       dbPath:        DB_PATH,
       dbPathAndroid: ANDROID_REMOTE_DB_PATH,
+      // Callback agar socket-client bisa push device list saat connect
+      onGetMikrotikDevices: () => loadMikrotikDevices(),
       ipcHandlers: {
         "load-devices": async (dbType) => {
           if (dbType === "android") {
@@ -11853,6 +11927,25 @@ function startRemoteClient() {
           }
           delete monitorWindows[uid];
           return { ok: true };
+        },
+        // MikroTik: buka Web UI via proxy lokal (dipanggil oleh relay command)
+        "mikrotik:open-webui-proxy": async ({ deviceId, host, webPort, name }) => {
+          return startMikrotikProxy(deviceId || host, host, webPort).then(async (proxyResult) => {
+            if (!proxyResult.success) return proxyResult;
+            const win = new BrowserWindow({
+              width: 1280, height: 900,
+              title: `MikroTik WebUI – ${name || host}`,
+              webPreferences: { nodeIntegration:false, contextIsolation:true, webSecurity:false, allowRunningInsecureContent:true },
+              icon: path.join(__dirname, "assets", "starbox.png"),
+            });
+            win.loadURL(`http://127.0.0.1:${proxyResult.port}/`);
+            win.setMenuBarVisibility(false);
+            win.on("closed", () => {
+              const entry = mikrotikProxyServers.get(deviceId || host);
+              if (entry) { entry.server.close(); mikrotikProxyServers.delete(deviceId || host); }
+            });
+            return { success: true };
+          });
         },
       },
     });
@@ -12105,6 +12198,99 @@ ipcMain.handle("remox:save-connection", (_, conn) => {
 ipcMain.handle("remox:delete-connection", (_, id) => {
   saveRemoxConnections(loadRemoxConnections().filter((c) => c.id !== id));
   return { success: true };
+});
+
+/**
+ * Pull koneksi dari server ke lokal.
+ * Server wins untuk UUID yang cocok; koneksi baru dari server ditambahkan;
+ * koneksi lokal yang tidak ada di server tetap dipertahankan.
+ */
+async function pullRemoxFromCloud() {
+  if (!authSession?.isLoggedIn || !authSession?.token) return { success: false, error: "Belum login." };
+  const apiBase = DEFAULT_API_BASE_URL.replace(/\/$/, "");
+  try {
+    const res = await fetch(`${apiBase}/api/remox/connections`, {
+      headers: { Authorization: `Bearer ${authSession.token}`, Accept: "application/json" },
+    });
+    if (!res.ok) return { success: false, error: `HTTP ${res.status}` };
+    const data = await res.json();
+    const serverConns = data.connections || [];
+
+    const localConns  = loadRemoxConnections();
+    const serverIds   = new Set(serverConns.map((c) => c.id));
+    // Gabungkan: server menang untuk UUID yang sama, lokal-only tetap
+    const localOnly   = localConns.filter((c) => !serverIds.has(c.id));
+    const merged      = [
+      ...serverConns.map((c) => ({
+        ...c,
+        sync_cloud: true,
+        created_at: c.created_at || new Date().toISOString(),
+      })),
+      ...localOnly,
+    ];
+    saveRemoxConnections(merged);
+    return { success: true, connections: merged, count: serverConns.length, limit: data.limit ?? null };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+ipcMain.handle("remox:pull-from-cloud", () => pullRemoxFromCloud());
+
+ipcMain.handle("remox:cloud-sync", async () => {
+  if (!authSession?.isLoggedIn || !authSession?.token) {
+    return { success: false, error: "Harap login terlebih dahulu untuk sinkron cloud." };
+  }
+  const localConns = loadRemoxConnections();
+  const apiBase = DEFAULT_API_BASE_URL.replace(/\/$/, "");
+
+  // Hanya kirim koneksi yang user setujui untuk disinkron
+  const toSync = localConns.filter(c => c.sync_cloud !== false);
+
+  try {
+    const res = await fetch(`${apiBase}/api/remox/connections/sync`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authSession.token}`,
+      },
+      body: JSON.stringify({ connections: toSync }),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      return { success: false, error: `HTTP ${res.status}: ${errText.slice(0, 120)}` };
+    }
+    const data = await res.json();
+    const serverConns = data.connections || [];
+    const syncedUuids = serverConns.map(c => c.id); // confirmed on server
+
+    // Buat map sync_cloud flags dari data lokal
+    const syncFlagMap = new Map(localConns.map(c => [c.id, c.sync_cloud]));
+
+    // Merge: koneksi dari server (sudah di-sync) + restore flag lokal
+    const serverIds = new Set(serverConns.map(c => c.id));
+    const mergedFromServer = serverConns.map(c => ({
+      ...c,
+      sync_cloud: syncFlagMap.has(c.id) ? syncFlagMap.get(c.id) : true,
+    }));
+
+    // Koneksi lokal yang tidak ada di server (excluded atau belum sync)
+    const localOnly = localConns.filter(c => !serverIds.has(c.id));
+
+    const finalConns = [...mergedFromServer, ...localOnly];
+    saveRemoxConnections(finalConns);
+
+    return {
+      success: true,
+      connections: finalConns,
+      syncedUuids,                     // UUIDs yang confirmed ada di server
+      limit:   data.limit   ?? null,
+      count:   data.count   ?? syncedUuids.length,
+      skipped: data.skipped ?? 0,
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });
 
 ipcMain.handle("remox:connect", async (event, { sessionId, connectionId }) => {
@@ -13695,4 +13881,503 @@ ipcMain.handle("stardesk:connect-by-pin", async (_, { clientId, pin }) => {
   } catch (err) {
     return { ok: false, error: err.message };
   }
+});
+
+// ─── MikroTik Manager ────────────────────────────────────────────────────────
+const MIKROTIK_DB_PATH = path.join(app.getPath("userData"), "mikrotik-devices.json");
+
+function loadMikrotikDevices() {
+  try {
+    if (fs.existsSync(MIKROTIK_DB_PATH)) {
+      return JSON.parse(fs.readFileSync(MIKROTIK_DB_PATH, "utf8")).devices || [];
+    }
+  } catch (_) {}
+  return [];
+}
+
+function saveMikrotikDevices(devices) {
+  fs.writeFileSync(MIKROTIK_DB_PATH, JSON.stringify({ devices }, null, 2), "utf8");
+}
+
+ipcMain.handle("mikrotik:load-devices", () => loadMikrotikDevices());
+
+ipcMain.handle("mikrotik:save-device", (_, device) => {
+  const devices = loadMikrotikDevices();
+  if (device.id) {
+    const idx = devices.findIndex((d) => d.id === device.id);
+    if (idx >= 0) devices[idx] = device;
+    else devices.push(device);
+  } else {
+    device.id = require("uuid").v4();
+    device.created_at = new Date().toISOString();
+    devices.push(device);
+  }
+  saveMikrotikDevices(devices);
+  // Sync ke relay server & Laravel setelah simpan
+  setImmediate(() => { syncMikrotikDevicesToRelay(); syncMikrotikDevicesToLaravel(); });
+  return device;
+});
+
+ipcMain.handle("mikrotik:delete-device", (_, id) => {
+  saveMikrotikDevices(loadMikrotikDevices().filter((d) => d.id !== id));
+  setImmediate(() => { syncMikrotikDevicesToRelay(); syncMikrotikDevicesToLaravel(); });
+  return { success: true };
+});
+
+/**
+ * Scan jaringan lokal untuk mendeteksi perangkat MikroTik.
+ * Memeriksa port Winbox (8291), SSH (22), dan HTTP (80/8080) pada subnet lokal.
+ */
+ipcMain.handle("mikrotik:scan-network", async () => {
+  const os = require("os");
+  const interfaces = os.networkInterfaces();
+  const subnets = [];
+
+  // Kumpulkan semua subnet /24 dari network interface lokal (kecuali loopback)
+  for (const iface of Object.values(interfaces)) {
+    for (const addr of iface) {
+      if (addr.family === "IPv4" && !addr.internal) {
+        const parts = addr.address.split(".");
+        subnets.push(`${parts[0]}.${parts[1]}.${parts[2]}`);
+      }
+    }
+  }
+
+  if (!subnets.length) return { success: false, error: "Tidak ada network interface yang aktif" };
+
+  const MIKROTIK_PORTS = [8291, 22, 80];
+  const TIMEOUT_MS = 600;
+  const MAX_CONCURRENT = 30;
+  const found = [];
+
+  // Scan setiap subnet
+  for (const subnet of [...new Set(subnets)]) {
+    const hosts = Array.from({ length: 254 }, (_, i) => `${subnet}.${i + 1}`);
+
+    // Scan dengan concurrency limit
+    for (let i = 0; i < hosts.length; i += MAX_CONCURRENT) {
+      const batch = hosts.slice(i, i + MAX_CONCURRENT);
+      const results = await Promise.allSettled(
+        batch.map((host) =>
+          new Promise((resolve) => {
+            const openPorts = [];
+            let completed = 0;
+            for (const port of MIKROTIK_PORTS) {
+              const sock = new nodeNet.Socket();
+              sock.setTimeout(TIMEOUT_MS);
+              sock.once("connect", () => {
+                openPorts.push(port);
+                sock.destroy();
+              });
+              sock.on("error", () => {});
+              sock.on("timeout", () => sock.destroy());
+              sock.on("close", () => {
+                completed++;
+                if (completed === MIKROTIK_PORTS.length) {
+                  resolve({ host, openPorts });
+                }
+              });
+              sock.connect(port, host);
+            }
+          })
+        )
+      );
+
+      for (const r of results) {
+        if (r.status === "fulfilled" && r.value.openPorts.length > 0) {
+          // Deteksi MikroTik: port 8291 (Winbox) adalah tanda kuat
+          const isMikrotik = r.value.openPorts.includes(8291) ||
+            (r.value.openPorts.includes(22) && r.value.openPorts.includes(80));
+          if (isMikrotik) {
+            found.push({
+              host: r.value.host,
+              openPorts: r.value.openPorts,
+              hasWinbox: r.value.openPorts.includes(8291),
+              hasSsh:    r.value.openPorts.includes(22),
+              hasWebUI:  r.value.openPorts.includes(80),
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return { success: true, devices: found };
+});
+
+/**
+ * Buka Web UI MikroTik di BrowserWindow lokal.
+ */
+ipcMain.handle("mikrotik:open-webui", (_, { host, webPort, name }) => {
+  try {
+    const port = parseInt(webPort) || 80;
+    const url = port === 443 ? `https://${host}` : `http://${host}${port !== 80 ? `:${port}` : ""}`;
+    const win = new BrowserWindow({
+      width: 1280,
+      height: 900,
+      title: `MikroTik – ${name || host}`,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        webSecurity: false, // izinkan mixed content untuk router HTTP
+        allowRunningInsecureContent: true,
+      },
+      icon: path.join(__dirname, "assets", "starbox.png"),
+    });
+    win.loadURL(url);
+    win.setMenuBarVisibility(false);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+/**
+ * Buat koneksi SSH ke MikroTik menggunakan infrastruktur Remox.
+ * Menyimpan koneksi ke remox-connections.json dan mengembalikan ID-nya.
+ */
+ipcMain.handle("mikrotik:open-ssh", (_, { host, sshPort, username, password, name }) => {
+  try {
+    const connections = loadRemoxConnections();
+    // Cari existing connection untuk host ini, atau buat baru
+    const tempId = `mtk-${host.replace(/\./g, "-")}`;
+    let conn = connections.find((c) => c.id === tempId);
+    if (!conn) {
+      conn = {
+        id: tempId,
+        name: `MikroTik ${name || host}`,
+        type: "ssh",
+        host,
+        port: parseInt(sshPort) || 22,
+        username: username || "admin",
+        password: password || "",
+        _mikrotik: true,
+      };
+      connections.push(conn);
+      saveRemoxConnections(connections);
+    } else {
+      // Update credentials jika berubah
+      conn.host     = host;
+      conn.port     = parseInt(sshPort) || 22;
+      conn.username = username || conn.username || "admin";
+      conn.password = password !== undefined ? password : conn.password;
+      const idx = connections.findIndex((c) => c.id === tempId);
+      connections[idx] = conn;
+      saveRemoxConnections(connections);
+    }
+    return { success: true, connectionId: conn.id };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+/**
+ * Launch Winbox (aplikasi native MikroTik).
+ * Coba jalankan dari PATH atau lokasi umum; beri tahu user jika tidak ditemukan.
+ */
+ipcMain.handle("mikrotik:launch-winbox", async (_, { host, winboxPort, username, password }) => {
+  const { exec, execFile } = require("child_process");
+  const port = parseInt(winboxPort) || 8291;
+  const target = port !== 8291 ? `${host}:${port}` : host;
+
+  // Coba buka lewat protokol winbox:// (jika Winbox terdaftar sebagai URL handler)
+  try {
+    const { shell } = require("electron");
+    await shell.openExternal(`winbox://${target}`);
+    return { success: true, method: "protocol" };
+  } catch (_) {}
+
+  // Cari Winbox di lokasi umum
+  const candidates = process.platform === "win32"
+    ? [
+        "C:\\Program Files\\WinBox\\winbox.exe",
+        "C:\\Program Files (x86)\\WinBox\\winbox.exe",
+        path.join(app.getPath("home"), "Desktop", "winbox.exe"),
+        path.join(app.getPath("home"), "Downloads", "winbox.exe"),
+        path.join(app.getPath("home"), "Desktop", "winbox64.exe"),
+      ]
+    : process.platform === "darwin"
+    ? [
+        "/Applications/WinBox.app/Contents/MacOS/WinBox",
+        path.join(app.getPath("home"), "Downloads", "winbox"),
+      ]
+    : [
+        "/usr/local/bin/winbox",
+        "/opt/winbox/winbox",
+        path.join(app.getPath("home"), "winbox"),
+      ];
+
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      const args = [target];
+      if (username) args.push(username);
+      if (password) args.push(password);
+      try {
+        const { spawn } = require("child_process");
+        spawn(p, args, { detached: true, stdio: "ignore" }).unref();
+        return { success: true, method: "executable", path: p };
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    }
+  }
+
+  return {
+    success: false,
+    error: "Winbox tidak ditemukan. Download dari mikrotik.com/download dan install terlebih dahulu.",
+    downloadUrl: "https://mikrotik.com/download",
+  };
+});
+
+/**
+ * Mulai HTTP proxy lokal yang forward request ke MikroTik web UI.
+ * Dipakai oleh mikrotik:open-webui-proxy dan remote viewer melalui relay.
+ */
+const mikrotikProxyServers = new Map(); // deviceId -> { server, port }
+
+async function startMikrotikProxy(deviceId, host, webPort) {
+  if (mikrotikProxyServers.has(deviceId)) {
+    return { success: true, port: mikrotikProxyServers.get(deviceId).port };
+  }
+
+  const httpModule  = require("http");
+  const httpsModule = require("https");
+  const { URL: NodeURL } = require("url");
+
+  const targetPort = parseInt(webPort) || 80;
+  const targetBase = targetPort === 443
+    ? `https://${host}`
+    : `http://${host}${targetPort !== 80 ? `:${targetPort}` : ""}`;
+
+  return new Promise((resolve) => {
+    const server = httpModule.createServer((req, res) => {
+      const targetUrl = targetBase + (req.url || "/");
+      const mod = targetUrl.startsWith("https") ? httpsModule : httpModule;
+      const proxyReq = mod.request(
+        targetUrl,
+        {
+          method:  req.method,
+          headers: { ...req.headers, host: new NodeURL(targetUrl).host },
+          timeout: 15000,
+          rejectUnauthorized: false,
+        },
+        (proxyRes) => {
+          // Rewrite Location header agar redirect tetap melewati proxy
+          const headers = { ...proxyRes.headers };
+          if (headers.location) {
+            try {
+              const loc = new NodeURL(headers.location, targetBase);
+              headers.location = loc.pathname + (loc.search || "");
+            } catch (_) {}
+          }
+          res.writeHead(proxyRes.statusCode, headers);
+          proxyRes.pipe(res, { end: true });
+        }
+      );
+      req.pipe(proxyReq, { end: true });
+      proxyReq.on("error", (err) => {
+        if (!res.headersSent) res.writeHead(502);
+        res.end(`Proxy error: ${err.message}`);
+      });
+    });
+
+    server.listen(0, "127.0.0.1", () => {
+      const port = server.address().port;
+      mikrotikProxyServers.set(deviceId, { server, port });
+      console.log(`[MikroTik] Proxy started for ${host} on localhost:${port}`);
+      resolve({ success: true, port });
+    });
+    server.on("error", (err) => resolve({ success: false, error: err.message }));
+  });
+}
+
+ipcMain.handle("mikrotik:start-proxy", (_, { deviceId, host, webPort }) =>
+  startMikrotikProxy(deviceId, host, webPort)
+);
+
+ipcMain.handle("mikrotik:stop-proxy", (_, { deviceId }) => {
+  const entry = mikrotikProxyServers.get(deviceId);
+  if (entry) { entry.server.close(); mikrotikProxyServers.delete(deviceId); }
+  return { success: true };
+});
+
+/**
+ * Buka Web UI MikroTik melalui proxy lokal (menghindari CORS dan mixed-content).
+ */
+ipcMain.handle("mikrotik:open-webui-proxy", async (_, { deviceId, host, webPort, name }) => {
+  try {
+    const proxyResult = await startMikrotikProxy(deviceId, host, webPort);
+    if (!proxyResult.success) return proxyResult;
+
+    const win = new BrowserWindow({
+      width: 1280,
+      height: 900,
+      title: `MikroTik WebUI – ${name || host}`,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        webSecurity: false,
+        allowRunningInsecureContent: true,
+      },
+      icon: path.join(__dirname, "assets", "starbox.png"),
+    });
+    win.loadURL(`http://127.0.0.1:${proxyResult.port}/`);
+    win.setMenuBarVisibility(false);
+    win.on("closed", () => {
+      const entry = mikrotikProxyServers.get(deviceId);
+      if (entry) { entry.server.close(); mikrotikProxyServers.delete(deviceId); }
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// ─── MikroTik Winbox TCP Tunnel (untuk remote relay) ─────────────────────────
+// tunnelId -> { server, activeClients: Map<num, net.Socket>, onData, onStatus }
+const mikrotikWinboxTunnels = new Map();
+
+function stopMikrotikWinboxTunnel(deviceId) {
+  const tunnel = mikrotikWinboxTunnels.get(deviceId);
+  if (!tunnel) return;
+  try {
+    tunnel.server.close();
+    tunnel.activeClients.forEach((c) => { try { c.destroy(); } catch (_) {} });
+    const socket = remoteClient?.socketClient?.socket;
+    if (socket) socket.off("mikrotik:winbox-relay-data", tunnel.onData);
+  } catch (_) {}
+  mikrotikWinboxTunnels.delete(deviceId);
+  console.log(`[MikroTik] Winbox tunnel stopped for device ${deviceId}`);
+}
+
+/**
+ * Mulai local TCP server yang relay data ke MikroTik:8291 via Socket.IO relay.
+ * User menjalankan Winbox dan connect ke localhost:<port> yang dikembalikan.
+ */
+ipcMain.handle("mikrotik:start-winbox-tunnel", async (_, { deviceId, targetClientId, host, winboxPort }) => {
+  const socket = remoteClient?.socketClient?.socket;
+  if (!socket?.connected) return { success: false, error: "Tidak terhubung ke relay server. Login terlebih dahulu." };
+
+  // Hentikan tunnel lama jika ada
+  stopMikrotikWinboxTunnel(deviceId);
+
+  let clientNum = 0;
+  const activeClients = new Map(); // num -> tcp socket
+
+  // Listener untuk data dari relay → tulis ke Winbox app
+  const onData = ({ tunnelId: tid, data }) => {
+    // Cari client berdasarkan tunnelId suffix
+    const match = tid.match(/-(\d+)$/);
+    if (!match) return;
+    const cn = parseInt(match[1]);
+    const tcpClient = activeClients.get(cn);
+    if (tcpClient && !tcpClient.destroyed) {
+      try { tcpClient.write(Buffer.from(data, "base64")); } catch (_) {}
+    }
+  };
+
+  socket.on("mikrotik:winbox-relay-data", onData);
+
+  return new Promise((resolve) => {
+    const server = nodeNet.createServer((tcpClient) => {
+      const cn = ++clientNum;
+      const tunnelId = `winbox-${deviceId}-${cn}`;
+      activeClients.set(cn, tcpClient);
+
+      // Minta relay server buka koneksi ke MikroTik
+      socket.emit("mikrotik:winbox-tunnel-open", {
+        tunnelId,
+        targetClientId,
+        host,
+        port: parseInt(winboxPort) || 8291,
+      });
+
+      tcpClient.on("data", (data) => {
+        socket.emit("mikrotik:winbox-tunnel-data", { tunnelId, data: data.toString("base64") });
+      });
+
+      tcpClient.on("close", () => {
+        socket.emit("mikrotik:winbox-tunnel-close", { tunnelId });
+        activeClients.delete(cn);
+      });
+
+      tcpClient.on("error", () => { tcpClient.destroy(); });
+    });
+
+    mikrotikWinboxTunnels.set(deviceId, { server, activeClients, onData });
+
+    server.listen(0, "127.0.0.1", () => {
+      const port = server.address().port;
+      console.log(`[MikroTik] Winbox relay tunnel berjalan di localhost:${port}`);
+      // Update tunnels map with port info
+      mikrotikWinboxTunnels.get(deviceId).port = port;
+      resolve({ success: true, port });
+    });
+
+    server.on("error", (err) => {
+      socket.off("mikrotik:winbox-relay-data", onData);
+      mikrotikWinboxTunnels.delete(deviceId);
+      resolve({ success: false, error: err.message });
+    });
+  });
+});
+
+ipcMain.handle("mikrotik:stop-winbox-tunnel", (_, { deviceId }) => {
+  stopMikrotikWinboxTunnel(deviceId);
+  return { success: true };
+});
+
+ipcMain.handle("mikrotik:get-winbox-tunnel-port", (_, { deviceId }) => {
+  const tunnel = mikrotikWinboxTunnels.get(deviceId);
+  if (!tunnel) return { active: false };
+  return { active: true, port: tunnel.port };
+});
+
+// ─── MikroTik device sync ke server ──────────────────────────────────────────
+/**
+ * Push daftar MikroTik devices ke relay server (untuk device registry).
+ * Dipanggil: saat connect, saat tambah/edit/hapus device.
+ */
+function syncMikrotikDevicesToRelay() {
+  const socket = remoteClient?.socketClient?.socket;
+  if (!socket?.connected) return;
+  try {
+    const devices = loadMikrotikDevices();
+    if (devices.length > 0) {
+      const os = require("os");
+      socket.emit("mikrotik:devices-register", {
+        devices,
+        hostname: os.hostname(),
+        platform: process.platform,
+      });
+    }
+  } catch (_) {}
+}
+
+/**
+ * Sync ke Laravel backend (untuk web dashboard).
+ */
+async function syncMikrotikDevicesToLaravel() {
+  if (!authSession?.isLoggedIn || !authSession?.token) return;
+  const apiBase = DEFAULT_API_BASE_URL.replace(/\/$/, "");
+  try {
+    const devices = loadMikrotikDevices();
+    await fetch(`${apiBase}/api/mikrotik/devices/sync`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authSession.token}`,
+      },
+      body: JSON.stringify({
+        devices,
+        client_id: _stableRemoteClientId,
+      }),
+    });
+  } catch (_) {} // Fail silently — server mungkin belum punya endpoint ini
+}
+
+ipcMain.handle("mikrotik:sync-to-server", async () => {
+  syncMikrotikDevicesToRelay();
+  await syncMikrotikDevicesToLaravel();
+  return { success: true };
 });

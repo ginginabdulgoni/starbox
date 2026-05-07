@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StarBox v1.3.260317 – MultiService Emulator</title>
+    <title>StarBox v2.1.260414 – MultiService Emulator</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
@@ -207,6 +207,11 @@
           data-label="Remox" onclick="switchPage('remox')">
           <i class="bi bi-terminal"></i>
           <span data-i18n="sidebar.remox">Remox</span>
+        </a>
+        <a href="#" class="sidebar-item" data-page="mikrotik"
+          data-label="MikroTik" onclick="switchPage('mikrotik')">
+          <i class="bi bi-router"></i>
+          <span>MikroTik</span>
         </a>
         <a href="#" class="sidebar-item" data-page="os-virtual"
           data-label="OS Virtual" onclick="switchPage('os-virtual')">
@@ -548,29 +553,159 @@
 
       <!-- Page: WhatsApp Gateway -->
       <div id="page-whatsapp-gateway" class="page-content">
+        <style>
+          .wag-layout { display: flex; gap: 20px; align-items: flex-start; }
+          .wag-main   { flex: 1; min-width: 0; }
+          .wag-info   { width: 300px; flex-shrink: 0; position: sticky; top: 0; }
+          @media (max-width: 900px) {
+            .wag-layout { flex-direction: column-reverse; }
+            .wag-info   { width: 100%; position: static; }
+          }
+          .wag-panel {
+            border-radius: 12px; overflow: hidden;
+            border: 1px solid rgba(217,119,6,0.35);
+            background: rgba(217,119,6,0.07);
+          }
+          .wag-panel-head {
+            display: flex; align-items: center; gap: 10px;
+            padding: 11px 14px;
+            background: rgba(217,119,6,0.13);
+            border-bottom: 1px solid rgba(217,119,6,0.22);
+          }
+          .wag-panel-title { font-weight: 700; font-size: 0.87rem; }
+          .wag-panel-sub   { font-size: 0.73rem; margin-top: 1px; }
+          .wag-panel-body  { padding: 13px 14px; }
+          .wag-risk-label  {
+            font-size: 0.78rem; font-weight: 700;
+            margin-bottom: 7px; display: flex; align-items: center; gap: 5px;
+          }
+          .wag-risk-list   { margin: 0 0 13px; padding: 0; list-style: none; }
+          .wag-risk-list li {
+            display: flex; gap: 7px; align-items: flex-start;
+            font-size: 0.76rem; line-height: 1.5; padding: 5px 0;
+            border-bottom: 1px solid rgba(217,119,6,0.1);
+          }
+          .wag-risk-list li:last-child { border-bottom: none; }
+          .wag-rec {
+            border-radius: 9px; padding: 11px 13px;
+            display: flex; gap: 10px; align-items: flex-start;
+          }
+          .wag-rec-title { font-weight: 700; font-size: 0.82rem; margin-bottom: 4px; }
+          .wag-rec-desc  { font-size: 0.75rem; line-height: 1.6; }
+          .wag-rec-btn {
+            margin-top: 9px; display: inline-flex; align-items: center; gap: 6px;
+            padding: 6px 13px; font-size: 0.78rem; font-weight: 600;
+            border-radius: 7px; cursor: pointer; border: 1px solid;
+            transition: opacity 0.15s; background: none;
+          }
+          .wag-rec-btn:hover { opacity: 0.75; }
+
+          /* Light mode */
+          body.theme-mode-light .wag-panel          { background: #fffbeb; border-color: #d97706; }
+          body.theme-mode-light .wag-panel-head      { background: #fef3c7; border-color: #f59e0b; }
+          body.theme-mode-light .wag-panel-title     { color: #92400e; }
+          body.theme-mode-light .wag-panel-sub       { color: #78350f; }
+          body.theme-mode-light .wag-risk-label      { color: #92400e; }
+          body.theme-mode-light .wag-risk-list li    { color: #78350f; border-color: rgba(217,119,6,0.15); }
+          body.theme-mode-light .wag-risk-list li b  { color: #7c2d12; }
+          body.theme-mode-light .wag-risk-list li .ico { color: #d97706; }
+          body.theme-mode-light .wag-rec             { background: #f0fdf4; border: 1px solid #86efac; }
+          body.theme-mode-light .wag-rec-title       { color: #166534; }
+          body.theme-mode-light .wag-rec-desc        { color: #14532d; }
+          body.theme-mode-light .wag-rec-btn         { color: #166534; border-color: #4ade80; }
+          body.theme-mode-light .wag-dismiss         { color: #6b7280; }
+
+          /* Dark mode */
+          body:not(.theme-mode-light) .wag-panel      { background: rgba(217,119,6,0.07); border-color: rgba(217,119,6,0.3); }
+          body:not(.theme-mode-light) .wag-panel-head  { background: rgba(217,119,6,0.13); border-color: rgba(217,119,6,0.2); }
+          body:not(.theme-mode-light) .wag-panel-title { color: #fde047; }
+          body:not(.theme-mode-light) .wag-panel-sub   { color: #ca8a04; }
+          body:not(.theme-mode-light) .wag-risk-label  { color: #fde047; }
+          body:not(.theme-mode-light) .wag-risk-list li { color: #d4a017; border-color: rgba(217,119,6,0.1); }
+          body:not(.theme-mode-light) .wag-risk-list li b   { color: #fbbf24; }
+          body:not(.theme-mode-light) .wag-risk-list li .ico { color: #eab308; }
+          body:not(.theme-mode-light) .wag-rec         { background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.25); }
+          body:not(.theme-mode-light) .wag-rec-title   { color: #4ade80; }
+          body:not(.theme-mode-light) .wag-rec-desc    { color: #86efac; }
+          body:not(.theme-mode-light) .wag-rec-btn     { color: #4ade80; border-color: rgba(34,197,94,0.35); }
+          body:not(.theme-mode-light) .wag-dismiss     { color: #6b7280; }
+        </style>
+
         <main class="page-main">
           <div class="page-header">
             <h2>WhatsApp Gateway</h2>
-            <p data-i18n="wa.gateway.desc">Manage multi-device WhatsApp with auto-reply and scheduling</p>
+            <p data-i18n="wa.gateway.desc">Kelola multi-device WhatsApp dengan auto-reply dan scheduling</p>
           </div>
 
-          <div class="toolbar">
-            <div class="toolbar-actions">
-              <button onclick="openWAGatewayModal()">
-                <i class="bi bi-plus-circle"></i> <span data-i18n="toolbar.add_device_wa">Add WA Device</span>
-              </button>
-              <button
-                id="fixWAGatewayButton"
-                class="secondary"
-                onclick="openFixWADepsModal()"
-                style="display: none"
-              >
-                <i class="bi bi-tools"></i> Fix WA Gateway
-              </button>
+          <div class="wag-layout">
+
+            <!-- ── Kiri: toolbar + device list ── -->
+            <div class="wag-main">
+              <div class="toolbar">
+                <div class="toolbar-actions">
+                  <button onclick="openWAGatewayModal()">
+                    <i class="bi bi-plus-circle"></i> <span data-i18n="toolbar.add_device_wa">Tambah Device WA</span>
+                  </button>
+                  <button
+                    id="fixWAGatewayButton"
+                    class="secondary"
+                    onclick="openFixWADepsModal()"
+                    style="display: none"
+                  >
+                    <i class="bi bi-tools"></i> Fix WA Gateway
+                  </button>
+                </div>
+              </div>
+              <div id="wa-device-list">Loading...</div>
             </div>
-          </div>
 
-          <div id="wa-device-list">Loading...</div>
+            <!-- ── Kanan: info panel ── -->
+            <div class="wag-info" id="wagUnofficialBanner">
+              <div class="wag-panel">
+
+                <div class="wag-panel-head">
+                  <i class="bi bi-exclamation-triangle-fill" style="color:#d97706;font-size:1.1rem;flex-shrink:0;"></i>
+                  <div>
+                    <div class="wag-panel-title">WhatsApp Tidak Resmi</div>
+                    <div class="wag-panel-sub">Berbasis <strong>Baileys</strong> — reverse-engineering protokol WA</div>
+                  </div>
+                </div>
+
+                <div class="wag-panel-body">
+                  <div class="wag-risk-label">
+                    <i class="bi bi-shield-exclamation"></i> Risiko penggunaan:
+                  </div>
+                  <ul class="wag-risk-list">
+                    <li><span class="ico">⚠</span><span><b>Banned akun</b> — WA berhak blokir nomor yang pakai klien tidak resmi, terutama saat blast/automasi masif.</span></li>
+                    <li><span class="ico">⚠</span><span><b>Koneksi tidak stabil</b> — Protokol bisa berubah kapan saja oleh WA/Meta tanpa pemberitahuan.</span></li>
+                    <li><span class="ico">⚠</span><span><b>Melanggar ToS WA/Meta</b> — Anda bertanggung jawab penuh atas konsekuensinya.</span></li>
+                    <li><span class="ico">⚠</span><span><b>Enkripsi tidak terverifikasi</b> — Tidak dapat dijamin setara aplikasi resmi.</span></li>
+                    <li><span class="ico">⚠</span><span><b>Risiko sesi</b> — Sesi tersimpan lokal, rentan jika perangkat dikompromikan.</span></li>
+                  </ul>
+
+                  <div class="wag-rec">
+                    <i class="bi bi-patch-check-fill" style="color:#16a34a;font-size:1.2rem;flex-shrink:0;margin-top:2px;"></i>
+                    <div>
+                      <div class="wag-rec-title">Gunakan WhatsApp Web Resmi</div>
+                      <div class="wag-rec-desc">
+                        Untuk keamanan akun &amp; kepatuhan ToS, gunakan <strong>WhatsApp Web</strong> via menu <strong>Web Emulator</strong> — menggunakan WA Web resmi dari WhatsApp/Facebook, tanpa risiko banned.
+                      </div>
+                      <button class="wag-rec-btn" onclick="switchPage('web-emulator')">
+                        <i class="bi bi-whatsapp"></i> Buka Web Emulator
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style="margin-top:10px;text-align:right;">
+                    <span class="wag-dismiss" onclick="document.getElementById('wagUnofficialBanner').style.display='none'" style="font-size:0.72rem;cursor:pointer;text-decoration:underline;">Sembunyikan</span>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+            <!-- ── End info panel ── -->
+
+          </div>
         </main>
       </div>
       <!-- End Page: WhatsApp Gateway -->
@@ -579,8 +714,8 @@
       <div id="page-remox" class="page-content">
         <style>
           /* ── Remox Layout ── */
-          #page-remox { display: none; flex-direction: column; height: 100%; padding: 0; overflow: hidden; }
-          #page-remox.active { display: flex; }
+          #page-remox { display: none; flex-direction: column; min-height: 0; padding: 0; overflow: hidden; }
+          #page-remox.active { display: flex; min-height: 0; }
 
           /* ── Top bar ── */
           .rmx-topbar {
@@ -592,7 +727,7 @@
           }
           .rmx-topbar h2 { margin: 0; font-size: 16px; font-weight: 600; color: var(--color-text-light); }
           .rmx-topbar .rmx-topbar-actions { margin-left: auto; display: flex; gap: 8px; }
-          .rmx-workspace { display: flex; flex: 1; overflow: hidden; }
+          .rmx-workspace { display: flex; flex: 1; min-height: 0; overflow: hidden; }
 
           /* ── Sidebar connections ── */
           .rmx-sidebar {
@@ -600,6 +735,7 @@
             background: var(--color-medium-purple);
             border-right: 1px solid rgba(139,92,246,0.15);
             display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;
+            min-height: 0;
           }
           .rmx-sidebar-head {
             padding: 10px 12px; display: flex; align-items: center; justify-content: space-between;
@@ -609,7 +745,60 @@
             font-size: 11px; font-weight: 600; text-transform: uppercase;
             letter-spacing: 0.8px; color: var(--color-gray);
           }
-          .rmx-conn-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+          /* ── Search bar ── */
+          .rmx-search-wrap {
+            display: flex; align-items: center; gap: 6px;
+            padding: 7px 10px; border-bottom: 1px solid rgba(139,92,246,0.1);
+            flex-shrink: 0;
+          }
+          .rmx-search-wrap i { color: var(--color-gray); font-size: 12px; flex-shrink: 0; }
+          .rmx-search-wrap input {
+            flex: 1; background: none; border: none; outline: none;
+            font-size: 12px; color: var(--color-text-light);
+            caret-color: var(--color-accent-purple);
+          }
+          .rmx-search-wrap input::placeholder { color: var(--color-gray); }
+          /* ── Cloud sync indicator per connection ── */
+          .rmx-cloud-dot {
+            width:22px;height:22px;border-radius:5px;flex-shrink:0;
+            display:flex;align-items:center;justify-content:center;
+            font-size:12px;cursor:pointer;transition:background 0.15s, transform 0.1s;
+            position:relative;
+          }
+          .rmx-cloud-dot:hover { background:rgba(139,92,246,0.14); transform:scale(1.15); }
+          .rmx-cloud-dot.synced   { color:#50c878; }
+          .rmx-cloud-dot.pending  { color:#f0a040; }
+          .rmx-cloud-dot.excluded { color:#555; }
+          .rmx-cloud-dot.synced i  { filter: drop-shadow(0 0 3px #50c87866); }
+          .rmx-cloud-dot.pending i { animation: rmx-pulse 1.8s ease-in-out infinite; }
+
+          /* ── Quota badge ── */
+          .rmx-quota-badge {
+            font-size:11px;padding:3px 8px;border-radius:10px;font-weight:600;
+            background:rgba(99,102,241,0.12);color:#a5b4fc;
+            border:1px solid rgba(99,102,241,0.2);white-space:nowrap;
+          }
+          .rmx-quota-badge.full {
+            background:rgba(220,38,38,0.15);color:#fca5a5;border-color:rgba(220,38,38,0.3);
+          }
+          /* ── Sync badge ── */
+          .rmx-sync-btn {
+            display:flex;align-items:center;gap:5px;
+            padding:5px 10px;border-radius:6px;font-size:12px;font-weight:500;
+            background:rgba(99,102,241,0.15);color:#a5b4fc;
+            border:1px solid rgba(99,102,241,0.25);cursor:pointer;transition:background 0.15s;
+          }
+          .rmx-sync-btn:hover{background:rgba(99,102,241,0.28);}
+          .rmx-sync-btn.syncing i{animation:spin 0.9s linear infinite;}
+          @keyframes spin{to{transform:rotate(360deg)}}
+          .rmx-conn-list {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 6px 0;
+            overscroll-behavior: contain;
+          }
           .rmx-conn-item {
             display: flex; align-items: center; gap: 8px; padding: 8px 12px;
             cursor: pointer; transition: background 0.15s;
@@ -626,15 +815,17 @@
           .rmx-conn-icon.telnet { background: rgba(80,200,120,0.18); color: #50c878; }
           .rmx-conn-icon.rdp    { background: rgba(139,92,246,0.18); color: var(--color-accent-purple); }
           .rmx-conn-info { flex: 1; min-width: 0; }
+          .rmx-conn-head {
+            display: flex; align-items: center; justify-content: space-between; gap: 8px;
+          }
           .rmx-conn-name {
-            font-size: 13px; font-weight: 500; color: var(--color-text-light);
+            font-size: 13px; font-weight: 600; color: var(--color-text-light);
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
           }
           .rmx-conn-meta {
-            font-size: 11px; color: var(--color-gray);
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            display: none;
           }
-          .rmx-conn-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s; }
+          .rmx-conn-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s; flex-shrink: 0; }
           .rmx-conn-item:hover .rmx-conn-actions { opacity: 1; }
           .rmx-conn-btn {
             background: none; border: none; cursor: pointer; padding: 2px 4px;
@@ -661,7 +852,7 @@
           @keyframes rmx-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
           /* ── Terminal area — intentionally kept dark (terminal UX) ── */
-          .rmx-terminal-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #0d1117; }
+          .rmx-terminal-area { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #0d1117; }
           .rmx-tabs {
             display: flex; align-items: center; background: #161b22;
             border-bottom: 1px solid rgba(255,255,255,0.07); flex-shrink: 0; overflow-x: auto;
@@ -700,6 +891,9 @@
           }
           .rmx-tab:hover { background: rgba(255,255,255,0.04); color: #ccc; }
           .rmx-tab.active { background: #0d1117; color: #e0e0e0; border-bottom: 2px solid var(--color-accent-purple, #7c6fe0); }
+          .rmx-tab.dragging { opacity: 0.45; }
+          .rmx-tab.drop-before { box-shadow: inset 2px 0 0 #7c6fe0; }
+          .rmx-tab.drop-after { box-shadow: inset -2px 0 0 #7c6fe0; }
           .rmx-tab-dot { width: 7px; height: 7px; border-radius: 50%; background: #555; }
           .rmx-tab-dot.connected  { background: #50c878; box-shadow: 0 0 4px #50c87866; }
           .rmx-tab-dot.connecting { background: #f0a040; animation: rmx-pulse 1s infinite; }
@@ -708,7 +902,7 @@
             padding: 0 2px; font-size: 13px; line-height: 1; border-radius: 3px; }
           .rmx-tab-close:hover { color: #e87070; background: rgba(220,60,60,0.15); }
 
-          .rmx-terminal-panels { flex: 1; position: relative; overflow: hidden; }
+          .rmx-terminal-panels { flex: 1; min-height: 0; position: relative; overflow: hidden; }
           .rmx-terminal-panel { position: absolute; inset: 0; display: none; padding: 6px; }
           .rmx-terminal-panel.active { display: flex; flex-direction: column; }
           .rmx-term-container { flex: 1; overflow: hidden; }
@@ -742,6 +936,34 @@
           body.theme-mode-light .rmx-ping-badge:hover { background: rgba(0,0,0,0.1); }
 
           /* ── Modal form inputs ── */
+          .rmx-modal-overlay {
+            position: fixed; inset: 0; z-index: 9000;
+            background: rgba(0,0,0,0.6);
+            align-items: center; justify-content: center;
+          }
+          .rmx-modal-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            width: 480px;
+            max-width: 95vw;
+            padding: 24px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+          }
+          body.theme-mode-light .rmx-modal-overlay {
+            background: rgba(15, 23, 42, 0.38);
+          }
+          body.theme-mode-light .rmx-modal-card {
+            background: #ffffff;
+            border-color: var(--card-border-light, #d4dbe9);
+            box-shadow: 0 22px 56px rgba(15, 23, 42, 0.20);
+          }
+          body.theme-mode-light #rmxModalTitle {
+            color: #0f172a !important;
+          }
+          body.theme-mode-light #rmxModal .rmx-form-group label {
+            color: #475569;
+          }
           #rmxModal .modal-dialog { max-width: 480px; }
           .rmx-form-group { margin-bottom: 14px; }
           .rmx-form-group label {
@@ -817,31 +1039,151 @@
           .rmx-tab-modal-item .rmx-tmi-name { font-size: 13px; font-weight: 500; color: #ddd; }
           .rmx-tab-modal-item .rmx-tmi-meta { font-size: 11px; color: #555; margin-top: 1px; }
           .rmx-tab-modal-empty { padding: 20px 16px; text-align: center; font-size: 13px; color: #555; }
+
+          /* ── Resizable divider ── */
+          .rmx-resize-handle {
+            width: 5px; flex-shrink: 0; cursor: col-resize;
+            background: transparent;
+            position: relative; z-index: 10;
+            transition: background 0.15s;
+          }
+          .rmx-resize-handle:hover,
+          .rmx-resize-handle.dragging { background: rgba(139,92,246,0.45); }
+          .rmx-resize-handle::after {
+            content: ''; position: absolute; inset: 0 -3px;
+          }
+
+          /* ── No-tabs: terminal hidden, sidebar full-width ── */
+          .rmx-workspace.no-tabs .rmx-terminal-area { display: none; }
+          .rmx-workspace.no-tabs .rmx-resize-handle  { display: none; }
+          .rmx-workspace.no-tabs .rmx-sidebar { width: 100% !important; max-width: none; border-right: none; }
+
+          /* ── Compact layout mode ── */
+          .rmx-sidebar:not(.layout-detail) .rmx-conn-item {
+            margin: 6px 8px;
+            padding: 9px 10px;
+            gap: 7px;
+            border: 1px solid rgba(139,92,246,0.12);
+            border-left-width: 3px;
+            border-radius: 10px;
+            background: rgba(139,92,246,0.04);
+          }
+          .rmx-sidebar:not(.layout-detail) .rmx-conn-icon {
+            width: 26px; height: 26px; font-size: 12px; border-radius: 5px;
+          }
+          .rmx-sidebar:not(.layout-detail) .rmx-conn-name { font-size: 12px; }
+          .rmx-sidebar:not(.layout-detail) .rmx-ping-badge { font-size: 9px; padding: 2px 5px; }
+          .rmx-sidebar:not(.layout-detail) .rmx-conn-actions { opacity: 1; }
+          .rmx-sidebar:not(.layout-detail) .rmx-conn-meta { margin-top: 2px; }
+
+          /* ── Detail layout mode ── */
+          .rmx-sidebar.layout-detail .rmx-conn-item {
+            padding: 11px 12px;
+            align-items: flex-start;
+            border-left-width: 4px;
+            border-bottom: 1px solid rgba(139,92,246,0.09);
+          }
+          .rmx-sidebar.layout-detail .rmx-conn-item:hover { background: rgba(139,92,246,0.12); }
+          .rmx-sidebar.layout-detail .rmx-conn-icon {
+            width: 34px; height: 34px; font-size: 15px; margin-top: 2px;
+          }
+          .rmx-sidebar.layout-detail .rmx-conn-name {
+            white-space: normal; font-size: 13px; line-height: 1.35;
+          }
+          .rmx-sidebar.layout-detail .rmx-conn-meta {
+            display: block;
+            white-space: normal; overflow: visible; text-overflow: initial;
+            font-size: 11px; line-height: 1.45; margin-top: 3px;
+            color: rgba(148,163,184,0.95);
+          }
+          .rmx-sidebar.layout-detail .rmx-conn-actions { opacity: 1; }
+          .rmx-sidebar.layout-detail .rmx-conn-btn {
+            background: rgba(139,92,246,0.14);
+            color: #c4b5fd;
+          }
+          .rmx-sidebar.layout-detail .rmx-conn-btn:hover {
+            background: rgba(139,92,246,0.25);
+            color: #efe7ff;
+          }
+          body.theme-mode-light .rmx-sidebar.layout-detail .rmx-conn-item {
+            border-bottom-color: rgba(99,102,241,0.12);
+          }
+          body.theme-mode-light .rmx-sidebar.layout-detail .rmx-conn-meta {
+            color: #64748b;
+          }
+
+          /* ── Layout toggle active state ── */
+          .rmx-layout-btn.active { background: rgba(139,92,246,0.18); color: var(--color-text-light); }
+
+          /* ── Cloud access banner ── */
+          .rmx-cloud-banner {
+            display: flex; align-items: center; gap: 10px;
+            padding: 7px 16px; flex-shrink: 0;
+            background: rgba(99,102,241,0.1);
+            border-bottom: 1px solid rgba(99,102,241,0.2);
+            font-size: 12px; color: #a5b4fc;
+          }
+          .rmx-cloud-banner.warn {
+            background: rgba(240,160,64,0.1);
+            border-bottom-color: rgba(240,160,64,0.25);
+            color: #f0a040;
+          }
         </style>
 
         <div class="rmx-topbar">
           <i class="bi bi-terminal-fill" style="color:#7c6fe0;font-size:18px"></i>
           <h2>Remox — Remote Terminal</h2>
           <div class="rmx-topbar-actions">
+            <span class="rmx-quota-badge" id="rmxQuotaBadge" style="display:none" title="Kuota cloud Remox"></span>
+            <button class="rmx-sync-btn" id="rmxPullBtn" onclick="rmxPullCloud()" title="Tarik koneksi dari server ke lokal">
+              <i class="bi bi-cloud-arrow-down-fill"></i> Tarik dari Server
+            </button>
+            <button class="rmx-sync-btn" id="rmxSyncBtn" onclick="rmxSyncCloud()" title="Sinkron koneksi lokal ke server">
+              <i class="bi bi-cloud-arrow-up-fill"></i> Sinkron Cloud
+            </button>
             <button class="btn-icon" onclick="rmxOpenAddModal()" data-i18n-title="remox.add_connection.title" title="Add Connection">
               <i class="bi bi-plus-lg"></i>
             </button>
           </div>
         </div>
 
+        <!-- Cloud access banner -->
+        <div id="rmxCloudBanner" class="rmx-cloud-banner" style="display:none;">
+          <i class="bi bi-cloud-slash-fill" style="font-size:14px;flex-shrink:0;"></i>
+          <span id="rmxCloudBannerText"></span>
+          <a id="rmxCloudBannerLoginBtn" href="#" onclick="event.preventDefault();document.querySelector('[data-label=Login],[data-action=login]')?.click()" style="display:none;margin-left:auto;font-size:11px;padding:3px 10px;border-radius:6px;background:rgba(99,102,241,0.2);color:#a5b4fc;text-decoration:none;">Masuk / Daftar</a>
+          <span id="rmxCloudBannerUpgradeBtn" style="display:none;margin-left:auto;font-size:11px;padding:3px 10px;border-radius:6px;background:rgba(240,160,64,0.2);color:#f0a040;cursor:pointer;" onclick="openPackageModal?.()">Lihat Paket</span>
+        </div>
+
         <div class="rmx-workspace">
           <!-- Sidebar -->
-          <div class="rmx-sidebar">
+          <div class="rmx-sidebar" id="rmxSidebar">
             <div class="rmx-sidebar-head">
-              <span data-i18n="remox.connections">Connections</span>
-              <button class="rmx-conn-btn" onclick="rmxOpenAddModal()" data-i18n-title="remox.add_new.title" title="Add new connection">
-                <i class="bi bi-plus"></i>
-              </button>
+              <span data-i18n="remox.connections">KONEKSI</span>
+              <div style="display:flex;align-items:center;gap:2px;margin-left:auto;">
+                <button class="rmx-conn-btn rmx-layout-btn active" id="rmxLayoutCompactBtn" onclick="rmxSetLayout('compact')" title="Tampilan card">
+                  <i class="bi bi-list-ul"></i>
+                </button>
+                <button class="rmx-conn-btn rmx-layout-btn" id="rmxLayoutDetailBtn" onclick="rmxSetLayout('detail')" title="Tampilan detail (label penuh)">
+                  <i class="bi bi-card-list"></i>
+                </button>
+                <button class="rmx-conn-btn" onclick="rmxOpenAddModal()" data-i18n-title="remox.add_new.title" title="Tambah koneksi baru" style="margin-left:4px;">
+                  <i class="bi bi-plus"></i>
+                </button>
+              </div>
+            </div>
+            <div class="rmx-search-wrap">
+              <i class="bi bi-search"></i>
+              <input id="rmxSearch" type="search" placeholder="Cari nama, IP, grup..."
+                oninput="rmxSetSearch(this.value.trim())">
             </div>
             <div class="rmx-conn-list" id="rmxConnList">
               <div class="rmx-conn-empty" data-i18n="remox.empty">No saved connections.</div>
             </div>
           </div>
+
+          <!-- Resizable divider -->
+          <div class="rmx-resize-handle" id="rmxResizeHandle" title="Geser untuk ubah lebar sidebar"></div>
 
           <!-- Terminal area -->
           <div class="rmx-terminal-area">
@@ -859,10 +1201,8 @@
         </div>
 
         <!-- Add/Edit Connection Modal -->
-        <div id="rmxModal" style="display:none;position:fixed;inset:0;z-index:9000;
-          background:rgba(0,0,0,0.6);align-items:center;justify-content:center;">
-          <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;
-            width:480px;max-width:95vw;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+        <div id="rmxModal" class="rmx-modal-overlay" style="display:none;">
+          <div class="rmx-modal-card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
               <h3 id="rmxModalTitle" data-i18n="remox.modal.add" style="margin:0;font-size:16px;font-weight:600;color:#e0e0e0">Add Connection</h3>
               <button onclick="rmxCloseModal()" style="background:none;border:none;color:#888;cursor:pointer;font-size:18px">
@@ -877,8 +1217,9 @@
               </div>
               <div class="rmx-form-group" style="flex:1">
                 <label>Group <span style="font-size:10px;color:#666;font-weight:400">(opsional)</span></label>
-                <input type="text" id="rmxFormGroup" list="rmxGroupList" placeholder="Production">
-                <datalist id="rmxGroupList"></datalist>
+                <select id="rmxFormGroup">
+                  <option value="">Tanpa group</option>
+                </select>
               </div>
             </div>
             <div class="rmx-form-row">
@@ -953,6 +1294,10 @@
         let rmxDataUnlisten = null;
         let rmxStatusUnlisten = null;
         let rmxInitialized = false;
+        let rmxSearchQuery = "";
+        const rmxTabDnD = { dragId: null, dropTargetId: null, dropPos: null, justDropped: false };
+        // UUIDs yang dikonfirmasi ada di server setelah sync terakhir
+        const rmxSyncedUuids = new Set();
 
         // ─── Ping cache ───────────────────────────────────────────────────────
         // connId -> { reachable, latency, ts }
@@ -963,6 +1308,12 @@
         // Expose active session count and refit helper for Resource Monitor
         window.rmxGetActiveCount = function () {
           return rmxTabs.filter(t => t.status === 'connected').length;
+        };
+
+        // Expose search setter so inline oninput="" can reach the IIFE variable
+        window.rmxSetSearch = function (q) {
+          rmxSearchQuery = q;
+          rmxRefreshSidebar();
         };
 
         function rmxRefitActive() {
@@ -994,7 +1345,16 @@
             });
           }
 
+          rmxSetLayout(rmxCurrentLayout);
+          await rmxCheckCloudAccess();
           await rmxLoadConnections();
+          rmxUpdateWorkspaceLayout();
+          rmxScheduleAutoSync(); // mulai auto-sync setiap 5 menit
+
+          // Jika lokal kosong dan user sudah login, otomatis tarik dari server
+          if (rmxConnections.length === 0) {
+            await window.rmxPullCloud(true);
+          }
         };
 
         async function rmxLoadConnections() {
@@ -1006,24 +1366,74 @@
           rmxPingAll();
         }
 
+        /**
+         * Navigasi ke Remox, tunggu koneksi dimuat, lalu auto-connect ke connectionId.
+         * Dipanggil dari halaman lain (misal MikroTik).
+         */
+        window.rmxConnectById = async function (connectionId) {
+          switchPage("remox");
+          // Tunggu initRemoxPage selesai (max 3 detik)
+          let waited = 0;
+          await new Promise((resolve) => {
+            const check = () => {
+              if (rmxInitialized || waited >= 3000) return resolve();
+              waited += 80;
+              setTimeout(check, 80);
+            };
+            check();
+          });
+          // Reload koneksi agar koneksi MikroTik yang baru tersimpan juga terbaca
+          await rmxLoadConnections();
+          window.rmxConnectOrFocus?.(connectionId);
+        };
+
         // ─── Groups ───────────────────────────────────────────────────────────
         const rmxCollapsedGroups = new Set();
 
         function rmxGetGroups() {
-          // Returns ordered unique group names; ungrouped last
-          const groups = [];
+          // Returns ordered unique group names (case-insensitive).
+          const byKey = new Map();
           rmxConnections.forEach((c) => {
-            const g = (c.group || "").trim();
-            if (g && !groups.includes(g)) groups.push(g);
+            const g = String(c.group || "").trim();
+            if (!g) return;
+            const key = g.toLowerCase();
+            if (!byKey.has(key)) byKey.set(key, g);
           });
-          return groups;
+          return [...byKey.values()].sort((a, b) => a.localeCompare(b, "id", { sensitivity: "base" }));
         }
 
-        function rmxUpdateGroupDatalist() {
-          const dl = document.getElementById("rmxGroupList");
-          if (!dl) return;
-          dl.innerHTML = rmxGetGroups().map(g => `<option value="${rmxEsc(g)}">`).join("");
-        }
+        function rmxUpdateGroupDatalist(selectedValue = "") {
+          const groupSelect = document.getElementById("rmxFormGroup");
+          const groups = rmxGetGroups();
+
+          if (groupSelect) {
+            groupSelect.innerHTML = "";
+            const frag = document.createDocumentFragment();
+
+            const emptyOpt = document.createElement("option");
+            emptyOpt.value = "";
+            emptyOpt.textContent = "Tanpa group";
+            frag.appendChild(emptyOpt);
+
+            // Jika value saat ini tidak ada di daftar group terbaru, tetap tampilkan agar tidak hilang saat edit.
+            const selected = String(selectedValue || "").trim();
+            if (selected && !groups.some((g) => g.toLowerCase() === selected.toLowerCase())) {
+              const customOpt = document.createElement("option");
+              customOpt.value = selected;
+              customOpt.textContent = selected;
+              frag.appendChild(customOpt);
+            }
+
+            groups.forEach((g) => {
+              const opt = document.createElement("option");
+              opt.value = g;
+              opt.textContent = g;
+              frag.appendChild(opt);
+            });
+            groupSelect.appendChild(frag);
+            groupSelect.value = selected || "";
+          }
+        };
 
         function rmxToggleGroup(groupName) {
           if (rmxCollapsedGroups.has(groupName)) rmxCollapsedGroups.delete(groupName);
@@ -1046,23 +1456,42 @@
             else { pingClass = "fail"; pingLabel = "Gagal"; }
             pingTitle = `Dicek ${rmxTimeAgo(ping.ts)} lalu`;
           }
+          // ── Cloud sync status ──────────────────────────────────────────
+          const isExcluded = c.sync_cloud === false;
+          const isSynced   = !isExcluded && rmxSyncedUuids.has(c.id);
+          const cloudState = isExcluded ? "excluded" : isSynced ? "synced" : "pending";
+          const cloudIcon  = isExcluded
+            ? "bi-cloud-slash-fill"
+            : isSynced ? "bi-cloud-check-fill" : "bi-cloud-arrow-up-fill";
+          const cloudTitle = isExcluded
+            ? "Tidak disinkron ke cloud — klik untuk aktifkan sinkron"
+            : isSynced
+              ? "✅ Tersinkron ke cloud Starbox — klik untuk nonaktifkan sinkron"
+              : "⏳ Belum disinkron ke cloud — klik untuk nonaktifkan sinkron";
+
           return `<div class="rmx-conn-item${isActive ? " active" : ""}" onclick="rmxConnectOrFocus('${c.id}')">
             <div class="rmx-conn-icon ${c.type}">
               <i class="bi bi-${c.type === "ssh" ? "shield-lock" : c.type === "rdp" ? "display" : "terminal"}"></i>
             </div>
             <div class="rmx-conn-info">
-              <div class="rmx-conn-name">${rmxEsc(c.name)}</div>
+              <div class="rmx-conn-head">
+                <div class="rmx-conn-name">${rmxEsc(c.name)}</div>
+                <div class="rmx-conn-actions" style="opacity:0">
+                  <button class="rmx-conn-btn" onclick="event.stopPropagation();rmxOpenEditModal('${c.id}')" title="Edit"><i class="bi bi-pencil"></i></button>
+                  <button class="rmx-conn-btn danger" onclick="event.stopPropagation();rmxDeleteConnection('${c.id}')" title="Hapus"><i class="bi bi-trash"></i></button>
+                </div>
+              </div>
               <div class="rmx-conn-meta">${rmxEsc(c.type.toUpperCase())} · ${rmxEsc(c.host)}:${c.port}</div>
             </div>
-            <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+            <div style="display:flex;align-items:center;gap:3px;flex-shrink:0">
+              <span class="rmx-cloud-dot ${cloudState}" title="${cloudTitle}"
+                onclick="event.stopPropagation();rmxToggleSyncCloud('${c.id}')">
+                <i class="bi ${cloudIcon}"></i>
+              </span>
               <span class="rmx-ping-badge ${pingClass}" title="${pingTitle}"
                 onclick="event.stopPropagation();${isRdp ? "" : "rmxPingOne('" + c.id + "')"}">
                 <span class="rmx-ping-dot"></span>${rmxEsc(pingLabel)}
               </span>
-              <div class="rmx-conn-actions" style="opacity:0">
-                <button class="rmx-conn-btn" onclick="event.stopPropagation();rmxOpenEditModal('${c.id}')" title="Edit"><i class="bi bi-pencil"></i></button>
-                <button class="rmx-conn-btn danger" onclick="event.stopPropagation();rmxDeleteConnection('${c.id}')" title="Hapus"><i class="bi bi-trash"></i></button>
-              </div>
             </div>
           </div>`;
         }
@@ -1070,19 +1499,35 @@
         function rmxRefreshSidebar() {
           const list = document.getElementById("rmxConnList");
           if (!list) return;
-          if (!rmxConnections.length) {
-            list.innerHTML = `<div class="rmx-conn-empty">Belum ada koneksi tersimpan.</div>`;
+
+          // Filter connections by search query (name, host, group, type)
+          const q = rmxSearchQuery.toLowerCase();
+          const filtered = q
+            ? rmxConnections.filter(c =>
+                (c.name || "").toLowerCase().includes(q) ||
+                (c.host || "").toLowerCase().includes(q) ||
+                (c.group || "").toLowerCase().includes(q) ||
+                (c.type || "").toLowerCase().includes(q) ||
+                String(c.port || "").includes(q) ||
+                (c.username || "").toLowerCase().includes(q)
+              )
+            : rmxConnections;
+
+          if (!filtered.length) {
+            list.innerHTML = q
+              ? `<div class="rmx-conn-empty">Tidak ada koneksi cocok untuk "<strong>${rmxEsc(q)}</strong>".</div>`
+              : `<div class="rmx-conn-empty">Belum ada koneksi tersimpan.</div>`;
             rmxUpdateGroupDatalist();
             return;
           }
 
-          const namedGroups = rmxGetGroups();
-          const ungrouped   = rmxConnections.filter(c => !(c.group || "").trim());
+          const namedGroups = [...new Set(filtered.map(c => (c.group || "").trim()).filter(Boolean))];
+          const ungrouped   = filtered.filter(c => !(c.group || "").trim());
           let html = "";
 
           // Named groups
           namedGroups.forEach(g => {
-            const members  = rmxConnections.filter(c => (c.group || "").trim() === g);
+            const members  = filtered.filter(c => (c.group || "").trim() === g);
             const collapsed = rmxCollapsedGroups.has(g);
             html += `<div class="rmx-group-header${collapsed ? " collapsed" : ""}"
               onclick="rmxToggleGroup('${rmxEsc(g)}')">
@@ -1116,13 +1561,28 @@
           }
 
           list.innerHTML = html;
+          const isDetailLayout = document.getElementById('rmxSidebar')?.classList.contains('layout-detail');
           list.querySelectorAll(".rmx-conn-item").forEach((el) => {
             const actions = el.querySelector(".rmx-conn-actions");
-            el.addEventListener("mouseenter", () => actions && (actions.style.opacity = "1"));
-            el.addEventListener("mouseleave", () => actions && (actions.style.opacity = "0"));
+            if (actions) actions.style.opacity = isDetailLayout ? "1" : "0";
+            el.addEventListener("mouseenter", () => {
+              if (!actions) return;
+              actions.style.opacity = "1";
+            });
+            el.addEventListener("mouseleave", () => {
+              if (!actions) return;
+              actions.style.opacity = isDetailLayout ? "1" : "0";
+            });
           });
           rmxUpdateGroupDatalist();
         }
+        // Expose for inline onclick handlers inside dynamically generated HTML
+        window.rmxRefreshSidebar = rmxRefreshSidebar;
+        window.rmxToggleGroup = function (g) {
+          if (rmxCollapsedGroups.has(g)) rmxCollapsedGroups.delete(g);
+          else rmxCollapsedGroups.add(g);
+          rmxRefreshSidebar();
+        };
 
         // ─── Ping ─────────────────────────────────────────────────────────────
         async function rmxPingOne(connId) {
@@ -1159,6 +1619,127 @@
           if (s < 60) return s + "d";
           return Math.floor(s / 60) + "m";
         }
+
+        // Expose ping for inline onclick in generated HTML
+        window.rmxPingOne = rmxPingOne;
+
+        // ─── Toggle cloud sync per connection ────────────────────────────────
+        window.rmxToggleSyncCloud = async function (connId) {
+          const conn = rmxConnections.find(c => c.id === connId);
+          if (!conn || !window.electronAPI?.remox?.saveConnection) return;
+          const updated = { ...conn, sync_cloud: conn.sync_cloud === false ? true : false };
+          try {
+            const saved = await window.electronAPI.remox.saveConnection(updated);
+            const idx = rmxConnections.findIndex(c => c.id === connId);
+            if (idx >= 0) rmxConnections[idx] = saved;
+            // Kalau dinonaktifkan, hapus dari synced set
+            if (saved.sync_cloud === false) rmxSyncedUuids.delete(connId);
+            rmxRefreshSidebar();
+          } catch (e) { console.error("rmxToggleSyncCloud:", e); }
+        };
+
+        // ─── Cloud Sync ───────────────────────────────────────────────────────
+        let rmxAutoSyncTimer = null;
+        const RMX_AUTO_SYNC_MS = 5 * 60 * 1000; // 5 menit
+
+        function rmxScheduleAutoSync() {
+          if (rmxAutoSyncTimer) clearInterval(rmxAutoSyncTimer);
+          rmxAutoSyncTimer = setInterval(async () => {
+            if (!window.electronAPI?.remox?.cloudSync) return;
+            const btn = document.getElementById("rmxSyncBtn");
+            if (btn) btn.classList.add("syncing");
+            try {
+              await window.rmxSyncCloud(true); // silent auto-sync
+            } catch (_) {}
+            if (btn) btn.classList.remove("syncing");
+          }, RMX_AUTO_SYNC_MS);
+        }
+
+        window.rmxSyncCloud = async function (silent = false) {
+          const btn = document.getElementById("rmxSyncBtn");
+          const quota = document.getElementById("rmxQuotaBadge");
+          if (!window.electronAPI?.remox?.cloudSync) {
+            if (!silent) alert("Fitur sinkron tidak tersedia di versi ini.");
+            return;
+          }
+          if (btn) { btn.classList.add("syncing"); btn.disabled = true; }
+          try {
+            const res = await window.electronAPI.remox.cloudSync();
+            if (res.success) {
+              rmxConnections = res.connections;
+
+              // Tandai UUIDs yang dikonfirmasi ada di server
+              rmxSyncedUuids.clear();
+              (res.syncedUuids || []).forEach(id => rmxSyncedUuids.add(id));
+
+              rmxRefreshSidebar();
+              rmxPingAll();
+              const time = new Date().toLocaleTimeString();
+              if (btn) btn.title = "Tersinkron: " + time;
+
+              // Tampilkan info quota dari server
+              if (quota) {
+                if (res.limit !== null && res.limit !== undefined) {
+                  quota.textContent = `${res.count}/${res.limit}`;
+                  quota.title = `Tersimpan di cloud: ${res.count} dari ${res.limit} koneksi`;
+                  quota.style.display = "";
+                  quota.className = "rmx-quota-badge" + (res.count >= res.limit ? " full" : "");
+                } else {
+                  quota.style.display = "none"; // unlimited, tidak perlu tampil
+                }
+              }
+
+              if (!silent && res.skipped > 0) {
+                alert(`⚠️ ${res.skipped} koneksi tidak tersimpan ke cloud karena melebihi batas paket (${res.limit} koneksi).\n\nKoneksi di lokal tetap tersimpan semua.`);
+              }
+            } else {
+              if (!silent) alert("Sinkron gagal: " + (res.error || "Unknown error"));
+            }
+          } catch (e) {
+            if (!silent) alert("Sinkron error: " + e.message);
+          } finally {
+            if (btn) { btn.classList.remove("syncing"); btn.disabled = false; }
+          }
+        };
+
+        // ─── Pull from Cloud (server → lokal) ────────────────────────────────
+        window.rmxPullCloud = async function (silent = false) {
+          const btn = document.getElementById("rmxPullBtn");
+          if (!window.electronAPI?.remox?.pullFromCloud) {
+            if (!silent) alert("Fitur ini tidak tersedia di versi ini.");
+            return;
+          }
+          if (btn) { btn.classList.add("syncing"); btn.disabled = true; }
+          try {
+            const res = await window.electronAPI.remox.pullFromCloud();
+            if (res.success) {
+              rmxConnections = res.connections;
+              rmxSyncedUuids.clear();
+              res.connections.filter(c => c.sync_cloud).forEach(c => rmxSyncedUuids.add(c.id));
+              rmxRefreshSidebar();
+              rmxPingAll();
+              if (btn) btn.title = "Ditarik: " + new Date().toLocaleTimeString();
+
+              // Update quota badge
+              const quota = document.getElementById("rmxQuotaBadge");
+              if (quota && res.limit !== null && res.limit !== undefined) {
+                quota.textContent = `${res.count}/${res.limit}`;
+                quota.style.display = "";
+                quota.className = "rmx-quota-badge" + (res.count >= res.limit ? " full" : "");
+              }
+
+              if (!silent && res.count > 0) {
+                alert(`✅ Berhasil menarik ${res.count} koneksi dari server.`);
+              }
+            } else {
+              if (!silent) alert("Gagal tarik dari server: " + (res.error || "Unknown error"));
+            }
+          } catch (e) {
+            if (!silent) alert("Error: " + e.message);
+          } finally {
+            if (btn) { btn.classList.remove("syncing"); btn.disabled = false; }
+          }
+        };
 
         // ─── Tab connect modal ────────────────────────────────────────────────
         window.rmxOpenTabModal = function () {
@@ -1208,6 +1789,154 @@
         });
 
         // ─── Tabs ─────────────────────────────────────────────────────────────
+        // ─── Sidebar resize ───────────────────────────────────────────────────
+        const RMX_SIDEBAR_MIN = 160;
+        const RMX_SIDEBAR_MAX = 520;
+        const RMX_SIDEBAR_DEFAULT = 240;
+
+        (function rmxInitResize() {
+          const handle = document.getElementById('rmxResizeHandle');
+          const sidebar = document.getElementById('rmxSidebar');
+          if (!handle || !sidebar) return;
+
+          // Restore saved width
+          const saved = parseInt(localStorage.getItem('rmx-sidebar-w'));
+          if (saved && saved >= RMX_SIDEBAR_MIN && saved <= RMX_SIDEBAR_MAX) {
+            sidebar.style.width = saved + 'px';
+          }
+
+          let startX = 0, startW = 0, dragging = false;
+
+          handle.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            dragging = true;
+            startX = e.clientX;
+            startW = sidebar.offsetWidth;
+            handle.classList.add('dragging');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+          });
+
+          document.addEventListener('mousemove', (e) => {
+            if (!dragging) return;
+            const newW = Math.min(RMX_SIDEBAR_MAX, Math.max(RMX_SIDEBAR_MIN, startW + (e.clientX - startX)));
+            sidebar.style.width = newW + 'px';
+          });
+
+          document.addEventListener('mouseup', () => {
+            if (!dragging) return;
+            dragging = false;
+            handle.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            try { localStorage.setItem('rmx-sidebar-w', sidebar.offsetWidth); } catch (_) {}
+            // Refit active terminal after resize
+            if (rmxActiveTab) {
+              const tab = rmxTabs.find(t => t.id === rmxActiveTab);
+              if (tab?.fitAddon) setTimeout(() => tab.fitAddon.fit(), 50);
+            }
+          });
+
+          // Double-click to reset to default width
+          handle.addEventListener('dblclick', () => {
+            sidebar.style.width = RMX_SIDEBAR_DEFAULT + 'px';
+            try { localStorage.setItem('rmx-sidebar-w', RMX_SIDEBAR_DEFAULT); } catch (_) {}
+            if (rmxActiveTab) {
+              const tab = rmxTabs.find(t => t.id === rmxActiveTab);
+              if (tab?.fitAddon) setTimeout(() => tab.fitAddon.fit(), 50);
+            }
+          });
+        })();
+
+        // ─── Layout & workspace state ──────────────────────────────────────────
+        let rmxCurrentLayout = (typeof localStorage !== 'undefined' && localStorage.getItem('rmx-layout')) || 'compact';
+
+        function rmxUpdateWorkspaceLayout() {
+          const workspace = document.querySelector('.rmx-workspace');
+          if (!workspace) return;
+          if (rmxTabs.length === 0) workspace.classList.add('no-tabs');
+          else workspace.classList.remove('no-tabs');
+        }
+
+        window.rmxSetLayout = function (mode) {
+          rmxCurrentLayout = mode;
+          try { localStorage.setItem('rmx-layout', mode); } catch (_) {}
+          const sidebar = document.getElementById('rmxSidebar');
+          if (!sidebar) return;
+          if (mode === 'detail') {
+            sidebar.classList.add('layout-detail');
+            document.getElementById('rmxLayoutDetailBtn')?.classList.add('active');
+            document.getElementById('rmxLayoutCompactBtn')?.classList.remove('active');
+          } else {
+            sidebar.classList.remove('layout-detail');
+            document.getElementById('rmxLayoutCompactBtn')?.classList.add('active');
+            document.getElementById('rmxLayoutDetailBtn')?.classList.remove('active');
+          }
+          // Re-render agar state hover/action mengikuti mode baru.
+          rmxRefreshSidebar();
+        };
+
+        // ─── Cloud access check ────────────────────────────────────────────────
+        async function rmxCheckCloudAccess() {
+          const pullBtn   = document.getElementById('rmxPullBtn');
+          const syncBtn   = document.getElementById('rmxSyncBtn');
+          const quotaBadge = document.getElementById('rmxQuotaBadge');
+          const banner    = document.getElementById('rmxCloudBanner');
+          const bannerText    = document.getElementById('rmxCloudBannerText');
+          const loginBtn  = document.getElementById('rmxCloudBannerLoginBtn');
+          const upgradeBtn = document.getElementById('rmxCloudBannerUpgradeBtn');
+
+          let session = null;
+          try {
+            if (window.electronAPI?.auth?.getSession) session = await window.electronAPI.auth.getSession();
+          } catch (_) {}
+
+          const isLoggedIn = !!(session?.isLoggedIn);
+          const hasPkg     = isLoggedIn && (session?.package !== null && session?.package !== undefined);
+
+          if (!isLoggedIn) {
+            if (pullBtn)  pullBtn.style.display  = 'none';
+            if (syncBtn)  syncBtn.style.display  = 'none';
+            if (quotaBadge) quotaBadge.style.display = 'none';
+            if (banner) { banner.style.display = 'flex'; banner.className = 'rmx-cloud-banner'; }
+            if (bannerText) bannerText.textContent = 'Login terlebih dahulu untuk menggunakan sinkronisasi cloud.';
+            if (loginBtn)   loginBtn.style.display   = '';
+            if (upgradeBtn) upgradeBtn.style.display = 'none';
+          } else if (!hasPkg) {
+            if (pullBtn)  pullBtn.style.display  = 'none';
+            if (syncBtn)  syncBtn.style.display  = 'none';
+            if (quotaBadge) quotaBadge.style.display = 'none';
+            if (banner) { banner.style.display = 'flex'; banner.className = 'rmx-cloud-banner warn'; }
+            if (bannerText) bannerText.textContent = 'Sinkronisasi cloud hanya tersedia untuk paket berlangganan.';
+            if (loginBtn)   loginBtn.style.display   = 'none';
+            if (upgradeBtn) upgradeBtn.style.display = '';
+          } else {
+            if (pullBtn)  pullBtn.style.display  = '';
+            if (syncBtn)  syncBtn.style.display  = '';
+            if (banner)   banner.style.display   = 'none';
+          }
+        }
+
+        // ─── Tabs ─────────────────────────────────────────────────────────────
+        function rmxClearTabDropMarks() {
+          const tabsEl = document.getElementById("rmxTabs");
+          if (!tabsEl) return;
+          tabsEl.querySelectorAll(".rmx-tab.drop-before, .rmx-tab.drop-after").forEach((el) => {
+            el.classList.remove("drop-before", "drop-after");
+          });
+        }
+
+        function rmxReorderTabs(dragId, targetId, position = "before") {
+          const from = rmxTabs.findIndex((t) => t.id === dragId);
+          const to = rmxTabs.findIndex((t) => t.id === targetId);
+          if (from < 0 || to < 0 || from === to) return;
+
+          const [moved] = rmxTabs.splice(from, 1);
+          const targetNow = rmxTabs.findIndex((t) => t.id === targetId);
+          const insertAt = position === "after" ? targetNow + 1 : targetNow;
+          rmxTabs.splice(Math.max(0, insertAt), 0, moved);
+        }
+
         function rmxRenderTabs() {
           // Preserve the + button; only update session tabs
           const tabsEl = document.getElementById("rmxTabs");
@@ -1222,12 +1951,75 @@
               : t.status === "error" ? "error" : "";
             const div = document.createElement("div");
             div.className = "rmx-tab" + (t.id === rmxActiveTab ? " active" : "");
-            div.onclick = () => rmxSetActiveTab(t.id);
+            div.dataset.tabId = t.id;
+            div.draggable = true;
+            div.onclick = () => {
+              if (rmxTabDnD.justDropped) {
+                rmxTabDnD.justDropped = false;
+                return;
+              }
+              rmxSetActiveTab(t.id);
+            };
+            div.addEventListener("dragstart", (e) => {
+              rmxTabDnD.dragId = t.id;
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData("text/plain", t.id);
+              setTimeout(() => div.classList.add("dragging"), 0);
+            });
+            div.addEventListener("dragend", () => {
+              div.classList.remove("dragging");
+              rmxTabDnD.dragId = null;
+              rmxTabDnD.dropTargetId = null;
+              rmxTabDnD.dropPos = null;
+              rmxClearTabDropMarks();
+            });
+            div.addEventListener("dragover", (e) => {
+              if (!rmxTabDnD.dragId || rmxTabDnD.dragId === t.id) return;
+              e.preventDefault();
+              const rect = div.getBoundingClientRect();
+              const before = e.clientX < rect.left + rect.width / 2;
+              rmxClearTabDropMarks();
+              div.classList.add(before ? "drop-before" : "drop-after");
+              rmxTabDnD.dropTargetId = t.id;
+              rmxTabDnD.dropPos = before ? "before" : "after";
+            });
+            div.addEventListener("dragleave", () => {
+              div.classList.remove("drop-before", "drop-after");
+            });
+            div.addEventListener("drop", (e) => {
+              e.preventDefault();
+              if (!rmxTabDnD.dragId || rmxTabDnD.dragId === t.id) return;
+              const pos = rmxTabDnD.dropPos || "before";
+              rmxReorderTabs(rmxTabDnD.dragId, t.id, pos);
+              rmxTabDnD.justDropped = true;
+              rmxRenderTabs();
+            });
             div.innerHTML = `<span class="rmx-tab-dot ${dotClass}"></span>
               <span>${rmxEsc(t.name)}</span>
-              <button class="rmx-tab-close" onclick="event.stopPropagation();rmxCloseTab('${t.id}')" title="${window.t('remox.tab.close')}">×</button>`;
+              <button class="rmx-tab-close" draggable="false" onclick="event.stopPropagation();rmxCloseTab('${t.id}')" title="${window.t('remox.tab.close')}">×</button>`;
             tabsEl.insertBefore(div, addBtn || null);
           });
+          if (!tabsEl.dataset.dndBound) {
+            tabsEl.addEventListener("dragover", (e) => {
+              if (!rmxTabDnD.dragId) return;
+              e.preventDefault();
+            });
+            tabsEl.addEventListener("drop", (e) => {
+              if (!rmxTabDnD.dragId) return;
+              const targetTab = e.target.closest(".rmx-tab");
+              if (!targetTab) {
+                const from = rmxTabs.findIndex((x) => x.id === rmxTabDnD.dragId);
+                if (from > -1) {
+                  const [moved] = rmxTabs.splice(from, 1);
+                  rmxTabs.push(moved);
+                  rmxTabDnD.justDropped = true;
+                  rmxRenderTabs();
+                }
+              }
+            });
+            tabsEl.dataset.dndBound = "1";
+          }
+          rmxUpdateWorkspaceLayout();
         }
 
         function rmxSetActiveTab(id) {
@@ -1436,7 +2228,6 @@
           document.getElementById("rmxEditId").value = "";
           document.getElementById("rmxModalTitle").textContent = window.t('remox.modal.add');
           document.getElementById("rmxFormName").value = "";
-          document.getElementById("rmxFormGroup").value = "";
           document.getElementById("rmxFormType").value = "ssh";
           document.getElementById("rmxFormHost").value = "";
           document.getElementById("rmxFormPort").value = "22";
@@ -1448,6 +2239,7 @@
           document.getElementById("rmxRdpFields").style.display = "none";
           document.getElementById("rmxPkToggleBtn").style.display = "";
           document.getElementById("rmxSshFields").style.display = "";
+          rmxUpdateGroupDatalist("");
           document.getElementById("rmxModal").style.display = "flex";
           document.getElementById("rmxFormName").focus();
         };
@@ -1458,7 +2250,6 @@
           document.getElementById("rmxEditId").value = c.id;
           document.getElementById("rmxModalTitle").textContent = window.t('remox.modal.edit');
           document.getElementById("rmxFormName").value = c.name || "";
-          document.getElementById("rmxFormGroup").value = c.group || "";
           document.getElementById("rmxFormType").value = c.type || "ssh";
           document.getElementById("rmxFormHost").value = c.host || "";
           document.getElementById("rmxFormPort").value = c.port || 22;
@@ -1472,6 +2263,7 @@
           document.getElementById("rmxRdpFields").style.display = isRdp ? "" : "none";
           document.getElementById("rmxPkToggleBtn").style.display = isSsh ? "" : "none";
           document.getElementById("rmxSshFields").style.display = (isSsh || isRdp) ? "" : "none";
+          rmxUpdateGroupDatalist(c.group || "");
           document.getElementById("rmxModal").style.display = "flex";
         };
 
@@ -1512,7 +2304,7 @@
           if (type === "ssh" && !username) { alert("Username wajib diisi untuk SSH"); return; }
           if (type === "rdp" && !username) { alert("Username wajib diisi untuk RDP"); return; }
 
-          const group = document.getElementById("rmxFormGroup").value.trim();
+          const group = String(document.getElementById("rmxFormGroup").value || "").trim();
           const conn = { type, host, port, username, password, privateKey, domain, group };
           if (editId) conn.id = editId;
           conn.name = name;
@@ -1548,12 +2340,734 @@
             .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
         }
 
+        // ─── Re-check cloud access on session change ──────────────────────────
+        if (window.electronAPI?.auth?.onSessionChanged) {
+          window.electronAPI.auth.onSessionChanged(() => {
+            if (rmxInitialized) rmxCheckCloudAccess();
+          });
+        }
+
         // ─── MutationObserver trigger ─────────────────────────────────────────
         const rmxPage = document.getElementById("page-remox");
         if (rmxPage) {
           new MutationObserver(() => {
             if (rmxPage.classList.contains("active")) window.initRemoxPage();
           }).observe(rmxPage, { attributes: true, attributeFilter: ["class"] });
+        }
+      })();
+      </script>
+
+      <!-- Page: MikroTik -->
+      <div id="page-mikrotik" class="page-content">
+        <style>
+          /* ── MikroTik Page ── */
+          #page-mikrotik { display:none; flex-direction:column; height:100%; min-height:0; overflow:hidden; }
+          #page-mikrotik.active { display:flex; }
+          .mtk-layout { display:flex; flex-direction:column; height:100%; overflow:hidden; }
+          .mtk-topbar { display:flex; align-items:center; gap:10px; padding:14px 18px 10px; border-bottom:1px solid var(--border-color,#333); flex-shrink:0; flex-wrap:wrap; }
+          .mtk-topbar h2 { margin:0; font-size:17px; font-weight:700; color:var(--text-primary,#e0e0e0); display:flex; align-items:center; gap:8px; flex:1; }
+          .mtk-topbar h2 i { color:#e8a000; font-size:20px; }
+          .mtk-badge { font-size:11px; background:#e8a00022; color:#e8a000; border:1px solid #e8a00044; border-radius:6px; padding:2px 8px; font-weight:600; }
+          .mtk-btn { display:inline-flex; align-items:center; gap:6px; padding:7px 14px; border-radius:8px; border:none; cursor:pointer; font-size:13px; font-weight:500; transition:.15s; }
+          .mtk-btn-primary   { background:#5b6af0; color:#fff; }
+          .mtk-btn-primary:hover { background:#4a58d0; }
+          .mtk-btn-secondary { background:rgba(255,255,255,.07); color:var(--text-primary,#ccc); border:1px solid var(--border-color,#444); }
+          .mtk-btn-secondary:hover { background:rgba(255,255,255,.12); }
+          .mtk-btn-danger    { background:#c0392b22; color:#e74c3c; border:1px solid #e74c3c44; }
+          .mtk-btn-danger:hover { background:#c0392b44; }
+          .mtk-btn-sm { padding:5px 10px; font-size:12px; }
+
+          .mtk-body { display:flex; flex:1; min-height:0; overflow:hidden; }
+          .mtk-sidebar { width:260px; flex-shrink:0; border-right:1px solid var(--border-color,#333); display:flex; flex-direction:column; overflow:hidden; }
+          .mtk-sidebar-hdr { padding:12px 14px 8px; font-size:11px; font-weight:700; letter-spacing:.08em; color:var(--text-muted,#888); text-transform:uppercase; flex-shrink:0; }
+          .mtk-conn-list { flex:1; overflow-y:auto; padding:4px 8px 8px; }
+          .mtk-conn-item { display:flex; align-items:center; gap:9px; padding:9px 10px; border-radius:9px; cursor:pointer; transition:.15s; margin-bottom:2px; border:1px solid transparent; }
+          .mtk-conn-item:hover { background:rgba(255,255,255,.06); }
+          .mtk-conn-item.active { background:rgba(91,106,240,.18); border-color:rgba(91,106,240,.35); }
+          .mtk-conn-icon { width:34px; height:34px; border-radius:8px; background:#e8a00022; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+          .mtk-conn-icon i { color:#e8a000; font-size:18px; }
+          .mtk-conn-info { flex:1; min-width:0; }
+          .mtk-conn-name { font-size:13px; font-weight:600; color:var(--text-primary,#e0e0e0); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+          .mtk-conn-host { font-size:11px; color:var(--text-muted,#888); }
+          .mtk-conn-dot { width:8px; height:8px; border-radius:50%; background:#555; flex-shrink:0; }
+          .mtk-conn-dot.online { background:#27ae60; box-shadow:0 0 6px #27ae6088; }
+          .mtk-conn-dot.offline { background:#e74c3c; }
+          .mtk-conn-empty { padding:20px 14px; font-size:13px; color:var(--text-muted,#888); text-align:center; }
+
+          .mtk-main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+          .mtk-splash { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:var(--text-muted,#888); }
+          .mtk-splash i { font-size:54px; color:#e8a00044; }
+          .mtk-splash h3 { margin:0; font-size:16px; color:var(--text-primary,#bbb); }
+          .mtk-splash p { margin:0; font-size:13px; max-width:340px; text-align:center; }
+
+          .mtk-detail { flex:1; display:none; flex-direction:column; overflow:hidden; padding:20px 24px; overflow-y:auto; }
+          .mtk-detail.visible { display:flex; }
+          .mtk-detail-hdr { display:flex; align-items:center; gap:14px; margin-bottom:20px; }
+          .mtk-detail-icon { width:52px; height:52px; border-radius:14px; background:#e8a00022; display:flex; align-items:center; justify-content:center; }
+          .mtk-detail-icon i { font-size:28px; color:#e8a000; }
+          .mtk-detail-title { flex:1; }
+          .mtk-detail-title h3 { margin:0 0 3px; font-size:18px; font-weight:700; color:var(--text-primary,#e0e0e0); }
+          .mtk-detail-title span { font-size:13px; color:var(--text-muted,#888); }
+          .mtk-detail-actions { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:24px; }
+
+          .mtk-info-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:12px; margin-bottom:20px; }
+          .mtk-info-card { background:rgba(255,255,255,.04); border:1px solid var(--border-color,#333); border-radius:10px; padding:12px 14px; }
+          .mtk-info-card label { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-muted,#888); font-weight:700; display:block; margin-bottom:4px; }
+          .mtk-info-card span { font-size:14px; font-weight:600; color:var(--text-primary,#e0e0e0); }
+          .mtk-port-badge { display:inline-flex; align-items:center; gap:5px; background:rgba(39,174,96,.12); border:1px solid rgba(39,174,96,.3); border-radius:6px; padding:2px 8px; font-size:12px; color:#27ae60; font-weight:600; margin:2px; }
+          .mtk-port-badge.closed { background:rgba(231,76,60,.08); border-color:rgba(231,76,60,.25); color:#e74c3c; }
+
+          /* Scan modal */
+          .mtk-scan-overlay { position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:9000; display:none; align-items:center; justify-content:center; }
+          .mtk-scan-overlay.visible { display:flex; }
+          .mtk-scan-box { background:var(--bg-card,#1e2030); border:1px solid var(--border-color,#333); border-radius:14px; padding:24px; width:480px; max-width:92vw; max-height:80vh; display:flex; flex-direction:column; gap:14px; }
+          .mtk-scan-box h3 { margin:0; font-size:16px; font-weight:700; color:var(--text-primary,#e0e0e0); display:flex; align-items:center; gap:8px; }
+          .mtk-scan-progress { height:4px; background:#333; border-radius:2px; overflow:hidden; }
+          .mtk-scan-bar { height:100%; background:#5b6af0; border-radius:2px; width:0%; transition:width .4s; }
+          .mtk-scan-status { font-size:13px; color:var(--text-muted,#888); }
+          .mtk-scan-results { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; }
+          .mtk-scan-result-item { display:flex; align-items:center; gap:12px; padding:10px 12px; background:rgba(255,255,255,.04); border:1px solid var(--border-color,#333); border-radius:9px; cursor:pointer; transition:.15s; }
+          .mtk-scan-result-item:hover { background:rgba(91,106,240,.15); border-color:#5b6af0; }
+          .mtk-scan-result-item .ri { width:36px; height:36px; border-radius:8px; background:#e8a00022; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+          .mtk-scan-result-item .ri i { color:#e8a000; font-size:20px; }
+          .mtk-scan-result-item .rd { flex:1; }
+          .mtk-scan-result-item .rd b { font-size:13px; color:var(--text-primary,#e0e0e0); display:block; }
+          .mtk-scan-result-item .rd small { font-size:11px; color:var(--text-muted,#888); }
+
+          /* Add/Edit modal */
+          .mtk-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:9000; display:none; align-items:center; justify-content:center; }
+          .mtk-modal-overlay.visible { display:flex; }
+          .mtk-modal { background:var(--bg-card,#1e2030); border:1px solid var(--border-color,#333); border-radius:14px; padding:24px; width:460px; max-width:92vw; display:flex; flex-direction:column; gap:16px; }
+          .mtk-modal h3 { margin:0; font-size:16px; font-weight:700; color:var(--text-primary,#e0e0e0); }
+          .mtk-form-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+          .mtk-form-group { display:flex; flex-direction:column; gap:6px; }
+          .mtk-form-group label { font-size:12px; font-weight:600; color:var(--text-muted,#888); }
+          .mtk-form-group input { background:rgba(255,255,255,.05); border:1px solid var(--border-color,#444); border-radius:7px; padding:8px 11px; font-size:13px; color:var(--text-primary,#e0e0e0); outline:none; transition:.15s; }
+          .mtk-form-group input:focus { border-color:#5b6af0; }
+          .mtk-form-group input::placeholder { color:#666; }
+          .mtk-modal-actions { display:flex; gap:10px; justify-content:flex-end; }
+        </style>
+
+        <div class="mtk-layout">
+          <!-- Top bar -->
+          <div class="mtk-topbar">
+            <h2><i class="bi bi-router"></i> MikroTik Manager <span class="mtk-badge">Router OS</span></h2>
+            <button class="mtk-btn mtk-btn-secondary" onclick="mtkScanNetwork()">
+              <i class="bi bi-search"></i> Scan Jaringan
+            </button>
+            <button class="mtk-btn mtk-btn-primary" onclick="mtkOpenAddModal()">
+              <i class="bi bi-plus-lg"></i> Tambah Router
+            </button>
+          </div>
+
+          <!-- Body: sidebar + detail -->
+          <div class="mtk-body">
+            <!-- Sidebar: daftar router -->
+            <div class="mtk-sidebar">
+              <div class="mtk-sidebar-hdr">Router Tersimpan</div>
+              <div class="mtk-conn-list" id="mtkConnList">
+                <div class="mtk-conn-empty" id="mtkConnEmpty">Belum ada router. Klik <strong>Tambah Router</strong> atau <strong>Scan Jaringan</strong>.</div>
+              </div>
+            </div>
+
+            <!-- Main area -->
+            <div class="mtk-main" id="mtkMain">
+              <!-- Splash -->
+              <div class="mtk-splash" id="mtkSplash">
+                <i class="bi bi-router"></i>
+                <h3>MikroTik Manager</h3>
+                <p>Pilih router di kiri, atau scan jaringan lokal untuk mendeteksi perangkat MikroTik secara otomatis.</p>
+                <div style="display:flex;gap:10px;margin-top:8px">
+                  <button class="mtk-btn mtk-btn-secondary" onclick="mtkScanNetwork()"><i class="bi bi-search"></i> Scan Jaringan</button>
+                  <button class="mtk-btn mtk-btn-primary" onclick="mtkOpenAddModal()"><i class="bi bi-plus-lg"></i> Tambah Router</button>
+                </div>
+              </div>
+
+              <!-- Detail panel -->
+              <div class="mtk-detail" id="mtkDetail">
+                <!-- diisi oleh JavaScript -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal: Add/Edit Router -->
+        <div class="mtk-modal-overlay" id="mtkModalOverlay">
+          <div class="mtk-modal">
+            <h3 id="mtkModalTitle">Tambah Router MikroTik</h3>
+            <div class="mtk-form-group">
+              <label>Nama Router</label>
+              <input type="text" id="mtkFName" placeholder="Contoh: Router Kantor" />
+            </div>
+            <div class="mtk-form-row">
+              <div class="mtk-form-group">
+                <label>Host / IP</label>
+                <input type="text" id="mtkFHost" placeholder="192.168.1.1" />
+              </div>
+              <div class="mtk-form-group">
+                <label>SSH Port</label>
+                <input type="number" id="mtkFSshPort" value="22" min="1" max="65535" />
+              </div>
+            </div>
+            <div class="mtk-form-row">
+              <div class="mtk-form-group">
+                <label>Web Port</label>
+                <input type="number" id="mtkFWebPort" value="80" min="1" max="65535" />
+              </div>
+              <div class="mtk-form-group">
+                <label>Winbox Port</label>
+                <input type="number" id="mtkFWinboxPort" value="8291" min="1" max="65535" />
+              </div>
+            </div>
+            <div class="mtk-form-row">
+              <div class="mtk-form-group">
+                <label>Username</label>
+                <input type="text" id="mtkFUser" placeholder="admin" />
+              </div>
+              <div class="mtk-form-group">
+                <label>Password</label>
+                <input type="password" id="mtkFPass" placeholder="(kosong = tanpa password)" />
+              </div>
+            </div>
+            <div class="mtk-form-group">
+              <label>Catatan (opsional)</label>
+              <input type="text" id="mtkFNote" placeholder="Lokasi, fungsi, dll." />
+            </div>
+            <div class="mtk-modal-actions">
+              <button class="mtk-btn mtk-btn-secondary" onclick="mtkCloseModal()">Batal</button>
+              <button class="mtk-btn mtk-btn-primary" onclick="mtkSubmitDevice()"><i class="bi bi-floppy"></i> Simpan</button>
+            </div>
+            <input type="hidden" id="mtkFId" />
+          </div>
+        </div>
+
+        <!-- Modal: Scan Network -->
+        <div class="mtk-scan-overlay" id="mtkScanOverlay">
+          <div class="mtk-scan-box">
+            <h3><i class="bi bi-search" style="color:#5b6af0"></i> Scan Jaringan Lokal</h3>
+            <div>
+              <div class="mtk-scan-progress"><div class="mtk-scan-bar" id="mtkScanBar"></div></div>
+              <div class="mtk-scan-status" id="mtkScanStatus">Siap untuk scan…</div>
+            </div>
+            <div class="mtk-scan-results" id="mtkScanResults">
+              <div style="color:var(--text-muted,#888);font-size:13px;text-align:center">Klik <strong>Mulai Scan</strong> untuk mendeteksi perangkat MikroTik di jaringan lokal.</div>
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+              <button class="mtk-btn mtk-btn-secondary" onclick="mtkCloseScan()">Tutup</button>
+              <button class="mtk-btn mtk-btn-primary" id="mtkScanStartBtn" onclick="mtkStartScan()"><i class="bi bi-play-fill"></i> Mulai Scan</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- End Page: MikroTik -->
+
+      <script>
+      (function () {
+        "use strict";
+
+        // ─── State ───────────────────────────────────────────────────────────
+        let mtkDevices  = [];
+        let mtkSelected = null; // device yang dipilih
+
+        // ─── Load & Render ────────────────────────────────────────────────────
+        async function mtkLoadDevices() {
+          if (!window.electronAPI?.mikrotik) return;
+          mtkDevices = await window.electronAPI.mikrotik.loadDevices();
+          mtkRenderSidebar();
+        }
+
+        function mtkRenderSidebar() {
+          const list  = document.getElementById("mtkConnList");
+          const empty = document.getElementById("mtkConnEmpty");
+          if (!list) return;
+
+          // Hapus item lama (tapi biarkan empty placeholder)
+          list.querySelectorAll(".mtk-conn-item").forEach((el) => el.remove());
+
+          if (!mtkDevices.length) {
+            if (empty) empty.style.display = "";
+            return;
+          }
+          if (empty) empty.style.display = "none";
+
+          mtkDevices.forEach((dev) => {
+            const item = document.createElement("div");
+            item.className = "mtk-conn-item" + (mtkSelected?.id === dev.id ? " active" : "");
+            item.dataset.id = dev.id;
+            item.innerHTML = `
+              <div class="mtk-conn-icon"><i class="bi bi-router"></i></div>
+              <div class="mtk-conn-info">
+                <div class="mtk-conn-name">${escHtml(dev.name || dev.host)}</div>
+                <div class="mtk-conn-host">${escHtml(dev.host)}</div>
+              </div>
+              <div class="mtk-conn-dot" id="mtkDot-${dev.id}"></div>`;
+            item.addEventListener("click", () => mtkSelectDevice(dev));
+            list.appendChild(item);
+          });
+        }
+
+        function escHtml(str) {
+          return String(str || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        }
+
+        // ─── Select & Detail ─────────────────────────────────────────────────
+        function mtkSelectDevice(dev) {
+          mtkSelected = dev;
+          // Update sidebar highlight
+          document.querySelectorAll(".mtk-conn-item").forEach((el) => {
+            el.classList.toggle("active", el.dataset.id === dev.id);
+          });
+          mtkRenderDetail(dev);
+        }
+
+        function mtkRenderDetail(dev) {
+          const splash = document.getElementById("mtkSplash");
+          const detail = document.getElementById("mtkDetail");
+          if (!splash || !detail) return;
+          splash.style.display = "none";
+          detail.classList.add("visible");
+
+          const ports = [];
+          if (dev.sshPort)    ports.push({ label: "SSH",    port: dev.sshPort,    icon: "bi-terminal" });
+          if (dev.webPort)    ports.push({ label: "Web UI", port: dev.webPort,    icon: "bi-globe" });
+          if (dev.winboxPort) ports.push({ label: "Winbox", port: dev.winboxPort, icon: "bi-window-stack" });
+
+          detail.innerHTML = `
+            <div class="mtk-detail-hdr">
+              <div class="mtk-detail-icon"><i class="bi bi-router"></i></div>
+              <div class="mtk-detail-title">
+                <h3>${escHtml(dev.name || dev.host)}</h3>
+                <span>${escHtml(dev.host)}${dev.note ? " — " + escHtml(dev.note) : ""}</span>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button class="mtk-btn mtk-btn-secondary mtk-btn-sm" onclick="mtkOpenEditModal('${dev.id}')"><i class="bi bi-pencil"></i> Edit</button>
+                <button class="mtk-btn mtk-btn-danger mtk-btn-sm" onclick="mtkDeleteDevice('${dev.id}')"><i class="bi bi-trash"></i></button>
+              </div>
+            </div>
+
+            <div class="mtk-info-grid">
+              <div class="mtk-info-card">
+                <label>Host / IP</label>
+                <span>${escHtml(dev.host)}</span>
+              </div>
+              <div class="mtk-info-card">
+                <label>Username</label>
+                <span>${escHtml(dev.username || "admin")}</span>
+              </div>
+              ${dev.note ? `<div class="mtk-info-card" style="grid-column:1/-1"><label>Catatan</label><span>${escHtml(dev.note)}</span></div>` : ""}
+            </div>
+
+            <div style="margin-bottom:14px">
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted,#888);font-weight:700;margin-bottom:8px">Port</div>
+              <div>
+                ${ports.map((p) => `<span class="mtk-port-badge"><i class="bi ${p.icon}"></i> ${p.label}: ${p.port}</span>`).join("")}
+              </div>
+            </div>
+
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted,#888);font-weight:700;margin-bottom:12px">Aksi Koneksi</div>
+            <div class="mtk-detail-actions">
+              <button class="mtk-btn mtk-btn-primary" onclick="mtkDoSSH('${dev.id}')">
+                <i class="bi bi-terminal-fill"></i> SSH Terminal
+              </button>
+              <button class="mtk-btn mtk-btn-secondary" onclick="mtkDoWebUI('${dev.id}')">
+                <i class="bi bi-globe"></i> Web UI
+              </button>
+              <button class="mtk-btn mtk-btn-secondary" onclick="mtkDoWinbox('${dev.id}')">
+                <i class="bi bi-window-stack"></i> Winbox
+              </button>
+            </div>
+
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted,#888);font-weight:700;margin-bottom:10px">Remote via Relay
+              <span style="font-size:10px;font-weight:400;color:#5b6af0;margin-left:6px;text-transform:none">• Akses dari jaringan lain</span>
+            </div>
+            <div style="background:rgba(91,106,240,.08);border:1px solid rgba(91,106,240,.25);border-radius:10px;padding:14px 16px;font-size:13px;line-height:1.7">
+              <div style="color:var(--text-muted,#aaa);margin-bottom:12px">
+                <i class="bi bi-info-circle" style="color:#5b6af0"></i>
+                Pastikan <strong>StarBox Agent</strong> berjalan di jaringan yang sama dengan router dan login dengan akun yang sama.
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+                <button class="mtk-btn mtk-btn-primary mtk-btn-sm" onclick="mtkDoSSHRelay('${dev.id}')">
+                  <i class="bi bi-terminal"></i> SSH via Relay
+                </button>
+                <button class="mtk-btn mtk-btn-secondary mtk-btn-sm" onclick="mtkDoWebUIRelay('${dev.id}')">
+                  <i class="bi bi-globe"></i> Web UI via Relay
+                </button>
+                <button class="mtk-btn mtk-btn-secondary mtk-btn-sm" id="mtkWinboxRelayBtn-${dev.id}" onclick="mtkDoWinboxRelay('${dev.id}')">
+                  <i class="bi bi-plug"></i> Winbox via Relay
+                </button>
+              </div>
+              <div id="mtkWinboxRelayInfo-${dev.id}" style="display:none;margin-top:12px;padding:10px 12px;background:rgba(39,174,96,.1);border:1px solid rgba(39,174,96,.3);border-radius:8px">
+                <div style="color:#27ae60;font-weight:600;margin-bottom:4px"><i class="bi bi-check-circle-fill"></i> Winbox Tunnel Aktif</div>
+                <div style="color:var(--text-muted,#aaa);font-size:12px">
+                  Buka Winbox → connect ke <code style="background:#0003;padding:1px 5px;border-radius:4px;color:#e0e0e0">localhost:<span class="mtk-winbox-port"></span></code>
+                </div>
+                <button class="mtk-btn mtk-btn-danger mtk-btn-sm" style="margin-top:8px" onclick="mtkStopWinboxTunnel('${dev.id}')">
+                  <i class="bi bi-stop-fill"></i> Stop Tunnel
+                </button>
+              </div>
+            </div>
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted,#888);font-weight:700;margin:18px 0 10px">Sinkronisasi Server</div>
+            <div style="display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-muted,#aaa)">
+              <i class="bi bi-cloud-arrow-up" style="color:#5b6af0;font-size:16px"></i>
+              Device ini tersinkron ke server StarBox. Dapat diakses dari web dashboard.
+              <button class="mtk-btn mtk-btn-secondary mtk-btn-sm" onclick="mtkSyncToServer()" style="margin-left:auto">
+                <i class="bi bi-arrow-repeat"></i> Sync Sekarang
+              </button>
+            </div>`;
+        }
+
+        // ─── CRUD ─────────────────────────────────────────────────────────────
+        window.mtkOpenAddModal = function () {
+          document.getElementById("mtkModalTitle").textContent = "Tambah Router MikroTik";
+          document.getElementById("mtkFId").value     = "";
+          document.getElementById("mtkFName").value   = "";
+          document.getElementById("mtkFHost").value   = "";
+          document.getElementById("mtkFSshPort").value = "22";
+          document.getElementById("mtkFWebPort").value = "80";
+          document.getElementById("mtkFWinboxPort").value = "8291";
+          document.getElementById("mtkFUser").value   = "admin";
+          document.getElementById("mtkFPass").value   = "";
+          document.getElementById("mtkFNote").value   = "";
+          document.getElementById("mtkModalOverlay").classList.add("visible");
+          setTimeout(() => document.getElementById("mtkFName").focus(), 80);
+        };
+
+        window.mtkOpenEditModal = function (id) {
+          const dev = mtkDevices.find((d) => d.id === id);
+          if (!dev) return;
+          document.getElementById("mtkModalTitle").textContent = "Edit Router MikroTik";
+          document.getElementById("mtkFId").value     = dev.id;
+          document.getElementById("mtkFName").value   = dev.name || "";
+          document.getElementById("mtkFHost").value   = dev.host || "";
+          document.getElementById("mtkFSshPort").value = dev.sshPort || 22;
+          document.getElementById("mtkFWebPort").value = dev.webPort || 80;
+          document.getElementById("mtkFWinboxPort").value = dev.winboxPort || 8291;
+          document.getElementById("mtkFUser").value   = dev.username || "admin";
+          document.getElementById("mtkFPass").value   = dev.password || "";
+          document.getElementById("mtkFNote").value   = dev.note || "";
+          document.getElementById("mtkModalOverlay").classList.add("visible");
+        };
+
+        window.mtkCloseModal = function () {
+          document.getElementById("mtkModalOverlay").classList.remove("visible");
+        };
+
+        window.mtkSubmitDevice = async function () {
+          const host = document.getElementById("mtkFHost").value.trim();
+          if (!host) { Swal.fire({ icon:"warning", title:"Host diperlukan", text:"Masukkan IP address atau hostname router.", background:"#1e2030", color:"#e0e0e0" }); return; }
+
+          const device = {
+            id:         document.getElementById("mtkFId").value || undefined,
+            name:       document.getElementById("mtkFName").value.trim() || host,
+            host,
+            sshPort:    parseInt(document.getElementById("mtkFSshPort").value) || 22,
+            webPort:    parseInt(document.getElementById("mtkFWebPort").value) || 80,
+            winboxPort: parseInt(document.getElementById("mtkFWinboxPort").value) || 8291,
+            username:   document.getElementById("mtkFUser").value.trim() || "admin",
+            password:   document.getElementById("mtkFPass").value,
+            note:       document.getElementById("mtkFNote").value.trim(),
+          };
+
+          const saved = await window.electronAPI.mikrotik.saveDevice(device);
+          mtkCloseModal();
+          await mtkLoadDevices();
+          mtkSelectDevice(mtkDevices.find((d) => d.id === saved.id) || mtkDevices[0]);
+        };
+
+        window.mtkDeleteDevice = async function (id) {
+          const dev = mtkDevices.find((d) => d.id === id);
+          const res = await Swal.fire({
+            title: "Hapus Router?",
+            text: `Yakin hapus "${dev?.name || dev?.host}"?`,
+            icon: "warning", showCancelButton: true,
+            confirmButtonText: "Ya, Hapus", cancelButtonText: "Batal",
+            confirmButtonColor: "#e74c3c",
+            background: "#1e2030", color: "#e0e0e0",
+          });
+          if (!res.isConfirmed) return;
+          await window.electronAPI.mikrotik.deleteDevice(id);
+          mtkSelected = null;
+          document.getElementById("mtkSplash").style.display = "";
+          document.getElementById("mtkDetail").classList.remove("visible");
+          await mtkLoadDevices();
+        };
+
+        // ─── Connection actions ───────────────────────────────────────────────
+        window.mtkDoSSH = async function (id) {
+          const dev = mtkDevices.find((d) => d.id === id);
+          if (!dev) return;
+          const res = await window.electronAPI.mikrotik.openSSH({
+            host: dev.host, sshPort: dev.sshPort, username: dev.username, password: dev.password, name: dev.name,
+          });
+          if (res.success) {
+            // Buka Remox, tunggu koneksi dimuat, lalu auto-connect
+            window.rmxConnectById(res.connectionId);
+          } else {
+            Swal.fire({ icon:"error", title:"SSH Gagal", text:res.error, background:"#1e2030", color:"#e0e0e0" });
+          }
+        };
+
+        window.mtkDoWebUI = async function (id) {
+          const dev = mtkDevices.find((d) => d.id === id);
+          if (!dev) return;
+          const res = await window.electronAPI.mikrotik.openWebUIProxy({ deviceId:dev.id, host:dev.host, webPort:dev.webPort, name:dev.name });
+          if (!res.success) {
+            Swal.fire({ icon:"error", title:"Gagal Buka Web UI", text:res.error, background:"#1e2030", color:"#e0e0e0" });
+          }
+        };
+
+        window.mtkDoWinbox = async function (id) {
+          const dev = mtkDevices.find((d) => d.id === id);
+          if (!dev) return;
+          const res = await window.electronAPI.mikrotik.launchWinbox({ host:dev.host, winboxPort:dev.winboxPort, username:dev.username, password:dev.password });
+          if (!res.success) {
+            Swal.fire({
+              icon:"warning", title:"Winbox Tidak Ditemukan",
+              html: `${res.error}<br/><br/><a href="#" onclick="window.electronAPI?.openExternal?.('https://mikrotik.com/download')" style="color:#5b6af0">Download Winbox dari mikrotik.com</a>`,
+              background:"#1e2030", color:"#e0e0e0",
+            });
+          }
+        };
+
+        window.mtkDoSSHRelay = async function (id) {
+          const dev = mtkDevices.find((d) => d.id === id);
+          if (!dev) return;
+          const res = await window.electronAPI.mikrotik.openSSH({
+            host: dev.host, sshPort: dev.sshPort, username: dev.username, password: dev.password, name: dev.name,
+          });
+          if (res.success) {
+            Swal.fire({
+              icon: "info", title: "SSH via Relay",
+              text: "Koneksi SSH akan dibuat melalui relay server. Pastikan StarBox Agent di jaringan yang sama sudah online.",
+              background: "#1e2030", color: "#e0e0e0", timer: 3000, showConfirmButton: false,
+            });
+            // Tunggu Swal selesai, lalu navigate + connect
+            setTimeout(() => window.rmxConnectById(res.connectionId), 200);
+          } else {
+            Swal.fire({ icon:"error", title:"SSH Relay Gagal", text:res.error, background:"#1e2030", color:"#e0e0e0" });
+          }
+        };
+
+        window.mtkDoWebUIRelay = async function (id) {
+          const dev = mtkDevices.find((d) => d.id === id);
+          if (!dev) return;
+          Swal.fire({
+            icon: "info", title: "Web UI via Relay",
+            html: `StarBox Agent di jaringan <strong>${escHtml(dev.host)}</strong> akan membuka Web UI MikroTik dan meneruskannya ke StarBox Anda melalui relay.<br/><br/>Pastikan StarBox Agent sedang berjalan dan terhubung.`,
+            background: "#1e2030", color: "#e0e0e0",
+            showCancelButton: true, confirmButtonText: "Buka", cancelButtonText: "Batal",
+          }).then(async (r) => {
+            if (!r.isConfirmed) return;
+            // Kirim command ke remote client via relay
+            if (window.sendRemoteCommand) {
+              const result = await window.sendRemoteCommand("mikrotik_open_webui", { deviceId: dev.id, host: dev.host, webPort: dev.webPort, name: dev.name });
+              if (!result?.success) {
+                Swal.fire({ icon:"error", title:"Gagal", text: result?.error || "Agent tidak merespons", background:"#1e2030", color:"#e0e0e0" });
+              }
+            } else {
+              // Fallback: buka langsung (hanya works jika MikroTik reachable)
+              window.mtkDoWebUI(id);
+            }
+          });
+        };
+
+        window.mtkDoWinboxRelay = async function (id) {
+          const dev = mtkDevices.find((d) => d.id === id);
+          if (!dev) return;
+
+          // Cek jika tunnel sudah aktif
+          const existing = await window.electronAPI.mikrotik.getWinboxTunnelPort({ deviceId: dev.id });
+          if (existing?.active) {
+            mtkShowWinboxTunnelInfo(dev.id, existing.port);
+            return;
+          }
+
+          const btn = document.getElementById(`mtkWinboxRelayBtn-${dev.id}`);
+          if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Connecting…'; }
+
+          // Minta daftar client online untuk pilih agent
+          const clients = window.remoteClients || [];
+          let targetClientId = null;
+
+          // Coba cari agent dengan device ini
+          const agentClients = clients.filter((c) => c.client_id !== window.myClientId);
+
+          if (agentClients.length === 0) {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-plug"></i> Winbox via Relay'; }
+            Swal.fire({
+              icon: "warning", title: "Tidak Ada Agent",
+              text: "Tidak ada StarBox Agent online. Pastikan StarBox di jaringan MikroTik sudah berjalan dan login.",
+              background: "#1e2030", color: "#e0e0e0",
+            });
+            return;
+          }
+
+          if (agentClients.length === 1) {
+            targetClientId = agentClients[0].client_id;
+          } else {
+            // Tampilkan picker
+            const opts = agentClients.map((c, i) => `<option value="${escHtml(c.client_id)}">${escHtml(c.hostname || c.client_id)}</option>`).join("");
+            const { value } = await Swal.fire({
+              title: "Pilih StarBox Agent",
+              html: `<select id="mtkAgentPicker" class="swal2-input" style="margin:0">${opts}</select>`,
+              confirmButtonText: "Hubungkan",
+              showCancelButton: true,
+              background: "#1e2030", color: "#e0e0e0",
+              preConfirm: () => document.getElementById("mtkAgentPicker")?.value,
+            });
+            if (!value) {
+              if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-plug"></i> Winbox via Relay'; }
+              return;
+            }
+            targetClientId = value;
+          }
+
+          const res = await window.electronAPI.mikrotik.startWinboxTunnel({
+            deviceId:       dev.id,
+            targetClientId,
+            host:           dev.host,
+            winboxPort:     dev.winboxPort || 8291,
+          });
+
+          if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-plug"></i> Winbox via Relay'; }
+
+          if (res.success) {
+            mtkShowWinboxTunnelInfo(dev.id, res.port);
+          } else {
+            Swal.fire({ icon: "error", title: "Winbox Relay Gagal", text: res.error, background: "#1e2030", color: "#e0e0e0" });
+          }
+        };
+
+        function mtkShowWinboxTunnelInfo(devId, port) {
+          const info = document.getElementById(`mtkWinboxRelayInfo-${devId}`);
+          if (!info) return;
+          info.style.display = "block";
+          const portEl = info.querySelector(".mtk-winbox-port");
+          if (portEl) portEl.textContent = port;
+        }
+
+        window.mtkStopWinboxTunnel = async function (id) {
+          await window.electronAPI.mikrotik.stopWinboxTunnel({ deviceId: id });
+          const info = document.getElementById(`mtkWinboxRelayInfo-${id}`);
+          if (info) info.style.display = "none";
+        };
+
+        window.mtkSyncToServer = async function () {
+          await window.electronAPI.mikrotik.syncToServer();
+          Swal.fire({
+            icon: "success", title: "Tersinkron",
+            text: "Daftar MikroTik device berhasil dikirim ke server StarBox.",
+            background: "#1e2030", color: "#e0e0e0", timer: 2500, showConfirmButton: false,
+          });
+        };
+
+        // ─── Network Scanner ─────────────────────────────────────────────────
+        window.mtkScanNetwork = function () {
+          document.getElementById("mtkScanOverlay").classList.add("visible");
+          document.getElementById("mtkScanBar").style.width = "0%";
+          document.getElementById("mtkScanStatus").textContent = "Siap untuk scan…";
+          document.getElementById("mtkScanResults").innerHTML = `<div style="color:var(--text-muted,#888);font-size:13px;text-align:center">Klik <strong>Mulai Scan</strong> untuk mendeteksi perangkat MikroTik di jaringan lokal.</div>`;
+          document.getElementById("mtkScanStartBtn").disabled = false;
+        };
+
+        window.mtkCloseScan = function () {
+          document.getElementById("mtkScanOverlay").classList.remove("visible");
+        };
+
+        window.mtkStartScan = async function () {
+          const btn    = document.getElementById("mtkScanStartBtn");
+          const bar    = document.getElementById("mtkScanBar");
+          const status = document.getElementById("mtkScanStatus");
+          const results = document.getElementById("mtkScanResults");
+
+          btn.disabled = true;
+          btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Scanning…';
+          results.innerHTML = "";
+          bar.style.width = "10%";
+          status.textContent = "Memindai jaringan lokal, harap tunggu…";
+
+          // Animasikan progress bar
+          const prog = setInterval(() => {
+            const current = parseFloat(bar.style.width) || 10;
+            if (current < 85) bar.style.width = (current + 3) + "%";
+          }, 800);
+
+          try {
+            const res = await window.electronAPI.mikrotik.scanNetwork();
+            clearInterval(prog);
+            bar.style.width = "100%";
+
+            if (!res.success) {
+              status.textContent = "Scan gagal: " + (res.error || "unknown");
+              return;
+            }
+
+            status.textContent = `Scan selesai. Ditemukan ${res.devices.length} perangkat MikroTik.`;
+
+            if (!res.devices.length) {
+              results.innerHTML = `<div style="color:var(--text-muted,#888);font-size:13px;text-align:center;padding:12px">Tidak ada perangkat MikroTik terdeteksi di jaringan lokal.</div>`;
+              return;
+            }
+
+            res.devices.forEach((d) => {
+              const portLabels = [
+                d.hasSsh    ? "SSH:22"         : null,
+                d.hasWebUI  ? "Web:80"         : null,
+                d.hasWinbox ? "Winbox:8291"    : null,
+              ].filter(Boolean).join("  ");
+
+              const item = document.createElement("div");
+              item.className = "mtk-scan-result-item";
+              item.innerHTML = `
+                <div class="ri"><i class="bi bi-router"></i></div>
+                <div class="rd">
+                  <b>${escHtml(d.host)}</b>
+                  <small>${portLabels}</small>
+                </div>
+                <button class="mtk-btn mtk-btn-primary mtk-btn-sm">+ Tambah</button>`;
+              item.querySelector("button").addEventListener("click", () => {
+                mtkCloseScan();
+                // Pre-fill form
+                document.getElementById("mtkFName").value = `MikroTik ${d.host}`;
+                document.getElementById("mtkFHost").value = d.host;
+                document.getElementById("mtkFSshPort").value = "22";
+                document.getElementById("mtkFWebPort").value = "80";
+                document.getElementById("mtkFWinboxPort").value = "8291";
+                document.getElementById("mtkFUser").value = "admin";
+                document.getElementById("mtkFPass").value = "";
+                document.getElementById("mtkFNote").value = "";
+                document.getElementById("mtkFId").value = "";
+                document.getElementById("mtkModalTitle").textContent = "Tambah Router MikroTik";
+                document.getElementById("mtkModalOverlay").classList.add("visible");
+              });
+              results.appendChild(item);
+            });
+          } catch (err) {
+            clearInterval(prog);
+            status.textContent = "Error: " + err.message;
+          } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-play-fill"></i> Scan Lagi';
+          }
+        };
+
+        // ─── Init ─────────────────────────────────────────────────────────────
+        window.initMikrotikPage = async function () {
+          await mtkLoadDevices();
+          // Sync ke server saat halaman dibuka
+          window.electronAPI?.mikrotik?.syncToServer?.();
+        };
+
+        // Observe page activation
+        const mtkPage = document.getElementById("page-mikrotik");
+        if (mtkPage) {
+          let mtkInited = false;
+          new MutationObserver(() => {
+            if (mtkPage.classList.contains("active") && !mtkInited) {
+              mtkInited = true;
+              window.initMikrotikPage();
+            }
+          }).observe(mtkPage, { attributes: true, attributeFilter: ["class"] });
         }
       })();
       </script>
@@ -1693,6 +3207,9 @@
           <button id="installQemuBtn" onclick="installQemu()" style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;font-size:0.85rem;border-radius:8px;background:#7c6fe0;color:#fff;border:none;cursor:pointer;white-space:nowrap;">
             <i class="bi bi-download"></i> Install QEMU
           </button>
+          <button onclick="showQemuTutorial()" style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;font-size:0.85rem;border-radius:8px;background:transparent;color:#f0a040;border:1px solid #f0a04066;cursor:pointer;white-space:nowrap;">
+            <i class="bi bi-book"></i> Tutorial Install
+          </button>
         </div>
 
         <div class="osv-grid" id="vm-list">
@@ -1717,6 +3234,9 @@
               <span id="cctvStatusText" data-i18n="cctv.checking" style="font-size:0.75rem;color:var(--color-muted);">Checking ffmpeg...</span>
               <button id="cctvInstallFfmpegBtn" onclick="cctvInstallFfmpeg()" style="display:none;align-items:center;gap:4px;padding:3px 10px;font-size:0.75rem;border-radius:6px;background:var(--color-primary);color:#fff;border:none;cursor:pointer;">
                 <i class="bi bi-download"></i> Install FFmpeg
+              </button>
+              <button id="cctvFfmpegTutorialBtn" onclick="showFfmpegTutorial()" style="display:none;align-items:center;gap:4px;padding:3px 10px;font-size:0.75rem;border-radius:6px;background:transparent;color:#f0a040;border:1px solid #f0a04066;cursor:pointer;white-space:nowrap;">
+                <i class="bi bi-book"></i> Tutorial
               </button>
             </div>
             <!-- Layout buttons -->
@@ -1758,9 +3278,14 @@
               <div style="font-weight:700;font-size:0.9rem;margin-bottom:2px;">FFmpeg / RTSP tidak ditemukan</div>
               <div style="font-size:0.8rem;color:var(--color-muted);">FFmpeg diperlukan untuk streaming RTSP dari kamera IP. Klik tombol untuk menginstall otomatis.</div>
             </div>
-            <button id="cctvInstallFfmpegBannerBtn" onclick="cctvInstallFfmpeg()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:0.85rem;font-weight:600;border-radius:8px;background:#f59e0b;color:#000;border:none;cursor:pointer;white-space:nowrap;flex-shrink:0;">
-              <i class="bi bi-download"></i> Install FFmpeg / RTSP
-            </button>
+            <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap;">
+              <button id="cctvInstallFfmpegBannerBtn" onclick="cctvInstallFfmpeg()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:0.85rem;font-weight:600;border-radius:8px;background:#f59e0b;color:#000;border:none;cursor:pointer;white-space:nowrap;">
+                <i class="bi bi-download"></i> Install FFmpeg / RTSP
+              </button>
+              <button onclick="showFfmpegTutorial()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:0.85rem;font-weight:600;border-radius:8px;background:transparent;color:#f59e0b;border:1px solid #f59e0b66;cursor:pointer;white-space:nowrap;">
+                <i class="bi bi-book"></i> Tutorial Install
+              </button>
+            </div>
           </div>
 
           <!-- Grid -->
@@ -2806,6 +4331,14 @@
           .rc-running { background: #133b29; border-color: #2d6b4a; color: #8cf3bf; }
           .rc-stopped { background: #23374a; border-color: #3a5871; color: #adc5d8; }
           .rc-device-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+          .rc-remote-disabled { opacity: 0.75; border-color: #3a4a5a; }
+          .rc-remote-disabled-info {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 11px; color: #f59e0b;
+            background: #2a1f00; border: 1px solid #5a3e00;
+            border-radius: 8px; padding: 6px 10px; margin-top: auto;
+          }
+          .rc-remote-disabled-info i { font-size: 13px; flex-shrink: 0; }
 
           .rc-hint {
             color: #9ab5c9; font-size: 12px; line-height: 1.5;
@@ -2985,6 +4518,12 @@
             transition: color .15s;
           }
           #supportToast .st-dismiss:hover { color: #8a96b8; }
+          #supportToast .st-telegram {
+            display: block; text-align: center; margin-top: 10px;
+            font-size: 11px; color: #7ea7ff; text-decoration: none;
+            transition: color .15s;
+          }
+          #supportToast .st-telegram:hover { color: #b8d1ff; text-decoration: underline; }
         </style>
 
         <button class="st-close" onclick="dismissSupportToast()" title="Tutup">✕</button>
@@ -3004,6 +4543,14 @@
           </p>
           <a href="https://trakteer.id/ginginabdulgoni/tip" target="_blank" class="st-btn">
             <span>☕</span> Traktir Kopi Sekarang
+          </a>
+          <a
+            href="https://t.me/+IKADqCrRfcI1NmI9"
+            target="_blank"
+            rel="noreferrer"
+            class="st-telegram"
+          >
+            Bergabung dengan Grup Telegram untuk memberikan masukan dan mengikuti perkembangan StarBox
           </a>
           <span class="st-dismiss" onclick="dismissSupportToast()">Nanti saja, ingatkan lagi besok</span>
         </div>
@@ -3052,6 +4599,16 @@
                 target="_blank"
               >
                 Komunitas Facebook
+              </a>
+            </li>
+            <li>
+              💬
+              <a
+                href="https://t.me/+IKADqCrRfcI1NmI9"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Bergabung dengan Grup Telegram untuk masukan dan informasi perkembangan StarBox
               </a>
             </li>
             <li>
@@ -3131,6 +4688,17 @@
                 >ginginabdulgoni@gmail.com</a
               >
             </div>
+            <div class="support-item" style="background:linear-gradient(135deg,#e8514a18,#c0392b12);border-color:#e8514a44;">
+              <div class="support-title" style="color:#e8514a;">☕ Trakteer</div>
+              <a
+                href="https://trakteer.id/ginginabdulgoni/tip"
+                target="_blank"
+                rel="noreferrer"
+                class="support-link"
+                >trakteer.id/ginginabdulgoni</a
+              >
+              <p style="font-size:0.75rem;color:var(--color-muted);margin:4px 0 0;">Traktir kopi buat developer 🙏</p>
+            </div>
           </div>
           <p>
             Terima kasih atas dukungan Anda. Setiap masukan membantu membangun
@@ -3138,6 +4706,78 @@
           </p>
           <div class="modal-buttons">
             <button onclick="closeSupportModal()">Tutup</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tutorial Install QEMU Modal -->
+      <div id="qemuTutorialModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9500;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+        <div style="background:var(--color-card,#1e2540);border-radius:14px;padding:28px;width:520px;max-width:95vw;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.08);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+            <h3 style="margin:0;font-size:1.1rem;display:flex;align-items:center;gap:8px;"><i class="bi bi-display" style="color:#7c6fe0;"></i> Tutorial Install QEMU</h3>
+            <button onclick="document.getElementById('qemuTutorialModal').style.display='none'" style="background:none;border:none;color:var(--color-muted);font-size:1.3rem;cursor:pointer;line-height:1;">&times;</button>
+          </div>
+          <p style="font-size:0.85rem;color:var(--color-muted);margin:0 0 16px;">QEMU diperlukan untuk menjalankan OS Virtual. Ikuti langkah instalasi sesuai sistem operasi Anda:</p>
+
+          <div style="margin-bottom:14px;">
+            <div style="font-weight:700;font-size:0.85rem;color:#7c6fe0;margin-bottom:6px;"><i class="bi bi-apple"></i> macOS</div>
+            <div style="background:#0d1117;border-radius:8px;padding:10px 14px;font-family:monospace;font-size:0.82rem;color:#e6edf3;border:1px solid #30363d;">brew install qemu</div>
+            <div style="font-size:0.75rem;color:var(--color-muted);margin-top:4px;">Butuh Homebrew: <span style="color:#7c6fe0;">brew.sh</span></div>
+          </div>
+
+          <div style="margin-bottom:14px;">
+            <div style="font-weight:700;font-size:0.85rem;color:#3b82f6;margin-bottom:6px;"><i class="bi bi-windows"></i> Windows</div>
+            <div style="background:#0d1117;border-radius:8px;padding:10px 14px;font-family:monospace;font-size:0.82rem;color:#e6edf3;border:1px solid #30363d;">winget install --id=SoftwareFreedomConservancy.QEMU -e</div>
+            <div style="font-size:0.75rem;color:var(--color-muted);margin-top:4px;">Atau download installer dari <span style="color:#3b82f6;">qemu.weilnetz.de</span></div>
+          </div>
+
+          <div style="margin-bottom:20px;">
+            <div style="font-weight:700;font-size:0.85rem;color:#22c55e;margin-bottom:6px;"><i class="bi bi-ubuntu"></i> Linux (Ubuntu/Debian)</div>
+            <div style="background:#0d1117;border-radius:8px;padding:10px 14px;font-family:monospace;font-size:0.82rem;color:#e6edf3;border:1px solid #30363d;">sudo apt update && sudo apt install -y qemu-system-x86 qemu-kvm</div>
+          </div>
+
+          <div style="background:rgba(124,111,224,0.1);border:1px solid rgba(124,111,224,0.3);border-radius:8px;padding:10px 14px;font-size:0.8rem;color:var(--color-muted);margin-bottom:20px;">
+            <i class="bi bi-info-circle" style="color:#7c6fe0;"></i> Setelah install, klik <b>Install QEMU</b> di banner atau restart StarBox agar terdeteksi.
+          </div>
+
+          <div style="text-align:right;">
+            <button onclick="document.getElementById('qemuTutorialModal').style.display='none'" style="padding:8px 20px;border-radius:8px;border:none;background:#7c6fe0;color:#fff;cursor:pointer;font-size:0.85rem;">Tutup</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tutorial Install FFmpeg Modal -->
+      <div id="ffmpegTutorialModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9500;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+        <div style="background:var(--color-card,#1e2540);border-radius:14px;padding:28px;width:520px;max-width:95vw;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.08);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+            <h3 style="margin:0;font-size:1.1rem;display:flex;align-items:center;gap:8px;"><i class="bi bi-camera-video" style="color:#f59e0b;"></i> Tutorial Install FFmpeg</h3>
+            <button onclick="document.getElementById('ffmpegTutorialModal').style.display='none'" style="background:none;border:none;color:var(--color-muted);font-size:1.3rem;cursor:pointer;line-height:1;">&times;</button>
+          </div>
+          <p style="font-size:0.85rem;color:var(--color-muted);margin:0 0 16px;">FFmpeg diperlukan untuk streaming RTSP dari kamera IP / CCTV. Ikuti langkah instalasi sesuai sistem operasi Anda:</p>
+
+          <div style="margin-bottom:14px;">
+            <div style="font-weight:700;font-size:0.85rem;color:#7c6fe0;margin-bottom:6px;"><i class="bi bi-apple"></i> macOS</div>
+            <div style="background:#0d1117;border-radius:8px;padding:10px 14px;font-family:monospace;font-size:0.82rem;color:#e6edf3;border:1px solid #30363d;">brew install ffmpeg</div>
+            <div style="font-size:0.75rem;color:var(--color-muted);margin-top:4px;">Butuh Homebrew: <span style="color:#7c6fe0;">brew.sh</span></div>
+          </div>
+
+          <div style="margin-bottom:14px;">
+            <div style="font-weight:700;font-size:0.85rem;color:#3b82f6;margin-bottom:6px;"><i class="bi bi-windows"></i> Windows</div>
+            <div style="background:#0d1117;border-radius:8px;padding:10px 14px;font-family:monospace;font-size:0.82rem;color:#e6edf3;border:1px solid #30363d;">winget install --id=Gyan.FFmpeg -e</div>
+            <div style="font-size:0.75rem;color:var(--color-muted);margin-top:4px;">Atau gunakan: <span style="color:#3b82f6;">choco install ffmpeg</span> &nbsp;·&nbsp; Download dari <span style="color:#3b82f6;">ffmpeg.org/download.html</span></div>
+          </div>
+
+          <div style="margin-bottom:20px;">
+            <div style="font-weight:700;font-size:0.85rem;color:#22c55e;margin-bottom:6px;"><i class="bi bi-ubuntu"></i> Linux (Ubuntu/Debian)</div>
+            <div style="background:#0d1117;border-radius:8px;padding:10px 14px;font-family:monospace;font-size:0.82rem;color:#e6edf3;border:1px solid #30363d;">sudo apt update && sudo apt install -y ffmpeg</div>
+          </div>
+
+          <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 14px;font-size:0.8rem;color:var(--color-muted);margin-bottom:20px;">
+            <i class="bi bi-info-circle" style="color:#f59e0b;"></i> Setelah install, klik <b>Install FFmpeg / RTSP</b> di banner atau restart StarBox agar terdeteksi.
+          </div>
+
+          <div style="text-align:right;">
+            <button onclick="document.getElementById('ffmpegTutorialModal').style.display='none'" style="padding:8px 20px;border-radius:8px;border:none;background:#f59e0b;color:#000;cursor:pointer;font-size:0.85rem;font-weight:600;">Tutup</button>
           </div>
         </div>
       </div>
@@ -3890,6 +5530,39 @@
             <strong>Tip:</strong>
             <span data-i18n="account.tip">If you have upgraded your package but the information has not changed, please sign out and sign back in to refresh the data.</span>
           </div>
+
+          <!-- Reset Password Section -->
+          <div class="account-change-password">
+            <div class="account-change-password-header" onclick="toggleChangePasswordForm()">
+              <span>Ganti Password</span>
+              <i class="bi bi-chevron-down" id="changePasswordChevron"></i>
+            </div>
+            <div id="changePasswordForm" style="display:none;margin-top:12px;">
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <div>
+                  <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;color:var(--color-text-muted)">Password Lama</label>
+                  <input type="password" id="cpCurrentPassword" placeholder="••••••••"
+                    style="width:100%;padding:8px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;box-sizing:border-box;">
+                </div>
+                <div>
+                  <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;color:var(--color-text-muted)">Password Baru</label>
+                  <input type="password" id="cpNewPassword" placeholder="Min. 8 karakter"
+                    style="width:100%;padding:8px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;box-sizing:border-box;">
+                </div>
+                <div>
+                  <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;color:var(--color-text-muted)">Konfirmasi Password Baru</label>
+                  <input type="password" id="cpConfirmPassword" placeholder="Ulangi password baru"
+                    style="width:100%;padding:8px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;box-sizing:border-box;">
+                </div>
+                <div id="cpMessage" style="display:none;font-size:12px;padding:6px 10px;border-radius:6px;"></div>
+                <button onclick="submitChangePassword()" id="cpSubmitBtn"
+                  style="padding:9px 16px;background:var(--color-primary);color:#fff;border:none;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer;width:100%;">
+                  Simpan Password
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div class="account-actions">
             <button class="ghost" onclick="openPackageFromAccount()" data-i18n="account.check_package">
               Check Package
@@ -6053,6 +7726,13 @@ adb connect ip:port</code></pre>
             </button>
             <button
               class="settings-tab"
+              data-tab="calls"
+              onclick="switchWASettingsTab('calls', event)"
+            >
+              <i class="bi bi-telephone-x"></i> Panggilan
+            </button>
+            <button
+              class="settings-tab"
               data-tab="logs"
               onclick="switchWASettingsTab('logs', event)"
             >
@@ -6106,6 +7786,40 @@ adb connect ip:port</code></pre>
 
             <div id="autoReplyList" style="max-height: 300px; overflow-y: auto">
               <!-- Will be populated by renderer.js -->
+            </div>
+          </div>
+
+          <!-- Tab Content: Calls -->
+          <div id="tab-calls" class="settings-tab-content">
+            <div style="padding:8px 0 20px;">
+              <h4 style="margin:0 0 6px;display:flex;align-items:center;gap:8px;">
+                <i class="bi bi-telephone-x-fill" style="color:#ef4444;"></i> Auto Reject Panggilan
+              </h4>
+              <p style="font-size:0.83rem;color:var(--color-muted);margin:0 0 20px;line-height:1.6;">
+                Ketika diaktifkan, semua panggilan masuk (voice &amp; video) akan otomatis ditolak.<br>
+                Berguna untuk akun yang hanya digunakan sebagai gateway pesan, bukan komunikasi langsung.
+              </p>
+
+              <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:10px;background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.2);">
+                <label class="switch" style="flex-shrink:0;">
+                  <input
+                    type="checkbox"
+                    id="autoRejectCallsCheckbox"
+                    onchange="handleAutoRejectCallsChange(this)"
+                  />
+                  <span class="slider"></span>
+                </label>
+                <div>
+                  <div id="autoRejectCallsLabel" style="font-size:0.88rem;font-weight:600;">Auto Reject Panggilan: <span id="autoRejectCallsStatus">Nonaktif</span></div>
+                  <div style="font-size:0.76rem;color:var(--color-muted);margin-top:2px;">Berlaku saat device sedang terhubung (Connected)</div>
+                </div>
+              </div>
+
+              <div style="margin-top:16px;padding:12px 14px;border-radius:9px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);font-size:0.79rem;color:var(--color-muted);line-height:1.7;">
+                <i class="bi bi-info-circle" style="color:#f59e0b;"></i>
+                <strong style="color:#f59e0b;">Catatan:</strong> Fitur ini menggunakan <code>rejectCall()</code> dari Baileys.
+                Pemanggil akan mendapat notifikasi "panggilan ditolak". Pastikan nomor Anda tidak digunakan untuk menerima panggilan penting sebelum mengaktifkan fitur ini.
+              </div>
             </div>
           </div>
 
@@ -6485,6 +8199,16 @@ adb connect ip:port</code></pre>
         function closeSupportModal() {
           const modal = document.getElementById("supportModal");
           if (modal) modal.style.display = "none";
+        }
+
+        function showQemuTutorial() {
+          const modal = document.getElementById("qemuTutorialModal");
+          if (modal) modal.style.display = "flex";
+        }
+
+        function showFfmpegTutorial() {
+          const modal = document.getElementById("ffmpegTutorialModal");
+          if (modal) modal.style.display = "flex";
         }
 
         async function openPackageModal() {
@@ -7655,22 +9379,23 @@ adb connect ip:port</code></pre>
           }, duration);
         }
       </script>
-      <footer class="app-footer">
-        <span class="footer-left"
-          >StarBox v1.3.260317 &copy; 2025 Gingin Abdul Goni —
-          <a
-            href="https://1112-project.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            >1112 Project</a
-          ></span
-        >
-        <span id="system-info-badge" class="system-info-badge footer-right"
-          >Mengambil info…</span
-        >
-      </footer>
     </div>
     <!-- End Main Wrapper -->
+
+    <footer class="app-footer">
+      <span class="footer-left"
+        >StarBox v2.1.260414 &copy; 2025 Gingin Abdul Goni —
+        <a
+          href="https://1112-project.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          >1112 Project</a
+        ></span
+      >
+      <span id="system-info-badge" class="system-info-badge footer-right"
+        >Mengambil info…</span
+      >
+    </footer>
 
     <script>
       // Function to toggle sidebar on mobile
@@ -7742,6 +9467,10 @@ adb connect ip:port</code></pre>
 
         // Store current page globally
         window.currentActivePage = pageName;
+
+        // Remox uses internal scroll containers (sidebar list + terminal),
+        // so prevent global wrapper scrolling when this page is active.
+        document.body.classList.toggle("remox-page-active", pageName === "remox");
 
         // Refresh device list when switching pages
         if (typeof window.refreshDeviceList === "function") {
@@ -8235,6 +9964,31 @@ adb connect ip:port</code></pre>
                 >
                   <i class="bi bi-journal-text"></i> Logs
                 </button>
+                <div style="height:1px;background:rgba(255,255,255,0.07);margin:2px 0;"></div>
+                <button
+                  type="button"
+                  class="wa-actions-menu-item"
+                  style="
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    width: 100%;
+                    text-align: left;
+                    padding: 10px 12px;
+                    background: transparent;
+                    border: none;
+                    color: ${device.auto_reject_calls ? '#f87171' : '#e2e8f0'};
+                    cursor: pointer;
+                  "
+                  onclick="handleWAAction('${device.id}', 'calls')"
+                >
+                  <span><i class="bi bi-telephone-x"></i> Panggilan</span>
+                  <span style="font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600;
+                    background:${device.auto_reject_calls ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.07)'};
+                    color:${device.auto_reject_calls ? '#f87171' : '#6b7280'};">
+                    ${device.auto_reject_calls ? 'Reject ON' : 'OFF'}
+                  </span>
+                </button>
               </div>
             </div>
             <button onclick="quickClearWALogs('${
@@ -8310,6 +10064,8 @@ adb connect ip:port</code></pre>
           await openWASettingsModal(deviceId, "broadcast");
         } else if (action === "logs") {
           await openWASettingsModal(deviceId, "logs");
+        } else if (action === "calls") {
+          await openWASettingsModal(deviceId, "calls");
         }
       }
 
@@ -9082,6 +10838,7 @@ adb connect ip:port</code></pre>
         await loadMessageLogs(deviceId);
 
         syncAutoReplyToggleState(deviceId);
+        syncAutoRejectCallsState(deviceId);
       }
 
       function updateQRProfileStatus(device) {
@@ -9348,6 +11105,47 @@ adb connect ip:port</code></pre>
             error.message || "Failed to update auto-reply settings",
             "error"
           );
+        } finally {
+          checkbox.disabled = false;
+        }
+      }
+
+      function syncAutoRejectCallsState(deviceId) {
+        const checkbox = document.getElementById("autoRejectCallsCheckbox");
+        const statusEl = document.getElementById("autoRejectCallsStatus");
+        if (!checkbox) return;
+        const device = waDevicesCache[deviceId];
+        const enabled = Boolean(device?.auto_reject_calls);
+        checkbox.checked = enabled;
+        if (statusEl) {
+          statusEl.textContent = enabled ? "Aktif" : "Nonaktif";
+          statusEl.style.color = enabled ? "#ef4444" : "var(--color-muted)";
+        }
+      }
+
+      async function handleAutoRejectCallsChange(checkbox) {
+        if (!currentWADeviceId) {
+          checkbox.checked = !checkbox.checked;
+          return;
+        }
+        const enabled = checkbox.checked;
+        checkbox.disabled = true;
+        try {
+          const result = await window.electronAPI.whatsappGateway.setAutoRejectCalls(
+            currentWADeviceId,
+            enabled
+          );
+          if (!result.success) throw new Error(result.error || "Gagal menyimpan pengaturan");
+          if (result.device) waDevicesCache[currentWADeviceId] = result.device;
+          const statusEl = document.getElementById("autoRejectCallsStatus");
+          if (statusEl) {
+            statusEl.textContent = enabled ? "Aktif" : "Nonaktif";
+            statusEl.style.color = enabled ? "#ef4444" : "var(--color-muted)";
+          }
+        } catch (error) {
+          console.error("❌ Failed to toggle auto-reject calls:", error);
+          checkbox.checked = !enabled;
+          Swal.fire("Error", error.message || "Gagal menyimpan pengaturan", "error");
         } finally {
           checkbox.disabled = false;
         }
@@ -10723,6 +12521,7 @@ adb connect ip:port</code></pre>
         grid.innerHTML = rcState.selectedClientDevices.map((d) => {
           const uid = String(d.uid || "");
           const running = !!d.running;
+          const remoteEnabled = d.remoteEnabled !== false;
           const icon = icons[String(d.service || "").toLowerCase()] || "🌐";
           const safeUid = rcEsc(uid);
           const safeName = rcEsc(d.name || uid);
@@ -10738,7 +12537,13 @@ adb connect ip:port</code></pre>
             <button class="rc-btn rc-btn-xs rc-btn-primary" onclick="rcQuickCmd('start_device','${safeUid}')">Start</button>
             <button class="rc-btn rc-btn-xs rc-btn-soft" onclick="rcQuickCmd('open_tab','${safeUid}')">Buka Tab</button>
           `;
-          return `<div class="rc-device-card">
+          const disabledInfo = `
+            <div class="rc-remote-disabled-info">
+              <i class="bi bi-wifi-off"></i>
+              <span>Remote dinonaktifkan. Aktifkan di perangkat StarBox Anda.</span>
+            </div>
+          `;
+          return `<div class="rc-device-card${remoteEnabled ? "" : " rc-remote-disabled"}">
             <div class="rc-device-head">
               <div class="rc-device-icon">${icon}</div>
               <div style="min-width:0">
@@ -10747,7 +12552,7 @@ adb connect ip:port</code></pre>
               </div>
             </div>
             <span class="rc-status-pill ${running ? "rc-running" : "rc-stopped"}">${running ? "Running" : "Stopped"}</span>
-            <div class="rc-device-actions">${running ? runningBtns : stoppedBtns}</div>
+            <div class="rc-device-actions">${remoteEnabled ? (running ? runningBtns : stoppedBtns) : disabledInfo}</div>
           </div>`;
         }).join("");
       }
@@ -10875,6 +12680,9 @@ adb connect ip:port</code></pre>
               rcUpdateConnectionUI();
             }
             rcState.clients = Array.isArray(clients) ? clients : [];
+            // Expose ke halaman lain (misal MikroTik)
+            window.remoteClients = rcState.clients;
+            window.myClientId    = rcState.myClientId;
             rcRenderClientList();
             if (rcState.selectedClient) {
               const still = rcState.clients.find((c) => c.client_id === rcState.selectedClient.client_id);
@@ -10914,6 +12722,8 @@ adb connect ip:port</code></pre>
           rcState.connected = !!initial?.connected;
           rcState.myClientId = initial?.clientId || null;
           rcState.clients = Array.isArray(initial?.clients) ? initial.clients : [];
+          window.remoteClients = rcState.clients;
+          window.myClientId    = rcState.myClientId;
           rcUpdateConnectionUI();
           rcRenderClientList();
           rcRenderSelectedHeader();

@@ -40,6 +40,7 @@ async function handleListDevices(payload, bridge) {
       autoRun: !!device?.autoRun,
       running: bridge.isDeviceRunning(uid),
       mode: device?.mode || null,
+      remoteEnabled: device?.remoteEnabled !== false, // default true
     });
   };
 

@@ -106,7 +106,7 @@ class RemoteClient {
       this.stop();
     }
 
-    const { token, appVersion, serverUrl, deviceWindows, getDeviceConfig, dbPath, dbPathAndroid, ipcHandlers } = opts;
+    const { token, appVersion, serverUrl, deviceWindows, getDeviceConfig, dbPath, dbPathAndroid, ipcHandlers, onGetMikrotikDevices } = opts;
     this._appVersion = appVersion || "1.0.0";
 
     // Inisialisasi bridge
@@ -128,6 +128,7 @@ class RemoteClient {
       appVersion,
       serverUrl,
       clientId: this._stableClientId,
+      onGetMikrotikDevices: onGetMikrotikDevices || null,
 
       // Token expired/invalid di server — minta parent refresh token
       onAuthInvalid: (errorCode) => {

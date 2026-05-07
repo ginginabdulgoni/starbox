@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   send: ipcRenderer.send,
   on: ipcRenderer.on,
   editDevice: (payload) => ipcRenderer.invoke('edit-device', payload),
+  toggleRemoteEnabled: (uid, enabled) => ipcRenderer.invoke('toggle-remote-enabled', uid, enabled),
   onDeviceStatusUpdated: (callback) => {
     ipcRenderer.on('device-status-updated', (event, uid) => {
       if (typeof callback === 'function') {
@@ -60,6 +61,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       register: (payload) => ipcRenderer.invoke('auth-register', payload),
       logout: () => ipcRenderer.invoke('auth-logout'),
       refreshPackage: () => ipcRenderer.invoke('auth-refresh-package'),
+      changePassword: (payload) => ipcRenderer.invoke('auth-change-password', payload),
       onSessionChanged: (callback) => {
       if (typeof callback !== 'function') return undefined;
       const listener = (_event, session) => callback(session);
@@ -176,6 +178,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteAutoReply: (replyId) => ipcRenderer.invoke('wa-delete-auto-reply', replyId),
     toggleAutoReply: (replyId, isActive) => ipcRenderer.invoke('wa-toggle-auto-reply', replyId, isActive),
     setAutoReplyEnabled: (deviceId, enabled) => ipcRenderer.invoke('wa-set-auto-reply-enabled', deviceId, enabled),
+    setAutoRejectCalls: (deviceId, enabled) => ipcRenderer.invoke('wa-set-auto-reject-calls', deviceId, enabled),
 
     // Schedule
     getSchedules: (deviceId) => ipcRenderer.invoke('wa-get-schedules', deviceId),
@@ -223,6 +226,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     disconnect: (sessionId) => ipcRenderer.invoke('remox:disconnect', sessionId),
     ping: (opts) => ipcRenderer.invoke('remox:ping', opts),
     launchRdp: (opts) => ipcRenderer.invoke('remox:launch-rdp', opts),
+    cloudSync: () => ipcRenderer.invoke('remox:cloud-sync'),
+    pullFromCloud: () => ipcRenderer.invoke('remox:pull-from-cloud'),
     onData: (cb) => {
       const listener = (_e, d) => cb(d);
       ipcRenderer.on('remox:data', listener);
@@ -239,6 +244,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
     get: () => ipcRenderer.invoke('resource-monitor-get'),
     getProcesses: (limit) => ipcRenderer.invoke('resource-monitor-processes', limit),
     killProcess: (pid) => ipcRenderer.invoke('resource-monitor-kill', pid),
+  },
+
+  // MikroTik Manager
+  mikrotik: {
+    loadDevices:         ()       => ipcRenderer.invoke('mikrotik:load-devices'),
+    saveDevice:          (device) => ipcRenderer.invoke('mikrotik:save-device', device),
+    deleteDevice:        (id)     => ipcRenderer.invoke('mikrotik:delete-device', id),
+    scanNetwork:         ()       => ipcRenderer.invoke('mikrotik:scan-network'),
+    openWebUI:           (opts)   => ipcRenderer.invoke('mikrotik:open-webui', opts),
+    openWebUIProxy:      (opts)   => ipcRenderer.invoke('mikrotik:open-webui-proxy', opts),
+    openSSH:             (opts)   => ipcRenderer.invoke('mikrotik:open-ssh', opts),
+    launchWinbox:        (opts)   => ipcRenderer.invoke('mikrotik:launch-winbox', opts),
+    startProxy:          (opts)   => ipcRenderer.invoke('mikrotik:start-proxy', opts),
+    stopProxy:           (opts)   => ipcRenderer.invoke('mikrotik:stop-proxy', opts),
+    startWinboxTunnel:   (opts)   => ipcRenderer.invoke('mikrotik:start-winbox-tunnel', opts),
+    stopWinboxTunnel:    (opts)   => ipcRenderer.invoke('mikrotik:stop-winbox-tunnel', opts),
+    getWinboxTunnelPort: (opts)   => ipcRenderer.invoke('mikrotik:get-winbox-tunnel-port', opts),
+    syncToServer:        ()       => ipcRenderer.invoke('mikrotik:sync-to-server'),
   },
 
   resolveAssetUrl: (assetName) =>

@@ -1,6 +1,6 @@
 {
   "name": "starbox",
-  "version": "1.3.260317",
+  "version": "2.1.260414",
   "description": "StarBox - Emulator ringan multi-layanan",
   "main": "electron-main.js",
   "author": "Gingin Abdul Goni",
@@ -18,7 +18,10 @@
     "build:win": "node ./node_modules/electron-builder/out/cli/cli.js --win --arm64 --x64",
     "build:linux": "node ./node_modules/electron-builder/out/cli/cli.js --linux --arm64 --x64",
     "build:all": "npm run build:mac && npm run build:win && npm run build:linux",
-    "build": "node ./node_modules/electron-builder/out/cli/cli.js"
+    "build": "node ./node_modules/electron-builder/out/cli/cli.js",
+    "build:mac:nover": "node ./node_modules/electron-builder/out/cli/cli.js --mac",
+    "build:win:nover": "node ./node_modules/electron-builder/out/cli/cli.js --win --arm64 --x64",
+    "build:linux:nover": "node ./node_modules/electron-builder/out/cli/cli.js --linux --arm64 --x64"
   },
   "build": {
     "asar": true,
@@ -97,6 +100,8 @@
     "files": [
       "**/*",
       "!dist/**/*",
+      "!starbox",
+      "!starbox/**/*",
       "!sessions/**/*",
       "!repo/**/*",
       "!start/**/*",

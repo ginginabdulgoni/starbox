@@ -19,13 +19,15 @@
     background-color: var(--color-dark-purple);
     color: var(--color-text-light);
     line-height: 1.6;
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
     display: grid;
     grid-template-areas:
       "navbar navbar"
-      "sidebar main";
+      "sidebar main"
+      "footer footer";
     grid-template-columns: 250px 1fr;
-    grid-template-rows: 70px 1fr;
+    grid-template-rows: 70px 1fr auto;
     transition: grid-template-columns 0.22s ease;
   }
 
@@ -216,6 +218,58 @@
   body.theme-mode-light .device-search-wrapper {
     background: rgba(15, 23, 42, 0.05);
     border-color: rgba(15, 23, 42, 0.15);
+  }
+
+  /* ── Light mode: device cards ── */
+  body.theme-mode-light .device {
+    background-color: #ffffff;
+    border-color: rgba(99, 102, 241, 0.25);
+    box-shadow: 0 2px 12px rgba(15, 23, 42, 0.08);
+  }
+  body.theme-mode-light .device:hover {
+    border-color: rgba(99, 102, 241, 0.55);
+    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.18);
+  }
+  body.theme-mode-light .device-meta h3 {
+    color: #0f172a;
+    opacity: 1;
+  }
+  body.theme-mode-light .device-service-name {
+    color: #475569;
+    opacity: 1;
+  }
+  body.theme-mode-light .device-service-icon {
+    background: rgba(99, 102, 241, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.12);
+  }
+  body.theme-mode-light .device .select-device {
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.2);
+  }
+  body.theme-mode-light .device-actions button {
+    background: rgba(15, 23, 42, 0.05);
+    color: #334155;
+    border-color: rgba(15, 23, 42, 0.12);
+  }
+  body.theme-mode-light .device-actions button:hover {
+    background: rgba(99, 102, 241, 0.12);
+    color: #1e1a3f;
+  }
+  body.theme-mode-light .device-actions .run {
+    background: linear-gradient(90deg, #6366f1, #7c3aed);
+    color: #fff;
+    border-color: transparent;
+  }
+  body.theme-mode-light .device-actions .delete {
+    background: rgba(220, 38, 38, 0.1);
+    color: #dc2626;
+    border-color: rgba(220, 38, 38, 0.2);
+  }
+  body.theme-mode-light .device-actions .delete:hover {
+    background: rgba(220, 38, 38, 0.2);
+  }
+  body.theme-mode-light .status-indicator.stopped {
+    background: #e2e8f0;
+    color: #475569;
   }
 
 footer a {
@@ -551,8 +605,10 @@ footer a {
     padding: 20px 0 0 0;
     box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
     overflow-y: auto;
+    overflow-x: hidden;
     display: flex;
     flex-direction: column;
+    min-height: 0;
   }
 
   .sidebar-menu {
@@ -623,8 +679,13 @@ footer a {
     grid-area: main;
     display: flex;
     flex-direction: column;
+    min-height: 0;
     overflow-y: auto;
     background-color: var(--color-dark-purple);
+  }
+
+  body.remox-page-active .main-wrapper {
+    overflow: hidden;
   }
 
   /* --- Page Content --- */
@@ -632,6 +693,7 @@ footer a {
     display: none;
     flex-direction: column;
     flex: 1;
+    min-height: 0;
     position: absolute;
     top: 0;
     left: 0;
@@ -644,6 +706,7 @@ footer a {
 
   .page-content.active {
     display: flex;
+    min-height: 0;
     position: relative;
     visibility: visible;
     opacity: 1;
@@ -711,6 +774,7 @@ footer a {
     flex: 1;
     display: flex;
     flex-direction: column;
+    min-height: 0;
   }
 
   .version-alert {
@@ -1491,17 +1555,14 @@ footer a {
 
 /* --- Footer --- */
 .app-footer {
-  margin: 40px 30px 20px;
-  margin-top: auto;
-  padding: 14px 24px;
-  border-radius: 12px;
-  border: 1px solid var(--color-light-purple);
+  grid-area: footer;
+  padding: 10px 24px;
+  border-top: 1px solid var(--color-light-purple);
   background-color: var(--color-medium-purple);
   color: var(--color-text-light);
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25);
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 16px;
   flex-wrap: wrap;
 }
@@ -1747,7 +1808,7 @@ footer a {
   }
 
   .account-info-row strong {
-    color: #fff;
+    color: var(--color-text-light);
   }
 
   .account-summary {
@@ -1767,7 +1828,7 @@ footer a {
     padding: 12px 14px;
     border-radius: 10px;
     background: rgba(59, 130, 246, 0.12);
-    color: rgba(226, 232, 240, 0.9);
+    color: rgba(226, 232, 240, 0.92);
     font-size: 0.85rem;
   }
 
@@ -1775,7 +1836,43 @@ footer a {
     display: block;
     font-size: 0.9rem;
     margin-bottom: 4px;
-    color: #fff;
+    color: var(--color-text-light);
+  }
+
+  .account-change-password {
+    margin-bottom: 20px;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .account-change-password-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    user-select: none;
+    transition: background 0.15s;
+  }
+
+  .account-change-password-header:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  #changePasswordForm {
+    padding: 0 14px 14px;
+  }
+
+  #changePasswordChevron {
+    transition: transform 0.2s;
+    font-size: 0.8rem;
+  }
+
+  #changePasswordChevron.open {
+    transform: rotate(180deg);
   }
 
   .theme-selector {
@@ -1920,14 +2017,14 @@ footer a {
 
   .account-actions button.secondary {
     background: rgba(148, 163, 184, 0.2);
-    color: #e2e8f0;
+    color: var(--color-text-light);
     border: 1px solid rgba(148, 163, 184, 0.35);
   }
 
   .account-actions button.ghost {
     background: rgba(148, 163, 184, 0.12);
     border: 1px solid rgba(148, 163, 184, 0.35);
-    color: #e2e8f0;
+    color: var(--color-text-light);
   }
 
   .account-actions button.danger {
@@ -2014,7 +2111,7 @@ footer a {
   margin: 0;
   font-size: 1.2rem;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--color-text-light);
   letter-spacing: 0.01em;
 }
 
@@ -2022,7 +2119,8 @@ footer a {
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: rgba(224, 224, 224, 0.7);
+  color: var(--color-text-light);
+  opacity: 0.7;
 }
 
 .device-body {
@@ -2103,6 +2201,66 @@ footer a {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Remote toggle on device card */
+.device-remote-toggle {
+  display: flex;
+  align-items: center;
+}
+.device-remote-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #94a3b8;
+  user-select: none;
+}
+.device-remote-text {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.device-remote-label input[type="checkbox"] {
+  display: none;
+}
+.remote-toggle-slider {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  background: #374151;
+  border-radius: 999px;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.remote-toggle-slider::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  background: #9ca3af;
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+}
+.device-remote-label input:checked ~ .remote-toggle-slider {
+  background: #6366f1;
+}
+.device-remote-label input:checked ~ .remote-toggle-slider::after {
+  transform: translateX(14px);
+  background: #fff;
+}
+body.theme-mode-light .device-remote-label {
+  color: #64748b;
+}
+body.theme-mode-light .remote-toggle-slider {
+  background: #d1d5db;
+}
+body.theme-mode-light .device-remote-label input:checked ~ .remote-toggle-slider {
+  background: #6366f1;
 }
 
 body.list-layout .device {
@@ -4125,3 +4283,71 @@ body.theme-mode-light .support-bold {
   color: #0369a1;
 }
 
+/* ── Account Detail Modal (Light Mode) ── */
+body.theme-mode-light .account-modal .account-info-row span {
+  color: #475569;
+}
+
+body.theme-mode-light .account-modal .account-info-row strong {
+  color: #0f172a;
+}
+
+body.theme-mode-light .account-modal .account-summary {
+  background: rgba(15, 23, 42, 0.03);
+  border-color: rgba(15, 23, 42, 0.18);
+  color: #334155;
+}
+
+body.theme-mode-light .account-modal .account-note {
+  background: rgba(59, 130, 246, 0.08);
+  color: #334155;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+body.theme-mode-light .account-modal .account-note strong {
+  color: #1e3a8a;
+}
+
+body.theme-mode-light .account-modal .account-actions .ghost,
+body.theme-mode-light .account-modal .account-actions .secondary {
+  color: #1f2937;
+  border-color: rgba(100, 116, 139, 0.35);
+}
+
+/* ── Package Detail Modal (Light Mode) ── */
+body.theme-mode-light #packageModal .modal-content h3 {
+  color: #4338ca;
+}
+
+body.theme-mode-light #packageModal .package-label,
+body.theme-mode-light #packageModal .package-info-label {
+  color: #64748b;
+}
+
+body.theme-mode-light #packageModal .package-value,
+body.theme-mode-light #packageModal .package-info-value {
+  color: #0f172a;
+}
+
+body.theme-mode-light #packageModal .package-user,
+body.theme-mode-light #packageModal .package-info {
+  border-top-color: rgba(15, 23, 42, 0.12);
+}
+
+body.theme-mode-light #packageModal .package-detail-note,
+body.theme-mode-light #packageModal .loading-text {
+  color: #475569;
+}
+
+/* ── MikroTik Manager ─────────────────────────────────────────────────────── */
+#page-mikrotik { display: none; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
+#page-mikrotik.active { display: flex; }
+
+body.theme-mode-light .mtk-conn-item:hover { background: rgba(0,0,0,.05); }
+body.theme-mode-light .mtk-conn-item.active { background: rgba(91,106,240,.12); }
+body.theme-mode-light .mtk-info-card { background: rgba(0,0,0,.04); }
+body.theme-mode-light .mtk-scan-box,
+body.theme-mode-light .mtk-modal { background: #fff; color: #1a1a2e; }
+body.theme-mode-light .mtk-form-group input { background: #f8f9fa; color: #1a1a2e; }
+body.theme-mode-light .mtk-scan-result-item { background: #f4f5f7; }
+body.theme-mode-light .mtk-scan-result-item:hover { background: rgba(91,106,240,.1); }

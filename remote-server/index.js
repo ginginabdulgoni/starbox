@@ -16,6 +16,8 @@ const { startHeartbeatSweeper } = require("./handlers/heartbeat");
 const { clientSocketMap } = require("./handlers/connection-handler");
 const { purgeOlderThan }   = require("./db/repositories/audit-log");
 const { registerStarDeskRoutes } = require("./handlers/stardesk-api");
+const { attachRemoxWebTerminal } = require("./handlers/remox-terminal");
+const { attachMikrotikRelay, getMikrotikDeviceRegistry } = require("./handlers/mikrotik-relay");
 
 async function main() {
   // ─── Init Database (async karena sql.js pakai WASM) ──────────────────────
@@ -50,6 +52,28 @@ async function main() {
   // ─── StarDesk REST API ───────────────────────────────────────────────────
   registerStarDeskRoutes(app, clientSocketMap);
 
+  // ─── MikroTik REST API ────────────────────────────────────────────────────
+  // GET /api/mikrotik/devices — daftar semua MikroTik device dari semua agent online
+  app.get("/api/mikrotik/devices", (req, res) => {
+    res.json({ devices: getMikrotikDeviceRegistry() });
+  });
+
+  // GET /api/mikrotik/agents — daftar agent yang online dan punya MikroTik device
+  app.get("/api/mikrotik/agents", (req, res) => {
+    const agents = [];
+    getMikrotikDeviceRegistry().reduce((acc, d) => {
+      if (!acc.has(d._clientId)) {
+        acc.set(d._clientId, { clientId: d._clientId, hostname: d._hostname, platform: d._platform, devices: [] });
+        agents.push(acc.get(d._clientId));
+      }
+      const clone = { ...d };
+      delete clone._clientId; delete clone._hostname; delete clone._platform;
+      acc.get(d._clientId).devices.push(clone);
+      return acc;
+    }, new Map());
+    res.json({ agents });
+  });
+
   // ─── HTTP / HTTPS + Socket.IO Server ─────────────────────────────────────
   // Jika SSL_CERT dan SSL_KEY di-set di .env → pakai HTTPS (untuk port 4200 langsung)
   // Jika tidak → pakai HTTP biasa (dibalik Nginx reverse proxy)
@@ -83,6 +107,8 @@ async function main() {
 
   io.on("connection", (socket) => {
     handleConnection(io, socket);
+    attachRemoxWebTerminal(io, socket, clientSocketMap);
+    attachMikrotikRelay(io, socket, clientSocketMap);
   });
 
   // ─── Background Jobs ──────────────────────────────────────────────────────

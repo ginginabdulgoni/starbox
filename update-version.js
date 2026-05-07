@@ -12,7 +12,7 @@ function generateVersionFromDate() {
   const day = now.getDate().toString().padStart(2, "0"); // 01-31
 
   const datePart = `${year}${month}${day}`;
-  const version = `1.3.${datePart}`;
+  const version = `2.1.${datePart}`;
 
   return version;
 }

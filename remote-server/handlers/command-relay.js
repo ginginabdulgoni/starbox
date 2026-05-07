@@ -111,17 +111,27 @@ function attachCommandRelay(socket, clientSocketMap) {
     // Self-command diperbolehkan untuk kebutuhan testing/debug.
 
     // --- Validasi kepemilikan: target harus milik user yang sama ---
-    let targetOwned;
-    try {
-      targetOwned = isClientOwnedByUserCached(to_client_id, userId);
-    } catch (err) {
-      logger.error("[Relay] DB error saat cek ownership:", err.message);
-      return emitCommandError("SERVER_ERROR", "Gagal validasi kepemilikan");
-    }
+    // Web viewer (isWebViewer) sudah diverifikasi kepemilikannya oleh Laravel saat issue token,
+    // dan targetMachineId tercatat di socket — cukup validasi machine_id cocok.
+    if (socket.isWebViewer) {
+      if (socket.targetMachineId && socket.targetMachineId !== to_client_id) {
+        logger.warn(`[Relay] Web viewer ${socket.id} coba kirim ke client asing ${to_client_id}`);
+        return emitCommandError("FORBIDDEN", "Target client tidak sesuai dengan token Anda");
+      }
+      // Machine_id cocok — lanjutkan tanpa DB check
+    } else {
+      let targetOwned;
+      try {
+        targetOwned = isClientOwnedByUserCached(to_client_id, userId);
+      } catch (err) {
+        logger.error("[Relay] DB error saat cek ownership:", err.message);
+        return emitCommandError("SERVER_ERROR", "Gagal validasi kepemilikan");
+      }
 
-    if (!targetOwned) {
-      logger.warn(`[Relay] User ${userId} coba kirim ke client asing ${to_client_id}`);
-      return emitCommandError("FORBIDDEN", "Target client bukan milik akun Anda");
+      if (!targetOwned) {
+        logger.warn(`[Relay] User ${userId} coba kirim ke client asing ${to_client_id}`);
+        return emitCommandError("FORBIDDEN", "Target client bukan milik akun Anda");
+      }
     }
 
     // --- Cari socket target ---

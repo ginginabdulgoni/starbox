@@ -697,6 +697,27 @@ async function startDevice(
     // Save credentials
     sock.ev.on("creds.update", saveCreds);
 
+    // ── Auto-reject incoming calls ──────────────────────────────────────────
+    sock.ev.on("call", async (calls) => {
+      for (const call of calls) {
+        // Only act on incoming offer calls (not ended/rejected)
+        if (call.status !== "offer") continue;
+
+        const currentDevice = getDevice(deviceId);
+        if (!currentDevice?.auto_reject_calls) continue;
+
+        console.log(
+          `📵 Auto-rejecting call from ${call.from} (callId: ${call.id}) for device ${deviceId}`
+        );
+        try {
+          await sock.rejectCall(call.id, call.from);
+          console.log(`✅ Call rejected: ${call.id}`);
+        } catch (err) {
+          console.warn(`⚠️ Failed to reject call ${call.id}:`, err?.message || err);
+        }
+      }
+    });
+
     // Message handler
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       const [firstMessage] = messages;

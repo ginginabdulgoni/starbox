@@ -1,24 +1,68 @@
 "use strict";
 
 /**
- * Socket.IO middleware: validasi JWT di handshake sebelum koneksi diizinkan.
+ * Socket.IO middleware: validasi auth di handshake sebelum koneksi diizinkan.
  *
- * Client harus kirim token di handshake auth:
- *   socket = io(SERVER_URL, { auth: { token: "Bearer <jwt>" } })
+ * Dua mode auth:
+ *  A) JWT token (Electron desktop app):
+ *     socket = io(SERVER_URL, { auth: { token: "Bearer <jwt>" } })
  *
- * Setelah middleware ini sukses, socket akan memiliki properti:
- *   socket.userId, socket.userEmail, socket.userName
+ *  B) Web token (browser dari Laravel web):
+ *     socket = io(SERVER_URL, { auth: { web_token: "<uuid>" } })
+ *     Token divalidasi ke Laravel API → dapat user_id
+ *
+ * Setelah middleware sukses, socket memiliki:
+ *   socket.userId, socket.userEmail, socket.userName, socket.isGuest, socket.isWebViewer
  */
 
 const { validateToken } = require("../auth/jwt-validator");
+const fetch  = require("node-fetch");
+const config = require("../config");
 const logger = require("../utils/logger");
 
-function authMiddleware(socket, next) {
+async function authMiddleware(socket, next) {
+  // ── Mode B: Web token dari browser Laravel ───────────────────────────────
+  const webToken = socket.handshake.auth?.web_token;
+  if (webToken) {
+    try {
+      const url = `${config.STARBOX_API_BASE}/stardesk/validate-web-token`;
+      const res = await fetch(url, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "User-Agent": "StarBox-RemoteServer/1.0" },
+        body:    JSON.stringify({ token: webToken }),
+        timeout: 8000,
+      });
+
+      if (!res.ok) {
+        logger.warn(`[Auth] Web token ditolak oleh Laravel: HTTP ${res.status}`);
+        return next(new Error("AUTH_INVALID"));
+      }
+
+      const { user_id, machine_id, remote_client_id, hostname } = await res.json();
+
+      socket.userId          = user_id;
+      socket.userEmail       = "";
+      socket.userName        = hostname || "Web Browser";
+      socket.isGuest         = false;
+      socket.isWebViewer     = true;
+      socket.rawWebToken     = webToken;
+      // targetMachineId = format client_id yg dipakai Electron di remote-server
+      socket.targetMachineId = remote_client_id || machine_id;
+
+      logger.info(`[Auth] Web viewer socket authenticated: user ${user_id}, target ${machine_id}`);
+      return next();
+    } catch (err) {
+      logger.warn(`[Auth] Web token validation error: ${err.message}`);
+      return next(new Error("AUTH_INVALID"));
+    }
+  }
+
+  // ── Mode A: JWT token (Electron app) ─────────────────────────────────────
   const raw = socket.handshake.auth?.token || socket.handshake.headers?.authorization || "";
   const token = raw.startsWith("Bearer ") ? raw.slice(7) : raw;
 
   if (!token) {
-    // Izinkan guest connection — tidak ada kepemilikan user, hanya bisa menerima StarDesk stream
+    // Guest — tidak ada auth, hanya bisa menerima StarDesk stream publik
     socket.userId    = null;
     socket.userEmail = "";
     socket.userName  = "Guest";

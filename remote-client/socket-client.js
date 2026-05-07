@@ -9,12 +9,23 @@
 const { io }    = require("socket.io-client");
 const { v4: uuidv4 } = require("uuid");
 const os        = require("os");
+const net       = require("net");
 const logger    = require("./utils/logger");
+
+// ssh2 opsional — hanya digunakan untuk relay lokal
+let SshClient = null;
+try { SshClient = require("ssh2").Client; } catch (_) {}
 
 const DEFAULT_REMOTE_URL = process.env.STARBOX_REMOTE_URL || "https://starbox.weagate.com:4200";
 
+// sessionId -> { type, stream|socket, sshClient? }
+const relaySessions = new Map();
+
+// tunnelId -> net.Socket (TCP connection to MikroTik:8291)
+const winboxTcpSessions = new Map();
+
 class RemoteSocketClient {
-  constructor({ token, appVersion, serverUrl, clientId, onCommand, onClientsUpdate, onConnectChange, onAuthInvalid }) {
+  constructor({ token, appVersion, serverUrl, clientId, onCommand, onClientsUpdate, onConnectChange, onAuthInvalid, onGetMikrotikDevices }) {
     /** @type {import("socket.io-client").Socket|null} */
     this.socket       = null;
     this.token        = token;
@@ -27,10 +38,11 @@ class RemoteSocketClient {
     this.pendingRequests = new Map();
 
     // Callbacks ke layer atas
-    this.onCommand       = onCommand       || (() => {});
-    this.onClientsUpdate = onClientsUpdate || (() => {});
-    this.onConnectChange = onConnectChange || (() => {});
-    this.onAuthInvalid   = onAuthInvalid   || (() => {});
+    this.onCommand             = onCommand             || (() => {});
+    this.onClientsUpdate       = onClientsUpdate       || (() => {});
+    this.onConnectChange       = onConnectChange       || (() => {});
+    this.onAuthInvalid         = onAuthInvalid         || (() => {});
+    this.onGetMikrotikDevices  = onGetMikrotikDevices  || null;
   }
 
   /**
@@ -121,6 +133,19 @@ class RemoteSocketClient {
       this.connected = true;
       logger.info(`[RemoteClient] Connected: ${s.id}`);
       this.onConnectChange(true);
+      // Kirim daftar MikroTik devices ke server agar registry ter-update
+      if (typeof this.onGetMikrotikDevices === "function") {
+        try {
+          const devices = this.onGetMikrotikDevices();
+          if (Array.isArray(devices) && devices.length > 0) {
+            s.emit("mikrotik:devices-register", {
+              devices,
+              hostname: os.hostname(),
+              platform: process.platform,
+            });
+          }
+        } catch (_) {}
+      }
     });
 
     s.on("disconnect", (reason) => {
@@ -236,6 +261,236 @@ class RemoteSocketClient {
       pending.reject(Object.assign(new Error(data.message || data.error || "Command error"), {
         status: data.error || "error",
       }));
+    });
+
+    // ── Remox Relay: buka SSH/Telnet lokal atas permintaan server ────────────
+    s.on("remox:relay-connect", async ({ sessionId, browserSocketId, conn, cols = 80, rows = 24 }) => {
+      if (!sessionId || !conn?.host) return;
+
+      const sendData   = (d) => s.emit("remox:relay-data",   { sessionId, data: d });
+      const sendStatus = (status, message = "") => s.emit("remox:relay-status", { sessionId, status, message });
+      const closeSession = () => {
+        const sess = relaySessions.get(sessionId);
+        if (!sess) return;
+        try {
+          if (sess.type === "ssh")    { sess.stream?.close?.(); sess.sshClient?.end(); }
+          if (sess.type === "telnet") { sess.tcpSocket?.destroy(); }
+        } catch (_) {}
+        relaySessions.delete(sessionId);
+      };
+
+      closeSession(); // tutup sesi lama jika ada
+      logger.info(`[RemoxRelay] Membuka ${conn.type} ke ${conn.host}:${conn.port}`);
+
+      // ── SSH ────────────────────────────────────────────────────────────────
+      if (conn.type === "ssh") {
+        if (!SshClient) {
+          return sendStatus("error", "ssh2 tidak tersedia di Electron ini.");
+        }
+        const ssh = new SshClient();
+
+        ssh.on("ready", () => {
+          ssh.shell({ term: "xterm-256color", cols, rows }, (err, stream) => {
+            if (err) { sendStatus("error", err.message); ssh.end(); return; }
+
+            relaySessions.set(sessionId, { type: "ssh", stream, sshClient: ssh });
+            sendStatus("connected");
+
+            stream.on("data",  (d) => sendData(d.toString("binary")));
+            stream.stderr.on("data", (d) => sendData(d.toString("binary")));
+            stream.on("close", () => { sendStatus("disconnected"); closeSession(); });
+          });
+        });
+
+        ssh.on("error", (err) => {
+          logger.warn(`[RemoxRelay] SSH error ${sessionId}: ${err.message}`);
+          sendStatus("error", err.message);
+          closeSession();
+        });
+
+        const sshConfig = {
+          host: conn.host, port: conn.port || 22,
+          username: conn.username || "root",
+          readyTimeout: 15000, keepaliveInterval: 30000,
+        };
+        if (conn.privateKey?.trim()) {
+          sshConfig.privateKey = conn.privateKey;
+          if (conn.password) sshConfig.passphrase = conn.password;
+        } else if (conn.password) {
+          sshConfig.password = conn.password;
+        }
+
+        ssh.connect(sshConfig);
+        return;
+      }
+
+      // ── Telnet ────────────────────────────────────────────────────────────
+      if (conn.type === "telnet") {
+        const tcpSocket = net.createConnection({ host: conn.host, port: conn.port || 23 }, () => {
+          relaySessions.set(sessionId, { type: "telnet", tcpSocket });
+          sendStatus("connected");
+        });
+        tcpSocket.on("data",  (d) => sendData(d.toString("binary")));
+        tcpSocket.on("close", () => { sendStatus("disconnected"); closeSession(); });
+        tcpSocket.on("error", (err) => { sendStatus("error", err.message); closeSession(); });
+        return;
+      }
+
+      sendStatus("error", `Tipe ${conn.type} tidak didukung via relay lokal.`);
+    });
+
+    // ── Relay: input dari browser (forwarded oleh server) ───────────────────
+    s.on("remox:relay-input", ({ sessionId, data }) => {
+      const sess = relaySessions.get(sessionId);
+      if (!sess) return;
+      try {
+        if (sess.type === "ssh")    sess.stream.write(Buffer.from(data, "binary"));
+        if (sess.type === "telnet") sess.tcpSocket.write(Buffer.from(data, "binary"));
+      } catch (_) {}
+    });
+
+    // ── Relay: resize terminal ───────────────────────────────────────────────
+    s.on("remox:relay-resize", ({ sessionId, cols, rows }) => {
+      const sess = relaySessions.get(sessionId);
+      if (sess?.type === "ssh") {
+        try { sess.stream.setWindow(rows, cols, 0, 0); } catch (_) {}
+      }
+    });
+
+    // ── Relay: browser disconnect ────────────────────────────────────────────
+    s.on("remox:relay-disconnect", ({ sessionId }) => {
+      const sess = relaySessions.get(sessionId);
+      if (sess) {
+        try {
+          if (sess.type === "ssh")    { sess.stream?.close?.(); sess.sshClient?.end(); }
+          if (sess.type === "telnet") { sess.tcpSocket?.destroy(); }
+        } catch (_) {}
+        relaySessions.delete(sessionId);
+      }
+    });
+
+    // ── MikroTik Relay: HTTP proxy request dari server ───────────────────────
+    s.on("mikrotik:relay-proxy-request", async ({ reqId, url, method = "GET", headers = {}, body = null }) => {
+      if (!reqId || !url) return;
+
+      // Validasi URL — hanya izinkan HTTP/HTTPS ke IP/host lokal
+      let parsedUrl;
+      try {
+        parsedUrl = new URL(url);
+        if (!["http:", "https:"].includes(parsedUrl.protocol)) throw new Error("Protocol not allowed");
+      } catch (err) {
+        return s.emit("mikrotik:relay-proxy-response", {
+          reqId, ok: false, status: 400, body: `Invalid URL: ${err.message}`,
+        });
+      }
+
+      logger.info(`[MikroTikRelay] Fetching ${method} ${url}`);
+
+      try {
+        const nodeFetch = (() => {
+          try { return require("node-fetch"); } catch (_) { return fetch; }
+        })();
+        const https = require("https");
+        const fetchOpts = {
+          method,
+          headers: { ...headers },
+          body: body && method !== "GET" && method !== "HEAD" ? body : undefined,
+          redirect: "follow",
+          timeout: 15000,
+          ...(parsedUrl.protocol === "https:" ? { agent: new https.Agent({ rejectUnauthorized: false }) } : {}),
+        };
+        const resp = await nodeFetch(url, fetchOpts);
+        const respBody = await resp.text();
+        const respHeaders = {};
+        resp.headers.forEach((v, k) => { respHeaders[k] = v; });
+
+        s.emit("mikrotik:relay-proxy-response", {
+          reqId,
+          ok:      resp.ok,
+          status:  resp.status,
+          headers: respHeaders,
+          body:    respBody,
+        });
+      } catch (err) {
+        logger.warn(`[MikroTikRelay] Proxy fetch gagal (${url}): ${err.message}`);
+        s.emit("mikrotik:relay-proxy-response", {
+          reqId, ok: false, status: 502, body: `Fetch error: ${err.message}`,
+        });
+      }
+    });
+
+    // ── MikroTik Winbox TCP Relay ────────────────────────────────────────────
+    // Server meminta agent membuka koneksi TCP ke MikroTik:8291
+    s.on("mikrotik:relay-winbox-open", ({ tunnelId, host, port }) => {
+      if (!tunnelId || !host) return;
+
+      // Tutup sesi lama jika ada
+      const existing = winboxTcpSessions.get(tunnelId);
+      if (existing) { try { existing.destroy(); } catch (_) {} winboxTcpSessions.delete(tunnelId); }
+
+      logger.info(`[WinboxRelay] Membuka TCP ke ${host}:${port || 8291} (${tunnelId})`);
+
+      const tcpSock = net.createConnection({ host, port: port || 8291 }, () => {
+        winboxTcpSessions.set(tunnelId, tcpSock);
+        s.emit("mikrotik:relay-winbox-status", { tunnelId, status: "connected" });
+        logger.info(`[WinboxRelay] TCP connected ${tunnelId}`);
+      });
+
+      tcpSock.on("data", (data) => {
+        // Forward data MikroTik → relay → Winbox app (base64 agar aman di JSON)
+        s.emit("mikrotik:relay-winbox-data", { tunnelId, data: data.toString("base64") });
+      });
+
+      tcpSock.on("close", () => {
+        s.emit("mikrotik:relay-winbox-closed", { tunnelId });
+        winboxTcpSessions.delete(tunnelId);
+        logger.info(`[WinboxRelay] TCP closed ${tunnelId}`);
+      });
+
+      tcpSock.on("error", (err) => {
+        logger.warn(`[WinboxRelay] TCP error ${tunnelId}: ${err.message}`);
+        s.emit("mikrotik:relay-winbox-status", { tunnelId, status: "error", message: err.message });
+        winboxTcpSessions.delete(tunnelId);
+      });
+
+      tcpSock.setTimeout(30000);
+      tcpSock.on("timeout", () => {
+        logger.warn(`[WinboxRelay] TCP timeout ${tunnelId}`);
+        tcpSock.destroy();
+      });
+    });
+
+    // Data dari Winbox app (via relay) → forward ke MikroTik TCP socket
+    s.on("mikrotik:relay-winbox-data", ({ tunnelId, data }) => {
+      const sock = winboxTcpSessions.get(tunnelId);
+      if (sock && !sock.destroyed) {
+        try { sock.write(Buffer.from(data, "base64")); } catch (_) {}
+      }
+    });
+
+    // Viewer menutup tunnel — agent juga close TCP
+    s.on("mikrotik:relay-winbox-close", ({ tunnelId }) => {
+      const sock = winboxTcpSessions.get(tunnelId);
+      if (sock) { try { sock.destroy(); } catch (_) {} winboxTcpSessions.delete(tunnelId); }
+      logger.info(`[WinboxRelay] Tunnel ${tunnelId} ditutup oleh viewer`);
+    });
+
+    // ── MikroTik Relay: server minta buka Web UI MikroTik lokal ─────────────
+    s.on("mikrotik:relay-open-webui", async ({ reqId, host, webPort, name }) => {
+      if (!host) return;
+      logger.info(`[MikroTikRelay] Open WebUI ${host}:${webPort || 80}`);
+      try {
+        // Dispatch via onCommand → command-handlers/mikrotik-commands.js
+        await this.onCommand({
+          command: "mikrotik_open_webui",
+          payload: { host, webPort, name },
+          fromClientId: "relay-server",
+        });
+        s.emit("mikrotik:relay-open-webui-ack", { reqId, ok: true });
+      } catch (err) {
+        logger.warn(`[MikroTikRelay] Open WebUI gagal: ${err.message}`);
+        s.emit("mikrotik:relay-open-webui-ack", { reqId, ok: false, message: err.message });
+      }
     });
 
     // Heartbeat ack

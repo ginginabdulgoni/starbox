@@ -3378,6 +3378,84 @@ function closeAccountModal() {
   if (modal) {
     modal.style.display = "none";
   }
+  // Reset change password form when modal closes
+  const form = document.getElementById("changePasswordForm");
+  if (form) form.style.display = "none";
+  const chevron = document.getElementById("changePasswordChevron");
+  if (chevron) chevron.classList.remove("open");
+  ["cpCurrentPassword", "cpNewPassword", "cpConfirmPassword"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+  const msg = document.getElementById("cpMessage");
+  if (msg) msg.style.display = "none";
+}
+
+function toggleChangePasswordForm() {
+  const form = document.getElementById("changePasswordForm");
+  const chevron = document.getElementById("changePasswordChevron");
+  if (!form) return;
+  const isOpen = form.style.display !== "none";
+  form.style.display = isOpen ? "none" : "block";
+  chevron?.classList.toggle("open", !isOpen);
+}
+
+async function submitChangePassword() {
+  const currentPassword = document.getElementById("cpCurrentPassword")?.value || "";
+  const newPassword = document.getElementById("cpNewPassword")?.value || "";
+  const confirmPassword = document.getElementById("cpConfirmPassword")?.value || "";
+  const msgEl = document.getElementById("cpMessage");
+  const btn = document.getElementById("cpSubmitBtn");
+
+  function showCpMessage(text, isError) {
+    if (!msgEl) return;
+    msgEl.textContent = text;
+    msgEl.style.display = "block";
+    msgEl.style.background = isError ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)";
+    msgEl.style.color = isError ? "#f87171" : "#4ade80";
+  }
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    showCpMessage("Semua field wajib diisi.", true);
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    showCpMessage("Password baru dan konfirmasi tidak cocok.", true);
+    return;
+  }
+  if (newPassword.length < 8) {
+    showCpMessage("Password baru minimal 8 karakter.", true);
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Menyimpan...";
+  }
+
+  try {
+    const result = await window.electronAPI.auth.changePassword({
+      currentPassword,
+      newPassword,
+      confirmPassword,
+    });
+    if (result.success) {
+      showCpMessage(result.message || "Password berhasil diubah.", false);
+      ["cpCurrentPassword", "cpNewPassword", "cpConfirmPassword"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = "";
+      });
+    } else {
+      showCpMessage(result.message || "Gagal mengubah password.", true);
+    }
+  } catch (err) {
+    showCpMessage("Terjadi kesalahan. Coba lagi.", true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Simpan Password";
+    }
+  }
 }
 
 function handleAuthButtonClick() {
@@ -5201,6 +5279,9 @@ async function renderDevices(devices) {
     const runLabel = isActive ? "Restart" : "Jalankan";
     const runIcon = isActive ? "bi-arrow-clockwise" : "bi-play-fill";
 
+    const remoteEnabled = device.remoteEnabled !== false;
+    deviceCard.dataset.remoteEnabled = remoteEnabled ? "true" : "false";
+
     deviceCard.innerHTML = `
       <input type="checkbox"
              class="select-device"
@@ -5240,6 +5321,13 @@ async function renderDevices(devices) {
       </div>
 
       <div class="device-footer">
+        <div class="device-remote-toggle" title="Remote Control">
+          <label class="device-remote-label">
+            <span class="device-remote-text"><i class="bi bi-broadcast"></i> Remote</span>
+            <input type="checkbox" class="remote-toggle-input" ${remoteEnabled ? "checked" : ""}>
+            <span class="remote-toggle-slider"></span>
+          </label>
+        </div>
         <div class="device-actions">
           <button class="run">
             <i class="bi ${runIcon}"></i>
@@ -5294,6 +5382,19 @@ async function renderDevices(devices) {
     const deleteButton = deviceCard.querySelector(".delete");
     const editButton = deviceCard.querySelector(".edit");
     const recordButton = deviceCard.querySelector(".record-btn");
+    const remoteToggleInput = deviceCard.querySelector(".remote-toggle-input");
+
+    remoteToggleInput?.addEventListener("change", async (e) => {
+      const newEnabled = e.target.checked;
+      deviceCard.dataset.remoteEnabled = newEnabled ? "true" : "false";
+      try {
+        await window.electronAPI.toggleRemoteEnabled(device.uid, newEnabled);
+      } catch (err) {
+        console.error("Gagal toggle remote:", err);
+        e.target.checked = !newEnabled;
+        deviceCard.dataset.remoteEnabled = (!newEnabled) ? "true" : "false";
+      }
+    });
 
     statusButton?.addEventListener("click", () => {
       const currentStatus = (deviceCard.dataset.status || "").toLowerCase();
@@ -8212,6 +8313,8 @@ Object.assign(window, {
   closeAuthModal,
   openAccountModal,
   closeAccountModal,
+  toggleChangePasswordForm,
+  submitChangePassword,
 });
 
 window.changeLayout = function (layout) {
@@ -9006,26 +9109,30 @@ async function cctvInit() {
 async function cctvCheckFfmpeg() {
   const dot    = document.getElementById('cctvStatusDot');
   const text   = document.getElementById('cctvStatusText');
-  const btn    = document.getElementById('cctvInstallFfmpegBtn');
+  const btn        = document.getElementById('cctvInstallFfmpegBtn');
+  const tutorialBtn = document.getElementById('cctvFfmpegTutorialBtn');
   const banner = document.getElementById('cctvFfmpegMissingBanner');
   try {
     const r = await window.electronAPI.cctv.checkFfmpeg();
     if (r.available) {
-      if (dot)    dot.style.background = '#22c55e';
-      if (text)   text.textContent = 'ffmpeg tersedia';
-      if (btn)    btn.style.display = 'none';
-      if (banner) banner.style.display = 'none';
+      if (dot)         dot.style.background = '#22c55e';
+      if (text)        text.textContent = 'ffmpeg tersedia';
+      if (btn)         btn.style.display = 'none';
+      if (tutorialBtn) tutorialBtn.style.display = 'none';
+      if (banner)      banner.style.display = 'none';
     } else {
-      if (dot)    dot.style.background = '#f59e0b';
-      if (text)   text.textContent = 'ffmpeg tidak ditemukan';
-      if (btn)    btn.style.display = 'inline-flex';
-      if (banner) banner.style.display = 'flex';
+      if (dot)         dot.style.background = '#f59e0b';
+      if (text)        text.textContent = 'ffmpeg tidak ditemukan';
+      if (btn)         btn.style.display = 'inline-flex';
+      if (tutorialBtn) tutorialBtn.style.display = 'inline-flex';
+      if (banner)      banner.style.display = 'flex';
     }
   } catch {
-    if (dot)    dot.style.background = '#666';
-    if (text)   text.textContent = '';
-    if (btn)    btn.style.display = 'none';
-    if (banner) banner.style.display = 'none';
+    if (dot)         dot.style.background = '#666';
+    if (text)        text.textContent = '';
+    if (btn)         btn.style.display = 'none';
+    if (tutorialBtn) tutorialBtn.style.display = 'none';
+    if (banner)      banner.style.display = 'none';
   }
 }
 
