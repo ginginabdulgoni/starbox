@@ -707,6 +707,15 @@ const DEFAULT_SERVICE_LIBRARY = [
     keywords: ["android", "full", "remote"],
   },
   {
+    id: "radio-garden",
+    label: "Radio Garden",
+    color: "#00c853",
+    url: "https://radio.garden",
+    category: "Hiburan",
+    description: "Jelajahi radio dari seluruh dunia secara interaktif.",
+    keywords: ["radio", "musik", "streaming", "dunia"],
+  },
+  {
     id: "other",
     label: "Website Kustom",
     color: "#f97316",
@@ -5333,6 +5342,10 @@ async function renderDevices(devices) {
             <i class="bi ${runIcon}"></i>
             <span>${runLabel}</span>
           </button>
+          <button class="open-window" title="Buka di Window Baru">
+            <i class="bi bi-window-plus"></i>
+            <span>Window</span>
+          </button>
           <button class="edit" data-uid="${device.uid}">
             <i class="bi bi-pencil-square"></i>
             <span>Edit</span>
@@ -5379,6 +5392,7 @@ async function renderDevices(devices) {
     const statusButton = deviceCard.querySelector(".status-indicator");
     const inlineStop = deviceCard.querySelector(".inline-stop");
     const runButton = deviceCard.querySelector(".run");
+    const openWindowButton = deviceCard.querySelector(".open-window");
     const deleteButton = deviceCard.querySelector(".delete");
     const editButton = deviceCard.querySelector(".edit");
     const recordButton = deviceCard.querySelector(".record-btn");
@@ -5441,6 +5455,20 @@ async function renderDevices(devices) {
       }
 
       runButton.disabled = false;
+    });
+
+    openWindowButton?.addEventListener("click", async () => {
+      const originalHTML = openWindowButton.innerHTML;
+      openWindowButton.innerHTML = `<i class="bi bi-arrow-repeat"></i> <span>...</span>`;
+      openWindowButton.disabled = true;
+      try {
+        await runDeviceInNewWindow(device.uid, device.service);
+        setDeviceState(device.uid, "active");
+      } catch (err) {
+        console.error("Gagal membuka window baru:", err);
+      }
+      openWindowButton.disabled = false;
+      openWindowButton.innerHTML = originalHTML;
     });
 
     if (inlineStop) {
@@ -6367,6 +6395,15 @@ async function loadAllDevices() {
 function runDevice(uid, service) {
   window.electronAPI.runDevice(uid, service);
   setDeviceState(uid, "active");
+}
+
+async function runDeviceInNewWindow(uid, service) {
+  try {
+    await window.electronAPI.runDeviceInNewWindow(uid, service);
+    setDeviceState(uid, "active");
+  } catch (err) {
+    console.error("Gagal membuka device di window baru:", err);
+  }
 }
 
 function stopDevice(uid) {
