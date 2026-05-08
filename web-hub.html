@@ -1096,6 +1096,29 @@ window._bgSave = function() {
 // Load background saat init
 loadBackground();
 
+// ─── Auto Cleanup localStorage (Web Hub) ───────────────────────────
+(function cleanupWebHubStorage() {
+  try {
+    const allKeys = Object.keys(localStorage);
+    const KEEP = new Set([
+      'starbox-webhub-layout', 'starbox-webhub-bg', 'starbox-favorites',
+      'starbox-pro-mode', 'starbox-dnd', 'starbox-dnd-schedule', 'starbox-cleanup-last',
+    ]);
+    let removed = 0;
+    allKeys.forEach(key => {
+      if (!key.startsWith('starbox-')) return;
+      if (KEEP.has(key)) return;
+      if (key.startsWith('starbox-usage-')) return;
+      // Hapus key webhub tidak dikenal
+      if (key.startsWith('starbox-webhub-') && !KEEP.has(key)) {
+        localStorage.removeItem(key);
+        removed++;
+      }
+    });
+    if (removed > 0) console.log('[WebHub] Cleanup:', removed, 'key(s) dihapus');
+  } catch {}
+})();
+
 function toggleClipboardPanel() {
   const p = document.getElementById('clipboard-panel');
   if (p) p.style.display = p.style.display === 'none' ? 'block' : 'none';

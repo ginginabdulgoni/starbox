@@ -12716,3 +12716,80 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
     trackPageChange(active);
   }
 })();
+
+// ─── Auto Cleanup localStorage ────────────────────────────────────────────────
+(function autoCleanupStorage() {
+  const RULES = [
+    // Usage tracker: simpan 30 hari, hapus yang lebih lama
+    { prefix: 'starbox-usage-',       keepDays: 30 },
+    // Clipboard history: dikelola di memory, tidak perlu cleanup
+  ];
+
+  function parseDate(key, prefix) {
+    const dateStr = key.replace(prefix, ''); // format YYYY-MM-DD
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function runCleanup() {
+    const now = Date.now();
+    let removed = 0;
+
+    try {
+      const allKeys = Object.keys(localStorage);
+
+      RULES.forEach(({ prefix, keepDays }) => {
+        const cutoff = now - keepDays * 24 * 60 * 60 * 1000;
+        allKeys.forEach(key => {
+          if (!key.startsWith(prefix)) return;
+          const date = parseDate(key, prefix);
+          if (date && date.getTime() < cutoff) {
+            localStorage.removeItem(key);
+            removed++;
+          }
+        });
+      });
+
+      // Hapus key orphan / tidak dikenal milik starbox yang > 90 hari
+      const KNOWN_KEYS = new Set([
+        'starbox-favorites', 'starbox-pro-mode', 'starbox-dnd',
+        'starbox-dnd-schedule', 'starbox-webhub-layout', 'starbox-webhub-bg',
+        'starbox-cleanup-last',
+      ]);
+      allKeys.forEach(key => {
+        if (!key.startsWith('starbox-')) return;
+        if (KNOWN_KEYS.has(key)) return;
+        if (key.startsWith('starbox-usage-')) return; // sudah dihandle di atas
+        // Key starbox tidak dikenal — cek apakah ada timestamp di value
+        try {
+          const val = JSON.parse(localStorage.getItem(key) || '{}');
+          if (val._ts && now - val._ts > 90 * 24 * 60 * 60 * 1000) {
+            localStorage.removeItem(key);
+            removed++;
+          }
+        } catch {}
+      });
+
+      if (removed > 0) console.log(`[StarBox] Auto cleanup: ${removed} localStorage key(s) dihapus`);
+      localStorage.setItem('starbox-cleanup-last', String(now));
+    } catch (e) {
+      console.warn('[StarBox] Cleanup error:', e?.message);
+    }
+  }
+
+  // Jalankan hanya sekali per hari
+  function shouldRun() {
+    try {
+      const last = parseInt(localStorage.getItem('starbox-cleanup-last') || '0');
+      return Date.now() - last > 24 * 60 * 60 * 1000;
+    } catch { return true; }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    if (shouldRun()) setTimeout(runCleanup, 5000); // delay 5s agar tidak ganggu startup
+  });
+  if (document.readyState !== 'loading' && shouldRun()) setTimeout(runCleanup, 5000);
+
+  // Expose untuk manual trigger jika perlu
+  window.runStorageCleanup = runCleanup;
+})();
