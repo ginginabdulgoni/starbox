@@ -272,6 +272,21 @@
       <button id="add-tab-btn" title="Pilih device">+</button>
     </div>
     <div id="layout-selector">
+
+      <!-- Clipboard History Button -->
+      <div style="position:relative;" id="clipboard-btn-wrap">
+        <button id="clipboard-btn" title="Clipboard History (Ctrl+Shift+V)"
+          style="background:none;border:1px solid transparent;border-radius:4px;cursor:pointer;padding:3px 6px;color:#555;display:flex;align-items:center;gap:4px;font-size:11px;transition:all 0.12s;"
+          onmouseover="this.style.color='#a99cf0';this.style.borderColor='rgba(124,111,224,0.4)'"
+          onmouseout="this.style.color='#555';this.style.borderColor='transparent'"
+          onclick="toggleClipboardPanel()">
+          &#128203;
+        </button>
+        <div id="clipboard-panel" style="display:none;position:absolute;right:0;top:36px;width:280px;background:#1c2030;border:1px solid rgba(255,255,255,0.1);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:100;padding:8px 0;">
+          <div style="padding:6px 12px 8px;font-size:11px;color:#666;border-bottom:1px solid rgba(255,255,255,0.06);">📋 Clipboard History</div>
+          <div id="clipboard-list" style="max-height:240px;overflow-y:auto;"></div>
+        </div>
+      </div>
       <button class="layout-btn active" data-layout="single" title="1 panel">
         <div class="li li-1"><span></span></div>
       </button>
@@ -979,6 +994,39 @@ function buildDpItem(device, isOpen) {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.querySelectorAll('.layout-btn').forEach(btn => btn.addEventListener('click', () => applyLayout(btn.dataset.layout)));
+
+// ─── Clipboard History UI ─────────────────────────────────────────────
+function toggleClipboardPanel() {
+  const p = document.getElementById('clipboard-panel');
+  if (p) p.style.display = p.style.display === 'none' ? 'block' : 'none';
+}
+function renderClipboardList(list) {
+  const el = document.getElementById('clipboard-list');
+  if (!el) return;
+  if (!list || list.length === 0) {
+    el.innerHTML = '<div style="padding:12px;text-align:center;color:#555;font-size:12px;">Belum ada clipboard</div>';
+    return;
+  }
+  el.innerHTML = list.map((text, i) => {
+    const preview = text.length > 60 ? text.substring(0, 60) + '…' : text;
+    const safe = preview.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<div style="padding:7px 12px;cursor:pointer;font-size:11px;color:#ccc;border-bottom:1px solid rgba(255,255,255,0.04);transition:background 0.1s;"
+      onmouseover="this.style.background='rgba(124,111,224,0.1)'" onmouseout="this.style.background=''"
+      onclick="navigator.clipboard.writeText(${JSON.stringify(text)});this.style.color='#50c878';setTimeout(()=>this.style.color='#ccc',800);"
+      title="Klik untuk copy">${safe}</div>`;
+  }).join('');
+}
+document.addEventListener('click', e => {
+  const panel = document.getElementById('clipboard-panel');
+  const wrap  = document.getElementById('clipboard-btn-wrap');
+  if (panel && wrap && !wrap.contains(e.target)) panel.style.display = 'none';
+});
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'V') {
+    e.preventDefault();
+    toggleClipboardPanel();
+  }
+});
 document.getElementById('add-tab-btn').addEventListener('click', openDevicePicker);
 document.getElementById('splash-add-btn').addEventListener('click', openDevicePicker);
 document.getElementById('new-desktop-btn').addEventListener('click', () => addDesktop());
@@ -999,6 +1047,9 @@ if (window.hubAPI) {
   window.hubAPI.onSetLayout((uid, hasSidePanel) => setSidePanelLayout(uid, hasSidePanel));
   window.hubAPI.onTabStatus((uid, status) => setTabStatus(uid, status));
   window.hubAPI.onTabBadge((uid, count) => setTabBadge(uid, count));
+  window.hubAPI.onClipboardHistory(list => renderClipboardList(list));
+  // Load history awal
+  window.hubAPI.getClipboardHistory().then(list => renderClipboardList(list));
   window.hubAPI.onWindowResized(() => {
     buildSlotOverlay(); applyAllPositions();
   });

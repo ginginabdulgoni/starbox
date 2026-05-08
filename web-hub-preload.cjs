@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('hubAPI', {
   onTabTitle:     (cb) => ipcRenderer.on('hub-tab-title',    (_e, uid, title)  => cb(uid, title)),
   onTabBadge:     (cb) => ipcRenderer.on('hub-tab-badge',    (_e, uid, count)  => cb(uid, count)),
   sendViewBounds:  (list) => ipcRenderer.send('hub-view-bounds', list),
+  onClipboardHistory: (cb) => ipcRenderer.on('hub-clipboard-history', (_e, list) => cb(list)),
+  getClipboardHistory: () => ipcRenderer.invoke('hub-get-clipboard-history'),
   notifyClose:     (uid)  => ipcRenderer.send('hub-tab-closed',  uid),
   notifyPopOut:    (uid)  => ipcRenderer.send('hub-tab-pop-out', uid),
   switchTab:       (uid)  => ipcRenderer.send('hub-switch-tab',  uid),

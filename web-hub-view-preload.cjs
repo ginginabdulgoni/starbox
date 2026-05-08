@@ -42,3 +42,22 @@ document.addEventListener('DOMContentLoaded', () => {
   _lastBadge = extractBadgeFromTitle(document.title);
   if (_lastBadge > 0) ipcRenderer.send('hub-view-badge', { action: 'set', count: _lastBadge });
 });
+
+// ─── Clipboard Sync ──────────────────────────────────────────────────
+// Saat user copy di tab ini — kirim teks ke main untuk history
+document.addEventListener('copy', () => {
+  // Baca dari clipboard setelah copy event selesai
+  setTimeout(() => {
+    navigator.clipboard.readText().then(text => {
+      if (text && text.trim()) {
+        ipcRenderer.send('hub-clipboard-copy', text);
+      }
+    }).catch(() => {}); // izin clipboard bisa ditolak
+  }, 50);
+});
+
+// Dengarkan broadcast clipboard dari tab lain
+ipcRenderer.on('hub-clipboard-broadcast', (_e, text) => {
+  // Tulis ke clipboard OS — user bisa langsung Ctrl+V
+  navigator.clipboard.writeText(text).catch(() => {});
+});

@@ -9046,6 +9046,29 @@ ipcMain.on('hub-view-badge', (event, { action, count }) => {
   webHubWindow.webContents.send('hub-tab-badge', uid, badge);
 });
 
+// Clipboard sync — broadcast ke semua BrowserView lain di Web Hub
+let _hubClipboardHistory = []; // max 20 entri
+ipcMain.on('hub-clipboard-copy', (event, text) => {
+  if (!text || !text.trim()) return;
+  // Simpan ke history (dedup)
+  _hubClipboardHistory = _hubClipboardHistory.filter(t => t !== text);
+  _hubClipboardHistory.unshift(text);
+  if (_hubClipboardHistory.length > 20) _hubClipboardHistory.pop();
+  // Broadcast ke semua BrowserView lain kecuali pengirim
+  for (const [, view] of hubWebViews) {
+    if (!(view instanceof BrowserView) || view.webContents === event.sender) continue;
+    if (!view.webContents.isDestroyed()) {
+      view.webContents.send('hub-clipboard-broadcast', text);
+    }
+  }
+  // Juga kirim ke renderer untuk tampil di clipboard history UI
+  if (webHubWindow && !webHubWindow.isDestroyed()) {
+    webHubWindow.webContents.send('hub-clipboard-history', _hubClipboardHistory);
+  }
+});
+
+ipcMain.handle('hub-get-clipboard-history', () => _hubClipboardHistory);
+
 ipcMain.on('hub-switch-tab', (event, uid) => {
   applyHubLayout(uid);
 });
