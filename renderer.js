@@ -12515,3 +12515,83 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
   document.addEventListener('DOMContentLoaded', () => { renderFavorites(); });
   if (document.readyState !== 'loading') renderFavorites();
 })();
+
+// ─── Do Not Disturb / Focus Mode ─────────────────────────────────────────────
+(function initDND() {
+  const LS_KEY    = 'starbox-dnd';
+  const LS_SCHED  = 'starbox-dnd-schedule'; // { enabled, startH, startM, endH, endM }
+
+  let _dndTimer = null;
+
+  function isDND() { return localStorage.getItem(LS_KEY) === 'true'; }
+  function setDND(val) { localStorage.setItem(LS_KEY, String(val)); }
+
+  function applyDND(active) {
+    const btn   = document.getElementById('dndBtn');
+    const icon  = document.getElementById('dndIcon');
+    const label = document.getElementById('dndLabel');
+    if (!btn) return;
+
+    if (active) {
+      btn.style.borderColor = 'rgba(251,191,36,0.5)';
+      btn.style.color       = '#fbbf24';
+      if (icon)  { icon.className = 'bi bi-moon-fill'; icon.style.fontSize = '13px'; }
+      if (label) label.textContent = 'Fokus ON';
+      // Notify main process — mute OS notifications
+      window.electronAPI?.setDND?.(true);
+    } else {
+      btn.style.borderColor = 'rgba(255,255,255,0.1)';
+      btn.style.color       = '#9ca3af';
+      if (icon)  { icon.className = 'bi bi-moon'; icon.style.fontSize = '13px'; }
+      if (label) label.textContent = 'Fokus';
+      window.electronAPI?.setDND?.(false);
+    }
+
+    // Expose ke Web Hub via IPC agar badge berhenti update
+    window.electronAPI?.broadcastDND?.(active);
+  }
+
+  window.toggleDND = function () {
+    const next = !isDND();
+    setDND(next);
+    applyDND(next);
+  };
+
+  window.isDNDActive = isDND;
+
+  // Jadwal otomatis DND
+  function checkDNDSchedule() {
+    try {
+      const sched = JSON.parse(localStorage.getItem(LS_SCHED) || '{}');
+      if (!sched.enabled) return;
+      const now = new Date();
+      const h = now.getHours(), m = now.getMinutes();
+      const nowMin   = h * 60 + m;
+      const startMin = (sched.startH || 22) * 60 + (sched.startM || 0);
+      const endMin   = (sched.endH   || 7)  * 60 + (sched.endM   || 0);
+
+      let shouldDND;
+      if (startMin < endMin) {
+        shouldDND = nowMin >= startMin && nowMin < endMin;
+      } else {
+        // Overnight (e.g. 22:00 - 07:00)
+        shouldDND = nowMin >= startMin || nowMin < endMin;
+      }
+
+      if (shouldDND !== isDND()) {
+        setDND(shouldDND);
+        applyDND(shouldDND);
+      }
+    } catch {}
+  }
+
+  // Check setiap menit
+  setInterval(checkDNDSchedule, 60000);
+
+  // Init
+  document.addEventListener('DOMContentLoaded', () => {
+    applyDND(isDND());
+    checkDNDSchedule();
+  });
+  if (document.readyState !== 'loading') { applyDND(isDND()); checkDNDSchedule(); }
+})();

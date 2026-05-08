@@ -259,6 +259,14 @@
     color: #fff;
     border-color: transparent;
   }
+  body.theme-mode-light .device-actions .open-window {
+    background: rgba(16, 185, 129, 0.1);
+    color: #059669;
+    border-color: rgba(16, 185, 129, 0.25);
+  }
+  body.theme-mode-light .device-actions .open-window:hover {
+    background: rgba(16, 185, 129, 0.2);
+  }
   body.theme-mode-light .device-actions .delete {
     background: rgba(220, 38, 38, 0.1);
     color: #dc2626;
@@ -2364,6 +2372,16 @@ body.list-layout .device-actions button {
 }
 
 .device-actions .stop:hover {
+  filter: brightness(1.1);
+}
+
+.device-actions .open-window {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.18), rgba(5, 150, 105, 0.28));
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #6ee7b7;
+}
+.device-actions .open-window:hover {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.3), rgba(5, 150, 105, 0.4));
   filter: brightness(1.1);
 }
 

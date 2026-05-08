@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadConfig: () => ipcRenderer.sendSync('load-config'),
   getLoginItemSettings: () => ipcRenderer.sendSync('get-login-item-settings'),
   setLoginItemSettings: (val) => ipcRenderer.send('set-login-item-settings', val),
+  setDND: (active) => ipcRenderer.send('set-dnd', active),
+  broadcastDND: (active) => ipcRenderer.send('broadcast-dnd', active),
   invoke: ipcRenderer.invoke,
   send: ipcRenderer.send,
   on: ipcRenderer.on,

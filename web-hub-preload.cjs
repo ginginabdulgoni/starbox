@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('hubAPI', {
   sendViewBounds:  (list) => ipcRenderer.send('hub-view-bounds', list),
   onClipboardHistory: (cb) => ipcRenderer.on('hub-clipboard-history', (_e, list) => cb(list)),
   getClipboardHistory: () => ipcRenderer.invoke('hub-get-clipboard-history'),
+  onDNDChanged: (cb) => ipcRenderer.on('hub-dnd-changed', (_e, active) => cb(active)),
   notifyClose:     (uid)  => ipcRenderer.send('hub-tab-closed',  uid),
   notifyPopOut:    (uid)  => ipcRenderer.send('hub-tab-pop-out', uid),
   switchTab:       (uid)  => ipcRenderer.send('hub-switch-tab',  uid),

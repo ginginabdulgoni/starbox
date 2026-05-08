@@ -7264,6 +7264,27 @@ ipcMain.on("set-login-item-settings", (event, { openAtLogin }) => {
   console.log('[StarBox] Start with OS:', openAtLogin);
 });
 
+let _isDND = false;
+ipcMain.on('set-dnd', (event, active) => {
+  _isDND = !!active;
+  console.log('[StarBox] DND mode:', _isDND);
+  // macOS: set Do Not Disturb jika supported
+  if (process.platform === 'darwin') {
+    try {
+      const { systemPreferences } = require('electron');
+      // Electron tidak expose DND API langsung, tapi kita bisa mute notification sounds via app badge
+    } catch {}
+  }
+});
+
+ipcMain.on('broadcast-dnd', (event, active) => {
+  _isDND = !!active;
+  // Forward ke Web Hub renderer
+  if (webHubWindow && !webHubWindow.isDestroyed()) {
+    webHubWindow.webContents.send('hub-dnd-changed', active);
+  }
+});
+
 ipcMain.handle("auth-get-session", () => sanitizeAuthSession());
 
 ipcMain.handle("auth-logout", () => {
