@@ -5602,6 +5602,11 @@
             Jalankan semua device saat aplikasi dibuka
           </label>
 
+          <label style="margin-top:12px;display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="startWithOSCheckbox" />
+            Jalankan StarBox otomatis saat login komputer
+          </label>
+
           <button onclick="saveSettings()">Simpan Pengaturan</button>
         </div>
       </div>
@@ -8144,6 +8149,10 @@ adb connect ip:port</code></pre>
             if (!settingsModal || !autoRunCheckbox) return;
             const config = loadConfig();
             autoRunCheckbox.checked = config.autoRunDevicesOnStart ?? false;
+            const startCb = document.getElementById('startWithOSCheckbox');
+            if (startCb && window.electronAPI?.getLoginItemSettings) {
+              startCb.checked = window.electronAPI.getLoginItemSettings()?.openAtLogin ?? false;
+            }
             settingsModal.style.display = "flex";
           };
 
@@ -8159,9 +8168,12 @@ adb connect ip:port</code></pre>
             if (window.electronAPI?.saveConfig) {
               window.electronAPI.saveConfig(config);
             } else {
-              console.warn(
-                "[saveSettings] electronAPI.saveConfig tidak tersedia"
-              );
+              console.warn("[saveSettings] electronAPI.saveConfig tidak tersedia");
+            }
+            // Start with OS
+            const startCb = document.getElementById('startWithOSCheckbox');
+            if (startCb && window.electronAPI?.setLoginItemSettings) {
+              window.electronAPI.setLoginItemSettings({ openAtLogin: startCb.checked });
             }
             window.closeSettings();
           };

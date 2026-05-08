@@ -7252,6 +7252,18 @@ ipcMain.on("load-config", (event) => {
   event.returnValue = store.get("config") || {};
 });
 
+ipcMain.on("get-login-item-settings", (event) => {
+  event.returnValue = app.getLoginItemSettings();
+});
+
+ipcMain.on("set-login-item-settings", (event, { openAtLogin }) => {
+  app.setLoginItemSettings({
+    openAtLogin: !!openAtLogin,
+    openAsHidden: false,
+  });
+  console.log('[StarBox] Start with OS:', openAtLogin);
+});
+
 ipcMain.handle("auth-get-session", () => sanitizeAuthSession());
 
 ipcMain.handle("auth-logout", () => {

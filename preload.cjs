@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteDevice: (uid) => ipcRenderer.invoke('delete-device', uid),
   runDevice: (uid, service) => ipcRenderer.send('run-device', uid, service),
   stopDevice: (uid) => ipcRenderer.send('stop-device', uid),
+  runDeviceInNewWindow: (uid, service) => ipcRenderer.invoke('start-device-new-window', uid, service),
   sendWhatsappMessages: (uid, messages, options) =>
     ipcRenderer.invoke('send-whatsapp-messages', uid, messages, options),
   focusDevice: (uid) => ipcRenderer.send('focus-device', uid),
@@ -14,6 +15,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showSaveDialogRecording: (name) => ipcRenderer.invoke('show-save-dialog-recording', name),
   saveConfig: (config) => ipcRenderer.send('save-config', config),
   loadConfig: () => ipcRenderer.sendSync('load-config'),
+  getLoginItemSettings: () => ipcRenderer.sendSync('get-login-item-settings'),
+  setLoginItemSettings: (val) => ipcRenderer.send('set-login-item-settings', val),
   invoke: ipcRenderer.invoke,
   send: ipcRenderer.send,
   on: ipcRenderer.on,
