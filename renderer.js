@@ -12595,3 +12595,124 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
   });
   if (document.readyState !== 'loading') { applyDND(isDND()); checkDNDSchedule(); }
 })();
+
+// ─── Usage Tracker ────────────────────────────────────────────────────────────
+(function initUsageTracker() {
+  const LS_PREFIX = 'starbox-usage-'; // + YYYY-MM-DD
+  let _currentPage = null;
+  let _pageStartMs = null;
+
+  function todayKey() {
+    return LS_PREFIX + new Date().toISOString().slice(0, 10);
+  }
+  function getUsage() {
+    try { return JSON.parse(localStorage.getItem(todayKey()) || '{}'); } catch { return {}; }
+  }
+  function saveUsage(data) {
+    try { localStorage.setItem(todayKey(), JSON.stringify(data)); } catch {}
+  }
+  function addTime(key, ms) {
+    if (!key || ms < 1000) return; // ignore < 1 detik
+    const data = getUsage();
+    data[key] = (data[key] || 0) + ms;
+    saveUsage(data);
+  }
+  function trackPageChange(newPage) {
+    const now = Date.now();
+    if (_currentPage && _pageStartMs) {
+      addTime(_currentPage, now - _pageStartMs);
+    }
+    _currentPage = newPage;
+    _pageStartMs = now;
+  }
+
+  // Hook switchPage
+  const _origSwitchPage = window.switchPage;
+  window.switchPage = async function(page, ...args) {
+    trackPageChange(page);
+    return _origSwitchPage ? _origSwitchPage(page, ...args) : undefined;
+  };
+
+  // Track saat window blur/focus
+  window.addEventListener('blur',  () => { if (_currentPage && _pageStartMs) { addTime(_currentPage, Date.now() - _pageStartMs); _pageStartMs = null; } });
+  window.addEventListener('focus', () => { if (_currentPage) _pageStartMs = Date.now(); });
+  window.addEventListener('beforeunload', () => { if (_currentPage && _pageStartMs) addTime(_currentPage, Date.now() - _pageStartMs); });
+
+  // Format ms ke string readable
+  function fmtMs(ms) {
+    const s = Math.floor(ms / 1000);
+    if (s < 60)   return s + 'd';
+    const m = Math.floor(s / 60);
+    if (m < 60)   return m + 'm';
+    const h = Math.floor(m / 60);
+    return h + 'j ' + (m % 60) + 'm';
+  }
+
+  // Render modal usage
+  window.openUsageStats = function() {
+    const data   = getUsage();
+    const isLight = document.body.classList.contains('theme-mode-light');
+    const bg  = isLight ? '#fff' : '#1c2030';
+    const clr = isLight ? '#111' : '#e2e8f0';
+
+    const pageLabels = {
+      'web-emulator':    '🌐 Web Emulator',
+      'whatsapp-gateway':'💬 WhatsApp Gateway',
+      'android-ios':     '📱 Android / iOS',
+      'remox':           '💻 Remox',
+      'mikrotik':        '🔧 MikroTik',
+      'os-virtual':      '🖥️ OS Virtual',
+      'cctv':            '📷 CCTV',
+      'cron':            '⏰ Jadwal',
+      'resource-monitor':'📊 Resource Monitor',
+      'starcapture':     '📸 StarCapture',
+      'mystarbox':       '🖱️ StarDesk',
+    };
+
+    const sorted = Object.entries(data).sort((a, b) => b[1] - a[1]);
+    const total  = sorted.reduce((s, [,v]) => s + v, 0);
+
+    const rows = sorted.length === 0
+      ? '<div style="text-align:center;color:#555;padding:20px;font-size:13px;">Belum ada data hari ini</div>'
+      : sorted.map(([key, ms]) => {
+          const pct  = total > 0 ? Math.round(ms / total * 100) : 0;
+          const label = pageLabels[key] || ('🌐 ' + key);
+          return `
+            <div style="margin-bottom:12px;">
+              <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+                <span style="color:${clr}">${label}</span>
+                <span style="color:#7c6fe0;font-weight:600;">${fmtMs(ms)}</span>
+              </div>
+              <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:6px;overflow:hidden;">
+                <div style="background:linear-gradient(90deg,#7c6fe0,#a99cf0);height:100%;width:${pct}%;border-radius:4px;transition:width 0.4s;"></div>
+              </div>
+            </div>`;
+        }).join('');
+
+    const today = new Date().toLocaleDateString('id-ID', { weekday:'long', day:'numeric', month:'long' });
+    const html = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <div style="font-weight:600;font-size:15px;color:${clr};">📊 Usage Hari Ini</div>
+        <button onclick="document.getElementById('usageOverlay').remove()" style="background:none;border:none;color:#666;font-size:16px;cursor:pointer;">✕</button>
+      </div>
+      <div style="font-size:11px;color:#888;margin-bottom:16px;">${today} · Total: ${fmtMs(total)}</div>
+      <div style="max-height:360px;overflow-y:auto;">${rows}</div>
+    `;
+    const overlay = document.createElement('div');
+    overlay.id = 'usageOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:99999;';
+    overlay.innerHTML = `<div style="background:${bg};border-radius:14px;padding:24px;width:400px;max-width:92vw;box-shadow:0 16px 48px rgba(0,0,0,0.4);">${html}</div>`;
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    document.body.appendChild(overlay);
+  };
+
+  // Init tracking dari halaman aktif saat ini
+  document.addEventListener('DOMContentLoaded', () => {
+    const active = document.querySelector('.sidebar-item.active')?.dataset?.page || 'web-emulator';
+    trackPageChange(active);
+  });
+  if (document.readyState !== 'loading') {
+    const active = document.querySelector('.sidebar-item.active')?.dataset?.page || 'web-emulator';
+    trackPageChange(active);
+  }
+})();

@@ -189,6 +189,22 @@
           <i class="bi bi-moon" id="dndIcon" style="font-size:13px;"></i>
           <span id="dndLabel">Fokus</span>
         </button>
+
+        <!-- Usage Stats Button -->
+        <button
+          onclick="openUsageStats()"
+          title="Usage hari ini"
+          style="
+            display: flex; align-items: center; gap: 5px;
+            padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);
+            background: transparent; cursor: pointer; font-size: 12px;
+            font-weight: 500; transition: all .15s; color: #9ca3af;
+          "
+          onmouseover="this.style.background='rgba(255,255,255,0.06)'"
+          onmouseout="this.style.background='transparent'"
+        >
+          <i class="bi bi-bar-chart-fill" style="font-size:13px;"></i>
+        </button>
       </div>
     </nav>
     <script>
