@@ -1020,16 +1020,17 @@ const BG_PRESETS = [
   { label: 'Cyberpunk',  value: 'linear-gradient(135deg,#0d001a,#1a0033 50%,#000d1a)',        preview: '#1a0033' },
 ];
 
+let _bgSelected = ''; // track nilai yang sedang dipilih di picker
+
 function applyBackground(val) {
   const content = document.getElementById('content');
   if (!content) return;
   if (!val) {
     content.style.background = '#161b22';
-    content.style.backgroundImage = '';
-  } else if (val.startsWith('url(') || val.startsWith('http') || val.startsWith('data:')) {
-    content.style.background = `url(${val.replace(/^url\(|\)$/g,'')}) center/cover no-repeat`;
   } else if (val.startsWith('linear-gradient') || val.startsWith('radial-gradient')) {
     content.style.background = val;
+  } else if (val.startsWith('http') || val.startsWith('data:')) {
+    content.style.background = `url("${val}") center/cover no-repeat #161b22`;
   } else {
     content.style.background = val;
   }
@@ -1043,53 +1044,71 @@ function loadBackground() {
 }
 
 function openBgPicker() {
-  const current = localStorage.getItem(BG_KEY) || '';
-  const presetBtns = BG_PRESETS.map((p, i) => `
-    <button onclick="_bgPreviewApply(${JSON.stringify(p.value)})"
-      title="${p.label}"
-      style="width:36px;height:36px;border-radius:6px;border:2px solid ${current===p.value?'#7c6fe0':'transparent'};
-        background:${p.preview};cursor:pointer;transition:border-color 0.15s;flex-shrink:0;"
-      onmouseover="this.style.borderColor='#a99cf0'" onmouseout="this.style.borderColor='${current===p.value?'#7c6fe0':'transparent'}'"
-    ></button>`).join('');
+  _bgSelected = localStorage.getItem(BG_KEY) || '';
 
   const overlay = document.createElement('div');
   overlay.id = 'bgPickerOverlay';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:99999;';
-  overlay.innerHTML = `
-    <div style="background:#1c2030;border-radius:14px;padding:22px;width:340px;box-shadow:0 16px 48px rgba(0,0,0,0.5);">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-        <span style="font-weight:600;color:#e2e8f0;font-size:14px;">&#127912; Background Web Hub</span>
-        <button onclick="document.getElementById('bgPickerOverlay').remove();loadBackground()" style="background:none;border:none;color:#666;font-size:16px;cursor:pointer;">&#10005;</button>
-      </div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">${presetBtns}</div>
-      <div style="font-size:11px;color:#666;margin-bottom:8px;">URL gambar (https://...)</div>
-      <div style="display:flex;gap:8px;margin-bottom:16px;">
-        <input id="bgUrlInput" type="text" placeholder="https://example.com/bg.jpg" value="${current.startsWith('http')?current:''}"
-          style="flex:1;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:7px 10px;color:#e2e8f0;font-size:12px;outline:none;"
-          oninput="_bgPreviewApply(this.value)" />
-      </div>
-      <div style="display:flex;justify-content:flex-end;gap:8px;">
-        <button onclick="_bgReset()" style="padding:7px 14px;border-radius:7px;border:1px solid #444;background:none;color:#888;cursor:pointer;font-size:12px;">Reset</button>
-        <button onclick="_bgSave()" style="padding:7px 16px;border-radius:7px;border:none;background:#7c6fe0;color:#fff;cursor:pointer;font-weight:600;font-size:12px;">Simpan</button>
-      </div>
-    </div>`;
+
+  function buildHTML() {
+    const presetBtns = BG_PRESETS.map(p => {
+      const active = _bgSelected === p.value;
+      return `<button
+        onclick="_bgSelectPreset(${JSON.stringify(p.value)})"
+        title="${p.label}"
+        style="width:38px;height:38px;border-radius:7px;border:2px solid ${active ? '#7c6fe0' : 'rgba(255,255,255,0.1)'};
+          background:${p.preview};cursor:pointer;transition:border-color 0.15s;flex-shrink:0;position:relative;"
+      >${active ? '<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;text-shadow:0 0 4px #000">&#10003;</span>' : ''}</button>`;
+    }).join('');
+
+    return `
+      <div style="background:#1c2030;border-radius:14px;padding:22px;width:360px;box-shadow:0 16px 48px rgba(0,0,0,0.5);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <span style="font-weight:600;color:#e2e8f0;font-size:14px;">&#127912; Background Web Hub</span>
+          <button onclick="document.getElementById('bgPickerOverlay').remove();loadBackground()" style="background:none;border:none;color:#666;font-size:16px;cursor:pointer;">&#10005;</button>
+        </div>
+        <div style="font-size:11px;color:#888;margin-bottom:8px;">Preset</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">${presetBtns}</div>
+        <div style="font-size:11px;color:#888;margin-bottom:6px;">URL Gambar</div>
+        <input id="bgUrlInput" type="text" placeholder="https://example.com/bg.jpg"
+          value="${_bgSelected.startsWith('http') ? _bgSelected : ''}"
+          style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:6px;padding:8px 10px;color:#e2e8f0;font-size:12px;outline:none;margin-bottom:16px;"
+          oninput="_bgSelectPreset(this.value)"
+        />
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button onclick="_bgReset()" style="padding:7px 14px;border-radius:7px;border:1px solid #444;background:none;color:#888;cursor:pointer;font-size:12px;">Reset Default</button>
+          <button onclick="_bgSave()" style="padding:7px 18px;border-radius:7px;border:none;background:#7c6fe0;color:#fff;cursor:pointer;font-weight:600;font-size:12px;">Simpan</button>
+        </div>
+      </div>`;
+  }
+
+  overlay.innerHTML = buildHTML();
   overlay.onclick = e => { if (e.target === overlay) { overlay.remove(); loadBackground(); } };
   document.body.appendChild(overlay);
 }
 
-window._bgPreviewApply = function(val) { applyBackground(val); };
+window._bgSelectPreset = function(val) {
+  _bgSelected = val || '';
+  applyBackground(_bgSelected);
+  // Re-render overlay untuk update border active
+  const overlay = document.getElementById('bgPickerOverlay');
+  if (overlay) { overlay.innerHTML = ''; openBgPicker(); }
+};
+
 window._bgReset = function() {
+  _bgSelected = '';
   localStorage.removeItem(BG_KEY);
   applyBackground('');
   document.getElementById('bgPickerOverlay')?.remove();
 };
+
 window._bgSave = function() {
+  // Cek URL input dulu
   const urlInput = document.getElementById('bgUrlInput');
-  const content  = document.getElementById('content');
-  // Ambil background yang sedang aktif
-  const current  = (urlInput?.value?.trim()) || content?.style?.background || '';
-  try { localStorage.setItem(BG_KEY, current); } catch {}
-  applyBackground(current);
+  const urlVal = urlInput?.value?.trim();
+  if (urlVal) _bgSelected = urlVal;
+  try { localStorage.setItem(BG_KEY, _bgSelected); } catch {}
+  applyBackground(_bgSelected);
   document.getElementById('bgPickerOverlay')?.remove();
 };
 
