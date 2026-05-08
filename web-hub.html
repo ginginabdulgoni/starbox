@@ -618,17 +618,23 @@ function applyLayout(mode) {
   if (!LAYOUT_SLOTS[mode]) return;
   const d = desk();
   if (d.layoutMode === mode) return;
-  const prev = LAYOUT_SLOTS[d.layoutMode] || 1;
   d.layoutMode = mode;
   const next = LAYOUT_SLOTS[mode];
-  if (next > prev) { while (d.slotUids.length < next) d.slotUids.push(null); }
-  else { d.slotUids = d.slotUids.slice(0, next); }
-  if (d.focusedSlot >= next) d.focusedSlot = 0;
-  if (mode === 'single' && !d.slotUids[0] && tabs.length > 0) {
-    // Try to find a tab already on this desktop
-    const any = tabs.find(t => desktops.indexOf(d) === findDesktopForUid(t.uid));
-    if (any) d.slotUids[0] = any.uid;
+
+  // Auto-fill slot dari tabs yang ada di desktop ini (urutan tab)
+  const deskIdx = desktops.indexOf(d);
+  const deskTabs = tabs.filter(t => findDesktopForUid(t.uid) === deskIdx || d.slotUids.includes(t.uid));
+  // Juga ambil tab yang belum di-assign ke desktop manapun
+  const unassigned = tabs.filter(t => findDesktopForUid(t.uid) === -1 && !deskTabs.includes(t));
+  const candidates = [...deskTabs, ...unassigned];
+
+  // Isi slot: pertahankan yang sudah ada, isi kosong dari candidates
+  d.slotUids.length = 0;
+  for (let i = 0; i < next; i++) {
+    d.slotUids.push(candidates[i]?.uid || null);
   }
+
+  if (d.focusedSlot >= next) d.focusedSlot = 0;
   buildSlotOverlay();
   scheduleApplyPositions();
   updateLayoutButtons();
