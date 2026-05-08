@@ -35,7 +35,7 @@
         />
         <div class="navbar-title">
           <h1>StarBox</h1>
-          <span>MultiService Emulator</span>
+          <span data-i18n="nav.tagline">All Your Workspaces, One Place</span>
         </div>
       </div>
       <div class="navbar-actions">
@@ -151,7 +151,25 @@
             width: 8px; height: 8px; border-radius: 50%;
             display: inline-block; background: #6b7280; flex-shrink: 0;
           "></span>
-          <span id="remoteLabel" style="color: #9ca3af;">Remote</span>
+          <span id="remoteLabel" style="color: #9ca3af;" data-i18n="nav.remote">Remote</span>
+        </button>
+
+        <!-- Mode Pro Toggle -->
+        <button
+          id="modeProBtn"
+          onclick="toggleProMode()"
+          title="Mode Pro – aktifkan untuk fitur lanjutan"
+          style="
+            display: flex; align-items: center; gap: 5px;
+            padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(124,111,224,0.3);
+            background: transparent; cursor: pointer; font-size: 12px;
+            font-weight: 500; transition: all .15s; color: #9ca3af;
+          "
+          onmouseover="this.style.background='rgba(124,111,224,0.1)'"
+          onmouseout="this.style.background='transparent'"
+        >
+          <i class="bi bi-toggles" style="font-size:13px;"></i>
+          <span id="modeProLabel" data-i18n="nav.mode_simple">Simple</span>
         </button>
       </div>
     </nav>
@@ -198,32 +216,32 @@
           <i class="bi bi-whatsapp"></i>
           <span data-i18n="sidebar.whatsapp_gateway">WhatsApp Gateway</span>
         </a>
-        <a href="#" class="sidebar-item" data-page="android-ios"
+        <a href="#" class="sidebar-item" data-page="android-ios" data-pro="true"
           data-label="Android / iOS" onclick="switchPage('android-ios')">
           <i class="bi bi-phone"></i>
           <span data-i18n="sidebar.android_ios">Android / iOS</span>
         </a>
-        <a href="#" class="sidebar-item" data-page="remox"
+        <a href="#" class="sidebar-item" data-page="remox" data-pro="true"
           data-label="Remox" onclick="switchPage('remox')">
           <i class="bi bi-terminal"></i>
           <span data-i18n="sidebar.remox">Remox</span>
         </a>
-        <a href="#" class="sidebar-item" data-page="mikrotik"
+        <a href="#" class="sidebar-item" data-page="mikrotik" data-pro="true"
           data-label="MikroTik" onclick="switchPage('mikrotik')">
           <i class="bi bi-router"></i>
           <span>MikroTik</span>
         </a>
-        <a href="#" class="sidebar-item" data-page="os-virtual"
+        <a href="#" class="sidebar-item" data-page="os-virtual" data-pro="true"
           data-label="OS Virtual" onclick="switchPage('os-virtual')">
           <i class="bi bi-display"></i>
           <span data-i18n="sidebar.os_virtual">OS Virtual</span>
         </a>
-        <a href="#" class="sidebar-item" data-page="cctv"
+        <a href="#" class="sidebar-item" data-page="cctv" data-pro="true"
           data-label="CCTV" onclick="switchPage('cctv')">
           <i class="bi bi-camera-video"></i>
           <span data-i18n="sidebar.cctv">CCTV</span>
         </a>
-        <a href="#" class="sidebar-item" data-page="cron"
+        <a href="#" class="sidebar-item" data-page="cron" data-pro="true"
           data-label="Jadwal" onclick="switchPage('cron')">
           <i class="bi bi-clock-history"></i>
           <span data-i18n="sidebar.cron">Jadwal</span>
@@ -238,7 +256,7 @@
           <i class="bi bi-camera-fill"></i>
           <span data-i18n="sidebar.starcapture">StarCapture</span>
         </a>
-        <a href="#" class="sidebar-item" data-page="mystarbox"
+        <a href="#" class="sidebar-item" data-page="mystarbox" data-pro="true"
           data-label="StarDesk" onclick="switchPage('mystarbox')">
           <i class="bi bi-display-fill"></i>
           <span>StarDesk</span>

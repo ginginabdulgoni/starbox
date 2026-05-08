@@ -2038,6 +2038,10 @@ const defaultServices = {
     isLocalFile: true,
   },
 
+  // 🎵 Hiburan
+  spotify: { name: "Spotify", url: "https://open.spotify.com", icon: "starbox.png" },
+  "radio-garden": { name: "Radio Garden", url: "https://radio.garden", icon: "starbox.png" },
+
   // 🧭 Default / Custom URL
   other: { name: "Website Kustom", url: "", icon: "starbox.png" },
 };

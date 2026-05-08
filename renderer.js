@@ -707,6 +707,15 @@ const DEFAULT_SERVICE_LIBRARY = [
     keywords: ["android", "full", "remote"],
   },
   {
+    id: "spotify",
+    label: "Spotify",
+    color: "#1DB954",
+    url: "https://open.spotify.com",
+    category: "Hiburan",
+    description: "Streaming musik, podcast, dan audiobook.",
+    keywords: ["spotify", "musik", "streaming", "podcast"],
+  },
+  {
     id: "radio-garden",
     label: "Radio Garden",
     color: "#00c853",
@@ -12330,4 +12339,56 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
     const el = document.getElementById('msbModalOverlay');
     if (el) el.style.display = 'none';
   };
+})();
+
+// ─── Pro Mode Toggle ──────────────────────────────────────────────────────────
+(function initProMode() {
+  const LS_KEY = 'starbox-pro-mode';
+  const PRO_PAGES = ['remox', 'mikrotik', 'os-virtual', 'cctv', 'mystarbox', 'android-ios', 'cron'];
+
+  function isProMode() {
+    return localStorage.getItem(LS_KEY) === 'true';
+  }
+
+  function applyProMode(pro) {
+    const btn    = document.getElementById('modeProBtn');
+    const label  = document.getElementById('modeProLabel');
+    const lang   = window.i18n?.getLang?.() || 'en';
+
+    // Update button appearance
+    if (btn) {
+      btn.style.borderColor  = pro ? 'rgba(124,111,224,0.6)' : 'rgba(124,111,224,0.3)';
+      btn.style.color        = pro ? '#a99cf0' : '#9ca3af';
+    }
+    if (label) {
+      label.setAttribute('data-i18n', pro ? 'nav.mode_pro' : 'nav.mode_simple');
+      label.textContent = pro
+        ? (lang === 'id' ? 'Pro' : 'Pro')
+        : (lang === 'id' ? 'Simple' : 'Simple');
+    }
+
+    // Show/hide pro-only sidebar items
+    document.querySelectorAll('.sidebar-item[data-pro="true"]').forEach(el => {
+      el.style.display = pro ? '' : 'none';
+    });
+
+    // If current page is pro-only and mode switched to simple → go to web-emulator
+    if (!pro) {
+      const activePage = document.querySelector('.sidebar-item.active')?.dataset?.page;
+      if (activePage && PRO_PAGES.includes(activePage)) {
+        if (typeof switchPage === 'function') switchPage('web-emulator');
+      }
+    }
+  }
+
+  window.toggleProMode = function () {
+    const next = !isProMode();
+    localStorage.setItem(LS_KEY, String(next));
+    applyProMode(next);
+  };
+
+  // Init on load
+  document.addEventListener('DOMContentLoaded', () => applyProMode(isProMode()));
+  // Also apply immediately in case DOMContentLoaded already fired
+  if (document.readyState !== 'loading') applyProMode(isProMode());
 })();

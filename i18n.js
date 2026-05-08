@@ -14,6 +14,10 @@
       'nav.theme.select': 'Select StarBox Theme',
       'nav.sidebar.collapse': 'Collapse / Expand Sidebar',
       'nav.remote.title': 'Remote Control – click to open',
+      'nav.remote': 'Remote',
+      'nav.tagline': 'All Your Workspaces, One Place',
+      'nav.mode_simple': 'Simple',
+      'nav.mode_pro': 'Pro',
 
       // ── Sidebar ────────────────────────────────────────────
       'sidebar.web_emulator': 'Web Emulator',
@@ -471,6 +475,10 @@
       'nav.theme.select': 'Pilih Tema StarBox',
       'nav.sidebar.collapse': 'Perkecil / Perlebar Sidebar',
       'nav.remote.title': 'Remote Control – klik untuk buka',
+      'nav.remote': 'Remote',
+      'nav.tagline': 'Semua Workspace-mu, Satu Tempat',
+      'nav.mode_simple': 'Simple',
+      'nav.mode_pro': 'Pro',
 
       // ── Sidebar ────────────────────────────────────────────
       'sidebar.web_emulator': 'Web Emulator',
