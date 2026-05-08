@@ -1054,11 +1054,13 @@ function openBgPicker() {
     const presetBtns = BG_PRESETS.map(p => {
       const active = _bgSelected === p.value;
       return `<button
-        onclick="_bgSelectPreset(${JSON.stringify(p.value)})"
+        class="bg-preset-btn"
+        data-val="${p.value}"
+        onclick="_bgSelectPreset(this.dataset.val)"
         title="${p.label}"
         style="width:38px;height:38px;border-radius:7px;border:2px solid ${active ? '#7c6fe0' : 'rgba(255,255,255,0.1)'};
           background:${p.preview};cursor:pointer;transition:border-color 0.15s;flex-shrink:0;position:relative;"
-      >${active ? '<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;text-shadow:0 0 4px #000">&#10003;</span>' : ''}</button>`;
+      >${active ? '<span class="bg-check" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;text-shadow:0 0 4px #000;pointer-events:none;">\u2713</span>' : ''}</button>`;
     }).join('');
 
     return `
@@ -1090,9 +1092,19 @@ function openBgPicker() {
 window._bgSelectPreset = function(val) {
   _bgSelected = val || '';
   applyBackground(_bgSelected);
-  // Re-render overlay untuk update border active
-  const overlay = document.getElementById('bgPickerOverlay');
-  if (overlay) { overlay.innerHTML = ''; openBgPicker(); }
+  // Update border active di semua preset button tanpa re-render
+  document.querySelectorAll('#bgPickerOverlay .bg-preset-btn').forEach(btn => {
+    const isActive = btn.dataset.val === _bgSelected;
+    btn.style.borderColor = isActive ? '#7c6fe0' : 'rgba(255,255,255,0.1)';
+    btn.querySelector('.bg-check')?.remove();
+    if (isActive) {
+      const chk = document.createElement('span');
+      chk.className = 'bg-check';
+      chk.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;text-shadow:0 0 4px #000;pointer-events:none;';
+      chk.textContent = '✓';
+      btn.appendChild(chk);
+    }
+  });
 };
 
 window._bgReset = function() {
