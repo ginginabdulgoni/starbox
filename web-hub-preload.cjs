@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('hubAPI', {
   onWindowResized:(cb) => ipcRenderer.on('hub-window-resized',() => cb()),
   onTabStatus:    (cb) => ipcRenderer.on('hub-tab-status',   (_e, uid, status) => cb(uid, status)),
   onTabTitle:     (cb) => ipcRenderer.on('hub-tab-title',    (_e, uid, title)  => cb(uid, title)),
+  onTabBadge:     (cb) => ipcRenderer.on('hub-tab-badge',    (_e, uid, count)  => cb(uid, count)),
   sendViewBounds:  (list) => ipcRenderer.send('hub-view-bounds', list),
   notifyClose:     (uid)  => ipcRenderer.send('hub-tab-closed',  uid),
   notifyPopOut:    (uid)  => ipcRenderer.send('hub-tab-pop-out', uid),

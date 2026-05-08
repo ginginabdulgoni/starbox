@@ -101,6 +101,14 @@
     .wh-tab-btn:hover       { color: #ccc; background: rgba(255,255,255,0.08); }
     .wh-tab-btn.close:hover { color: #e87070; background: rgba(220,60,60,0.15); }
 
+    /* Badge notifikasi */
+    .wh-tab-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: #e84040; color: #fff; font-size: 9px; font-weight: 700;
+      min-width: 16px; height: 16px; border-radius: 8px; padding: 0 4px;
+      flex-shrink: 0; line-height: 1;
+    }
+
     /* ── Add Tab Button ── */
     #tab-bar-actions {
       display: flex; align-items: center; padding: 0 4px;
@@ -691,6 +699,12 @@ function updateSplash() {
 
 // ─── Tab Lifecycle ────────────────────────────────────────────────────────────
 function activateTab(uid) {
+  // Reset badge saat tab difokuskan
+  const tab = getTab(uid);
+  if (tab && tab.badge) {
+    tab.badge = 0;
+    document.querySelector(`.wh-tab[data-uid="${uid}"] .wh-tab-badge`)?.remove();
+  }
   const d = desk();
 
   // Check if uid is on current desktop
@@ -792,6 +806,30 @@ function setTabStatus(uid, status) {
   if (tab) tab.status = status;
   const dot = document.querySelector(`.wh-tab[data-uid="${uid}"] .wh-tab-dot`);
   if (dot) dot.className = 'wh-tab-dot ' + status;
+}
+
+function setTabBadge(uid, count) {
+  const tab = getTab(uid);
+  if (!tab) return;
+  if (count === -1) {
+    tab.badge = (tab.badge || 0) + 1; // increment
+  } else {
+    tab.badge = count;
+  }
+  // Update badge element di tab
+  const tabEl = document.querySelector(`.wh-tab[data-uid="${uid}"]`);
+  if (!tabEl) return;
+  let badge = tabEl.querySelector('.wh-tab-badge');
+  if (tab.badge > 0) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'wh-tab-badge';
+      tabEl.querySelector('.wh-tab-label').after(badge);
+    }
+    badge.textContent = tab.badge > 99 ? '99+' : String(tab.badge);
+  } else {
+    badge?.remove();
+  }
 }
 function setSidePanelLayout(uid, hasSidePanel) {
   const tab = getTab(uid);
@@ -960,6 +998,7 @@ if (window.hubAPI) {
   window.hubAPI.onCloseTab(uid  => forceCloseTab(uid));
   window.hubAPI.onSetLayout((uid, hasSidePanel) => setSidePanelLayout(uid, hasSidePanel));
   window.hubAPI.onTabStatus((uid, status) => setTabStatus(uid, status));
+  window.hubAPI.onTabBadge((uid, count) => setTabBadge(uid, count));
   window.hubAPI.onWindowResized(() => {
     buildSlotOverlay(); applyAllPositions();
   });

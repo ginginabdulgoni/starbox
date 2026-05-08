@@ -8857,6 +8857,7 @@ function ensureHubWebView(tabData) {
       contextIsolation: true,
       nodeIntegration: false,
       partition: 'persist:' + tabData.uid,
+      preload: path.join(app.getAppPath(), 'web-hub-view-preload.cjs'),
     },
   });
   view.__tabData = tabData;
@@ -9020,6 +9021,18 @@ function applyHubLayout(uid, options = {}) {
     webHubWindow.webContents.send('hub-set-layout', uid, hasSidePanel);
   }
 }
+
+// Badge notifikasi dari BrowserView — forward ke renderer
+ipcMain.on('hub-view-badge', (event, { action, count }) => {
+  if (!webHubWindow || webHubWindow.isDestroyed()) return;
+  // Identifikasi uid dari webContents yang kirim event
+  const uid = [...hubWebViews.entries()].find(
+    ([, v]) => v instanceof BrowserView && v.webContents === event.sender
+  )?.[0];
+  if (!uid) return;
+  const badge = action === 'set' ? (count || 0) : -1; // -1 = increment
+  webHubWindow.webContents.send('hub-tab-badge', uid, badge);
+});
 
 ipcMain.on('hub-switch-tab', (event, uid) => {
   applyHubLayout(uid);
