@@ -469,6 +469,15 @@
             aria-live="polite"
           ></div>
 
+          <!-- ── Favorites Section ─────────────────────────────── -->
+          <div id="favorites-section" style="display:none;margin-bottom:18px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <span style="font-size:12px;font-weight:600;color:#7c6fe0;letter-spacing:0.06em;text-transform:uppercase;">⭐ Favorit</span>
+              <button onclick="openFavoritesManager()" style="background:none;border:none;color:#555;font-size:11px;cursor:pointer;padding:2px 6px;border-radius:4px;" onmouseover="this.style.color='#a99cf0'" onmouseout="this.style.color='#555'">Kelola</button>
+            </div>
+            <div id="favorites-grid" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+          </div>
+
           <div id="device-list">Loading...</div>
 
           <section

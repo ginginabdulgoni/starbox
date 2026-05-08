@@ -1067,6 +1067,7 @@ function toggleEditAndroidSpecSection(show) {
 window.getAndroidSpecPayload = getAndroidSpecPayload;
 window.updateAndroidSpecDescription = updateAndroidSpecDescription;
 window.DEFAULT_ANDROID_SPEC_ID = DEFAULT_ANDROID_SPEC_ID;
+window.DEFAULT_SERVICE_LIBRARY = DEFAULT_SERVICE_LIBRARY;
 
 const CATEGORY_COLOR_MAP = {
   komunikasi: "#2563eb",
@@ -12391,4 +12392,126 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
   document.addEventListener('DOMContentLoaded', () => applyProMode(isProMode()));
   // Also apply immediately in case DOMContentLoaded already fired
   if (document.readyState !== 'loading') applyProMode(isProMode());
+})();
+
+// ─── Favorites / Quick Launch ─────────────────────────────────────────────────
+(function initFavorites() {
+  const LS_KEY = 'starbox-favorites'; // array of service id
+
+  function getFavs() {
+    try { return JSON.parse(localStorage.getItem(LS_KEY) || '[]'); } catch { return []; }
+  }
+  function saveFavs(arr) {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(arr)); } catch {}
+  }
+  function isFav(id) { return getFavs().includes(id); }
+
+  function toggleFav(id) {
+    let favs = getFavs();
+    if (favs.includes(id)) favs = favs.filter(f => f !== id);
+    else favs.push(id);
+    saveFavs(favs);
+    renderFavorites();
+    renderFavButtonStates();
+  }
+
+  function renderFavorites() {
+    const section = document.getElementById('favorites-section');
+    const grid    = document.getElementById('favorites-grid');
+    if (!section || !grid) return;
+    const favs = getFavs();
+    if (favs.length === 0) { section.style.display = 'none'; return; }
+    section.style.display = '';
+    grid.innerHTML = '';
+    favs.forEach(id => {
+      const svc = (window.DEFAULT_SERVICE_LIBRARY || []).find(s => s.id === id);
+      if (!svc) return;
+      const btn = document.createElement('button');
+      btn.title = svc.label;
+      btn.style.cssText = `
+        display:flex;align-items:center;gap:7px;padding:6px 14px;
+        border-radius:20px;border:1px solid rgba(124,111,224,0.3);
+        background:rgba(124,111,224,0.08);color:#c0b8f0;
+        cursor:pointer;font-size:12px;font-weight:500;
+        transition:all 0.15s;white-space:nowrap;
+      `;
+      btn.onmouseover = () => btn.style.background = 'rgba(124,111,224,0.2)';
+      btn.onmouseout  = () => btn.style.background = 'rgba(124,111,224,0.08)';
+      btn.innerHTML = `<span style="font-size:15px;">${svc.emoji || '🌐'}</span>${svc.label}`;
+      btn.onclick = () => {
+        // Buka Add Device modal dengan service ini pre-selected
+        if (typeof openAddModal === 'function') openAddModal({ preSelectService: id });
+        else if (typeof window.openAddDeviceModal === 'function') window.openAddDeviceModal(id);
+      };
+      grid.appendChild(btn);
+    });
+  }
+
+  function renderFavButtonStates() {
+    document.querySelectorAll('[data-fav-id]').forEach(btn => {
+      const id = btn.dataset.favId;
+      const active = isFav(id);
+      btn.title = active ? 'Hapus dari Favorit' : 'Tambah ke Favorit';
+      btn.style.color = active ? '#f0b429' : '#555';
+    });
+  }
+
+  window.toggleFavorite  = toggleFav;
+  window.renderFavorites = renderFavorites;
+  window.isFavorite      = isFav;
+
+  window.openFavoritesManager = function () {
+    // Simple modal pilih service yang difavoritkan
+    const favs = getFavs();
+    const lib  = window.DEFAULT_SERVICE_LIBRARY || [];
+    const isLight = document.body.classList.contains('theme-mode-light');
+    const bg  = isLight ? '#fff' : '#1c2030';
+    const clr = isLight ? '#111' : '#e2e8f0';
+
+    const rows = lib.filter(s => s.id !== 'other').map(s => `
+      <label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:7px;cursor:pointer;transition:background 0.12s;"
+        onmouseover="this.style.background='rgba(124,111,224,0.08)'" onmouseout="this.style.background=''"
+      >
+        <input type="checkbox" data-fav-svc="${s.id}" ${favs.includes(s.id) ? 'checked' : ''}
+          style="accent-color:#7c6fe0;width:15px;height:15px;cursor:pointer;" />
+        <span style="font-size:13px;">${s.label}</span>
+        <span style="font-size:11px;color:#666;margin-left:auto;">${s.category}</span>
+      </label>
+    `).join('');
+
+    const html = `
+      <div style="font-weight:600;font-size:15px;margin-bottom:14px;color:${clr};">⭐ Kelola Favorit</div>
+      <div style="font-size:12px;color:#888;margin-bottom:12px;">Pilih service yang ingin tampil di bagian Favorit.</div>
+      <div style="max-height:340px;overflow-y:auto;margin-bottom:16px;">${rows}</div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button onclick="document.getElementById('favMgrOverlay').remove()"
+          style="padding:7px 18px;border-radius:7px;border:1px solid #444;background:none;color:#888;cursor:pointer;">Batal</button>
+        <button onclick="(function(){
+          const checks = document.querySelectorAll('[data-fav-svc]');
+          const sel = [];
+          checks.forEach(c => { if(c.checked) sel.push(c.dataset.favSvc); });
+          localStorage.setItem('starbox-favorites', JSON.stringify(sel));
+          window.renderFavorites && window.renderFavorites();
+          document.getElementById('favMgrOverlay').remove();
+        })()"
+          style="padding:7px 18px;border-radius:7px;border:none;background:#7c6fe0;color:#fff;cursor:pointer;font-weight:600;">Simpan</button>
+      </div>
+    `;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'favMgrOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:99999;';
+    overlay.innerHTML = `<div style="background:${bg};border-radius:14px;padding:24px;width:420px;max-width:92vw;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,0.4);">${html}</div>`;
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    document.body.appendChild(overlay);
+  };
+
+  // Expose service library ke window agar bisa diakses di modal
+  if (typeof DEFAULT_SERVICE_LIBRARY !== 'undefined') {
+    window.DEFAULT_SERVICE_LIBRARY = DEFAULT_SERVICE_LIBRARY;
+  }
+
+  // Init
+  document.addEventListener('DOMContentLoaded', () => { renderFavorites(); });
+  if (document.readyState !== 'loading') renderFavorites();
 })();
