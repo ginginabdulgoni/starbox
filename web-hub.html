@@ -954,10 +954,6 @@ if (window.hubAPI) {
   window.hubAPI.onCloseTab(uid  => forceCloseTab(uid));
   window.hubAPI.onSetLayout((uid, hasSidePanel) => setSidePanelLayout(uid, hasSidePanel));
   window.hubAPI.onTabStatus((uid, status) => setTabStatus(uid, status));
-  window.hubAPI.onTabTitle((uid, title) => {
-    const tab = getTab(uid);
-    if (tab && title) { tab.name = title; renderTabs(); }
-  });
   window.hubAPI.onWindowResized(() => {
     buildSlotOverlay(); applyAllPositions();
   });

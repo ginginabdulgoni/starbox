@@ -8875,8 +8875,7 @@ function ensureHubWebView(tabData) {
       webHubWindow.webContents.send('hub-tab-status', tabData.uid, 'error');
   });
   view.webContents.on('page-title-updated', (e, title) => {
-    if (webHubWindow && !webHubWindow.isDestroyed())
-      webHubWindow.webContents.send('hub-tab-title', tabData.uid, title);
+    // Tidak kirim title update — tab label pakai nama device dari DB
   });
   console.log('[HUB] BrowserView dibuat untuk', tabData.uid, tabData.url);
   return view;
