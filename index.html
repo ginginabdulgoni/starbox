@@ -4036,6 +4036,7 @@
           let _rmSortDir = 'desc';   // 'asc' | 'desc'
 
           function rmFilterProcs() { rmRenderProcs(); }
+          function rmSortProcs(col) { rmSetSort(col); }
 
           function rmSetSort(col) {
             if (_rmSortBy === col) {

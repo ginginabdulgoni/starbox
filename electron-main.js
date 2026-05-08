@@ -14,6 +14,7 @@ app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 
 const BrowserWindow = electron.BrowserWindow;
+const BrowserView = electron.BrowserView;
 const ipcMain = electron.ipcMain;
 const screen = electron.screen;
 const clipboard = electron.clipboard;
@@ -2006,6 +2007,21 @@ const defaultServices = {
     icon: "starbox.png",
   },
 
+  // 📧 Email
+  gmail: { name: "Gmail", url: "https://mail.google.com", icon: "starbox.png" },
+
+  // 📞 Call Center
+  aircall: { name: "Aircall", url: "https://dashboard.aircall.io", icon: "starbox.png" },
+
+  // 🗺️ Produk & Roadmap
+  aha: { name: "Aha!", url: "https://www.aha.io", icon: "starbox.png" },
+
+  // 📢 Social Media Management
+  agorapulse: { name: "Agorapulse", url: "https://app.agorapulse.com", icon: "starbox.png" },
+
+  // 📊 Analitik Enterprise
+  adobe_analytics: { name: "Adobe Analytics", url: "https://experiencecloud.adobe.com", icon: "starbox.png" },
+
   // 🧩 Infrastruktur & Monitoring
   uptimerobot: {
     name: "UptimeRobot",
@@ -2133,6 +2149,13 @@ let cctvManager = null;
 
 const deviceWindows = {}; // Untuk melacak window yang terbuka
 const monitorWindows = {}; // Untuk melacak window monitor automasi
+let webHubWindow = null; // Single hub window untuk web devices (Rambox-style tabs)
+const hubDevices = new Map(); // uid -> tabData untuk devices yang berjalan di hub
+const hubWebViews = new Map(); // uid -> BrowserView konten device di Web Hub
+const hubSidePanelViews = new Map(); // uid -> BrowserView untuk side panel (TikTok control, WA monitor)
+let hubActiveTabUid = null;
+let hubLayoutMode = 'single'; // current layout mode sent by renderer
+const HUB_TABBAR_HEIGHT = 38;
 // Gunakan machine ID sebagai client ID stabil agar tidak duplicate tiap restart
 const _stableRemoteClientId = (() => {
   try {
@@ -3378,7 +3401,7 @@ function resolveChromeNativeTargetUrl(device = {}) {
     const custom = sanitizeCustomUrl(device.customUrl || "");
     if (custom) return custom;
   }
-  const selected = services[serviceKey] || services.wa;
+  const selected = services[serviceKey] || services.other;
   return selected?.url || null;
 }
 
@@ -6064,14 +6087,19 @@ function serializeTikTokState(state) {
 }
 
 function sendTikTokControlUpdate(uid, payload = {}) {
+  const state = serializeTikTokState(getTikTokAutomationState(uid));
+  const fullPayload = { uid, state, ...payload };
+
+  // Kirim ke window TikTok control biasa (jika ada)
   const ctrl = tiktokControlWindows.get(uid);
   if (ctrl && !ctrl.isDestroyed()) {
-    const state = serializeTikTokState(getTikTokAutomationState(uid));
-    ctrl.webContents.send("tiktok-control-update", {
-      uid,
-      state,
-      ...payload,
-    });
+    ctrl.webContents.send("tiktok-control-update", fullPayload);
+  }
+
+  // Kirim ke hub side panel BrowserView (jika device ada di hub)
+  const sideView = hubSidePanelViews.get(uid);
+  if (sideView && !sideView.webContents.isDestroyed()) {
+    sideView.webContents.send("tiktok-control-update", fullPayload);
   }
 }
 
@@ -6819,10 +6847,29 @@ function startTikTokAutoComment(uid) {
     message: "Auto comment berjalan.",
   });
 }
+function getUAForMode(mode) {
+  const desktopUA = buildWhatsAppUserAgent(cachedChromeVersion || DEFAULT_CHROME_VERSION);
+  if (!mode || mode.startsWith('desktop') ||
+      ['compact','square','portrait','landscape','mobile-browser-desktop'].includes(mode)) {
+    return desktopUA;
+  }
+  if (mode.includes('ipad') || mode.includes('tablet-ipad')) {
+    return 'Mozilla/5.0 (iPad; CPU OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15A5341f Safari/604.1';
+  }
+  if (mode.includes('iphone')) {
+    return 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1';
+  }
+  if (mode.includes('samsung') || mode.includes('tablet-samsung')) {
+    return 'Mozilla/5.0 (Linux; Android 12; SM-X906B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36';
+  }
+  // All other Android/mobile modes
+  return 'Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36';
+}
+
 function createDeviceWindow(uid, service, options = {}) {
   const { autoShow = true } = options;
   const serviceKey = (service || "").toLowerCase();
-  const selected = services[serviceKey] || services.wa;
+  const selected = services[serviceKey] || services.other;
 
   let deviceName = selected.name;
   let mode = "desktop";
@@ -8479,6 +8526,77 @@ ipcMain.handle("start-device", async (event, uid, service) => {
   }
 });
 
+// Buka device di window baru (bukan hub)
+ipcMain.handle("start-device-new-window", async (event, uid, service) => {
+  try {
+    console.log(`🪟 Membuka device ${uid} di window baru.`);
+    // Jika sedang berjalan di hub, tutup tab-nya dulu
+    if (hubDevices.has(uid)) {
+      hubDevices.delete(uid);
+      destroyHubWebView(uid);
+      if (webHubWindow && !webHubWindow.isDestroyed()) {
+        webHubWindow.webContents.send('hub-close-tab', uid);
+      }
+    }
+    // Jika sudah punya window sendiri, fokus saja
+    const existingWindow = deviceWindows[uid];
+    if (existingWindow && !existingWindow.isDestroyed()) {
+      existingWindow.focus();
+      return { success: true };
+    }
+    startDevice(uid, service, { forceNewWindow: true });
+    return { success: true };
+  } catch (err) {
+    console.error(`❌ Gagal membuka window baru untuk ${uid}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Hub tab ditutup oleh user di dalam hub window
+ipcMain.on("hub-tab-closed", (event, uid) => {
+  if (hubDevices.has(uid)) {
+    hubDevices.delete(uid);
+    destroyHubWebView(uid);
+    updateDeviceStatus(uid, "stopped");
+    // Cleanup side panel
+    const sideView = hubSidePanelViews.get(uid);
+    if (sideView && webHubWindow && !webHubWindow.isDestroyed()) {
+      try { webHubWindow.removeBrowserView(sideView); } catch (_) {}
+    }
+    if (sideView) {
+      try { if (!sideView.webContents.isDestroyed()) sideView.webContents.destroy(); } catch (_) {}
+      hubSidePanelViews.delete(uid);
+    }
+    if (hubActiveTabUid === uid) hubActiveTabUid = null;
+    console.log(`[HUB] Tab ${uid} ditutup oleh user.`);
+  }
+});
+
+// Pop out dari hub ke window baru
+ipcMain.on("hub-tab-pop-out", (event, uid) => {
+  const tabData = hubDevices.get(uid);
+  if (!tabData) return;
+  hubDevices.delete(uid);
+  destroyHubWebView(uid);
+  // Cleanup side panel BrowserView (window baru akan buka TikTok control sendiri)
+  const sideView = hubSidePanelViews.get(uid);
+  if (sideView && webHubWindow && !webHubWindow.isDestroyed()) {
+    try { webHubWindow.removeBrowserView(sideView); } catch (_) {}
+  }
+  if (sideView) {
+    try { if (!sideView.webContents.isDestroyed()) sideView.webContents.destroy(); } catch (_) {}
+    hubSidePanelViews.delete(uid);
+  }
+  if (hubActiveTabUid === uid) hubActiveTabUid = null;
+  console.log(`[HUB] Pop out device ${uid} ke window baru.`);
+  try {
+    createDeviceWindow(uid, tabData.service);
+  } catch (err) {
+    console.error(`❌ Gagal pop out device ${uid}:`, err);
+    updateDeviceStatus(uid, "stopped");
+  }
+});
+
 ipcMain.handle("edit-device", (event, payload = {}) => {
   try {
     const raw = fs.readFileSync(DB_PATH, "utf8");
@@ -8576,6 +8694,32 @@ function stopDevice(uid) {
       return;
     }
 
+    // Handle hub device — tutup tab di hub
+    if (hubDevices.has(uid)) {
+      console.log(`🛑 Menutup tab hub untuk device ${uid}`);
+      hubDevices.delete(uid);
+      destroyHubWebView(uid);
+      updateDeviceStatus(uid, "stopped");
+
+      // Cleanup side panel BrowserView
+      const sideView = hubSidePanelViews.get(uid);
+      if (sideView) {
+        if (webHubWindow && !webHubWindow.isDestroyed()) {
+          try { webHubWindow.removeBrowserView(sideView); } catch (_) {}
+        }
+        try {
+          if (!sideView.webContents.isDestroyed()) sideView.webContents.destroy();
+        } catch (_) {}
+        hubSidePanelViews.delete(uid);
+      }
+
+      if (webHubWindow && !webHubWindow.isDestroyed()) {
+        webHubWindow.webContents.send('hub-close-tab', uid);
+      }
+      resolve();
+      return;
+    }
+
     const win = deviceWindows[uid];
 
     if (!win || win.isDestroyed()) {
@@ -8612,7 +8756,339 @@ function stopDevice(uid) {
     }
   });
 }
-function startDevice(uid, service) {
+
+function createWebHubWindow() {
+  if (webHubWindow && !webHubWindow.isDestroyed()) {
+    if (webHubWindow.isMinimized()) webHubWindow.restore();
+    webHubWindow.show();
+    webHubWindow.focus();
+    return webHubWindow;
+  }
+
+  webHubWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    title: withBrandTitle('Web Hub'),
+    autoHideMenuBar: true,
+    icon: getAssetPath('starbox.png'),
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      webviewTag: true,
+      preload: path.join(app.getAppPath(), 'web-hub-preload.cjs'),
+    },
+  });
+
+  webHubWindow.loadFile(path.join(__dirname, 'web-hub.html'));
+
+  webHubWindow.once('ready-to-show', () => {
+    webHubWindow.show();
+    webHubWindow.focus();
+    if (process.env.NODE_ENV === 'development') {
+      webHubWindow.webContents.openDevTools({ mode: 'detach' });
+    }
+    // Force re-apply setelah window fully rendered
+    setTimeout(() => {
+      if (webHubWindow && !webHubWindow.isDestroyed()) {
+        webHubWindow.webContents.send('hub-window-resized');
+      }
+    }, 300);
+  });
+
+  // Recalculate side panel bounds saat window di-resize
+  webHubWindow.on('resize', () => {
+    // Notify renderer agar recalculate dan kirim ulang view bounds
+    if (!webHubWindow.isDestroyed()) {
+      webHubWindow.webContents.send('hub-window-resized');
+    }
+    // Side panel adjustment (single mode)
+    if (hubLayoutMode === 'single' && hubActiveTabUid) {
+      applyHubLayout(hubActiveTabUid);
+    }
+  });
+
+  webHubWindow.on('closed', () => {
+    for (const uid of hubDevices.keys()) {
+      updateDeviceStatus(uid, 'stopped');
+    }
+    // Destroy semua side panel BrowserViews
+    // (hubWebViews sekarang berisi tabData, bukan BrowserView)
+    hubWebViews.clear();
+    for (const [, view] of hubSidePanelViews) {
+      try {
+        if (!view.webContents.isDestroyed()) view.webContents.destroy();
+      } catch (_) {}
+    }
+    hubDevices.clear();
+    hubWebViews.clear();
+    hubSidePanelViews.clear();
+    hubActiveTabUid = null;
+    webHubWindow = null;
+    console.log('[HUB] Web Hub window ditutup, semua tab dibersihkan.');
+  });
+
+  return webHubWindow;
+}
+
+function destroyHubWebView(uid) {
+  const view = hubWebViews.get(uid);
+  if (view && view instanceof BrowserView) {
+    if (webHubWindow && !webHubWindow.isDestroyed()) {
+      try { webHubWindow.removeBrowserView(view); } catch (_) {}
+    }
+    try { if (!view.webContents.isDestroyed()) view.webContents.destroy(); } catch (_) {}
+  }
+  hubWebViews.delete(uid);
+}
+
+function ensureHubWebView(tabData) {
+  if (!tabData?.uid) return null;
+  if (hubWebViews.has(tabData.uid)) {
+    hubWebViews.get(tabData.uid).__tabData = tabData;
+    return hubWebViews.get(tabData.uid);
+  }
+  const view = new BrowserView({
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      partition: 'persist:' + tabData.uid,
+    },
+  });
+  view.__tabData = tabData;
+  // Set UA via webContents (webPreferences.userAgent tidak berlaku di BrowserView)
+  const ua = tabData.userAgent || buildWhatsAppUserAgent(cachedChromeVersion || DEFAULT_CHROME_VERSION);
+  view.webContents.setUserAgent(ua);
+  view.webContents.loadURL(tabData.url || 'about:blank', { userAgent: ua });
+  hubWebViews.set(tabData.uid, view);
+  // Status events — forward ke renderer
+  view.webContents.on('did-start-loading', () => {
+    if (webHubWindow && !webHubWindow.isDestroyed())
+      webHubWindow.webContents.send('hub-tab-status', tabData.uid, 'loading');
+  });
+  view.webContents.on('did-finish-load', () => {
+    if (webHubWindow && !webHubWindow.isDestroyed())
+      webHubWindow.webContents.send('hub-tab-status', tabData.uid, 'ready');
+  });
+  view.webContents.on('did-fail-load', () => {
+    if (webHubWindow && !webHubWindow.isDestroyed())
+      webHubWindow.webContents.send('hub-tab-status', tabData.uid, 'error');
+  });
+  view.webContents.on('page-title-updated', (e, title) => {
+    if (webHubWindow && !webHubWindow.isDestroyed())
+      webHubWindow.webContents.send('hub-tab-title', tabData.uid, title);
+  });
+  console.log('[HUB] BrowserView dibuat untuk', tabData.uid, tabData.url);
+  return view;
+}
+
+function applyHubWebViewBounds(boundsList = []) {
+  if (!webHubWindow || webHubWindow.isDestroyed()) return;
+
+  const activeUids = new Set(boundsList.map(b => b.uid));
+
+  // Lepas BrowserView yang tidak ada di boundsList
+  for (const [uid, view] of hubWebViews) {
+    if (!(view instanceof BrowserView)) continue;
+    if (!activeUids.has(uid)) {
+      try { webHubWindow.removeBrowserView(view); } catch (_) {}
+    }
+  }
+
+  // Set bounds untuk yang aktif — add jika belum attached, setBounds saja jika sudah
+  for (const { uid, x, y, w, h } of boundsList) {
+    const view = hubWebViews.get(uid);
+    if (!view || !(view instanceof BrowserView) || view.webContents.isDestroyed()) continue;
+    const bounds = { x: Math.round(x), y: Math.round(y), width: Math.max(1, Math.round(w)), height: Math.max(1, Math.round(h)) };
+    try {
+      const views = webHubWindow.getBrowserViews();
+      if (!views.includes(view)) webHubWindow.addBrowserView(view);
+      view.setBounds(bounds);
+    } catch (err) {
+      console.warn('[HUB] setBounds error:', err?.message);
+    }
+  }
+}
+
+function openDeviceInHub(uid, service) {
+  const deviceConfig = getDeviceConfig(uid) || {};
+  const serviceKey = (deviceConfig.service || service || '').toLowerCase();
+  const selected = services[serviceKey] || services.other;
+  const deviceName = deviceConfig.name || selected.name;
+  const mode = deviceConfig.mode || 'desktop';
+  const customUrl = deviceConfig.customUrl || '';
+
+  const url = serviceKey === 'other'
+    ? sanitizeCustomUrl(customUrl)
+    : selected.url || '';
+
+  // Tentukan apakah perlu side panel
+  const shouldAttachTikTok = shouldOpenTikTokControl(serviceKey, url);
+  if (shouldAttachTikTok) {
+    updateTikTokSettings(uid, { targetUrl: url });
+  } else {
+    teardownTikTokAutomation(uid, { closeWindow: true });
+  }
+
+  // Buat BrowserView untuk TikTok control sebagai side panel
+  if (shouldAttachTikTok && !hubSidePanelViews.has(uid)) {
+    try {
+      const tiktokHtmlPath = path.join(__dirname, 'tiktok-control.html');
+      const query = new URLSearchParams({ uid, name: deviceName, url });
+      const sideView = new BrowserView({
+        webPreferences: {
+          preload: path.join(app.getAppPath(), 'tiktok-control-preload.cjs'),
+          contextIsolation: true,
+          nodeIntegration: false,
+        },
+      });
+      sideView.webContents.loadURL(`file://${tiktokHtmlPath}?${query}`);
+      hubSidePanelViews.set(uid, sideView);
+      console.log(`[HUB] TikTok control side panel dibuat untuk ${uid}`);
+    } catch (err) {
+      console.warn('[HUB] Gagal membuat TikTok control side panel:', err?.message);
+    }
+  }
+
+  const hasSidePanel = hubSidePanelViews.has(uid);
+
+  const tabData = {
+    uid,
+    name: deviceName,
+    service: serviceKey,
+    url,
+    userAgent: getUAForMode(mode),
+    partition: `persist:${uid}`,
+    iconUrl: 'file://' + getAssetPath(selected.icon || 'starbox.png'),
+    hasSidePanel,
+  };
+
+  hubDevices.set(uid, tabData);
+  ensureHubWebView(tabData);
+  updateDeviceStatus(uid, 'active');
+
+  const hub = createWebHubWindow();
+  const sendAndActivate = () => {
+    if (!hub || hub.isDestroyed() || hub.webContents.isDestroyed()) return;
+    hub.webContents.send('hub-open-tab', tabData);
+    setTimeout(() => {
+      if (!hub || hub.isDestroyed() || hub.webContents.isDestroyed()) return;
+      hub.webContents.send('hub-window-resized');
+    }, 200);
+  };
+
+  if (!hub || hub.isDestroyed() || hub.webContents.isDestroyed()) {
+    return;
+  }
+  if (hub.webContents.isLoading()) {
+    hub.webContents.once('did-finish-load', sendAndActivate);
+  } else if (!hub.isVisible()) {
+    // Window belum visible — tunggu sampai shown
+    hub.once('show', () => setTimeout(sendAndActivate, 100));
+  } else {
+    sendAndActivate();
+  }
+}
+
+// Recalculate BrowserView bounds for hub side panels
+function applyHubLayout(uid, options = {}) {
+  if (!webHubWindow || webHubWindow.isDestroyed()) return;
+  hubActiveTabUid = uid;
+
+  // Lepas semua side panel BrowserView dari window dulu
+  for (const [, view] of hubSidePanelViews) {
+    try { webHubWindow.removeBrowserView(view); } catch (_) {}
+  }
+
+  // Side panels only work in single-tab layout mode
+  const sideView = (hubLayoutMode === 'single' && uid) ? hubSidePanelViews.get(uid) : null;
+  const hasSidePanel = !!(sideView && !sideView.webContents.isDestroyed());
+
+  if (hasSidePanel) {
+    const [w, h] = webHubWindow.getContentSize();
+    const sideW = Math.round(w / 3);
+    const contentH = Math.max(0, h - HUB_TABBAR_HEIGHT);
+    sideView.setBounds({ x: w - sideW, y: HUB_TABBAR_HEIGHT, width: sideW, height: contentH });
+    webHubWindow.addBrowserView(sideView);
+  }
+
+  // Beritahu hub HTML agar sesuaikan lebar webview
+  if (!options.skipNotify && webHubWindow && !webHubWindow.isDestroyed()) {
+    webHubWindow.webContents.send('hub-set-layout', uid, hasSidePanel);
+  }
+}
+
+ipcMain.on('hub-switch-tab', (event, uid) => {
+  applyHubLayout(uid);
+});
+
+ipcMain.on('hub-layout-mode', (event, mode) => {
+  hubLayoutMode = mode || 'single';
+  // Side panel hanya relevan di single layout
+  // Multi-slot: renderer akan kirim hub-view-bounds sendiri, jangan override di sini
+  if (hubLayoutMode === 'single') {
+    applyHubLayout(hubActiveTabUid);
+  } else {
+    // Lepas semua side panel saat multi-slot
+    if (webHubWindow && !webHubWindow.isDestroyed()) {
+      for (const [, view] of hubSidePanelViews) {
+        try { webHubWindow.removeBrowserView(view); } catch (_) {}
+      }
+    }
+  }
+});
+
+let _hubBoundsDebounceTimer = null;
+let _hubBoundsLastMs = 0;
+ipcMain.on('hub-view-bounds', (event, boundsList) => {
+  const now = Date.now();
+  // Langsung proses jika sudah >200ms sejak terakhir, atau debounce
+  if (now - _hubBoundsLastMs > 200) {
+    _hubBoundsLastMs = now;
+    applyHubWebViewBounds(boundsList);
+  } else {
+    if (_hubBoundsDebounceTimer) clearTimeout(_hubBoundsDebounceTimer);
+    _hubBoundsDebounceTimer = setTimeout(() => {
+      _hubBoundsLastMs = Date.now();
+      _hubBoundsDebounceTimer = null;
+      applyHubWebViewBounds(boundsList);
+    }, 150);
+  }
+});
+
+ipcMain.handle('hub-get-devices', async () => {
+  try {
+    const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+    const devices = (data.devices || []).filter(d => d.service !== 'android');
+    return devices.map(d => {
+      const svc = services[d.service] || services.other;
+      return {
+        uid: d.uid,
+        name: d.name || svc.name,
+        service: d.service,
+        iconUrl: 'file://' + getAssetPath(svc.icon || 'starbox.png'),
+      };
+    });
+  } catch (e) {
+    console.warn('[HUB] hub-get-devices error:', e?.message);
+    return [];
+  }
+});
+
+ipcMain.handle('hub-start-device', async (event, uid) => {
+  try {
+    const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+    const device = (data.devices || []).find(d => d.uid === uid);
+    if (!device) return { success: false, error: 'Device not found' };
+    await startDevice(uid, device.service, {});
+    return { success: true };
+  } catch (e) {
+    console.warn('[HUB] hub-start-device error:', e?.message);
+    return { success: false, error: e?.message };
+  }
+});
+
+function startDevice(uid, service, options = {}) {
   if (!uid) {
     console.warn("⚠️ startDevice dipanggil tanpa UID, operasi dibatalkan.");
     return;
@@ -8620,7 +9096,7 @@ function startDevice(uid, service) {
 
   if (!app.isReady()) {
     console.log(`⌛ App belum siap. Menunggu untuk menjalankan device ${uid}.`);
-    app.whenReady().then(() => startDevice(uid, service));
+    app.whenReady().then(() => startDevice(uid, service, options));
     return;
   }
 
@@ -8628,6 +9104,7 @@ function startDevice(uid, service) {
   const serviceKey = (deviceConfig.service || service || "").toLowerCase();
   const useChromeNative =
     !!deviceConfig.useChromeNative && serviceKey !== "android";
+
   if (useChromeNative) {
     console.log(`🚀 Menjalankan device ${uid} menggunakan Chrome native.`);
     try {
@@ -8642,6 +9119,39 @@ function startDevice(uid, service) {
     }
   }
 
+  // Tentukan apakah device harus dibuka di hub atau window baru
+  const forceNewWindow = options.forceNewWindow === true;
+  const autoSenderEnabled = Boolean(
+    deviceConfig.autoSender && allowAutoSenderForService(serviceKey)
+  );
+  const selected = services[serviceKey] || services.other;
+  const isLocalFile = Boolean(selected.isLocalFile);
+  const useHub = !forceNewWindow && !autoSenderEnabled && !isLocalFile && serviceKey !== 'android';
+
+  if (useHub) {
+    // Jika sudah berjalan di hub, fokus saja
+    if (hubDevices.has(uid)) {
+      if (webHubWindow && !webHubWindow.isDestroyed()) {
+        if (webHubWindow.isMinimized()) webHubWindow.restore();
+        webHubWindow.show();
+        webHubWindow.focus();
+        webHubWindow.webContents.send('hub-focus-tab', uid);
+      }
+      return;
+    }
+    console.log(`🌐 Menjalankan device ${uid} (${serviceKey}) di Web Hub.`);
+    updateDeviceStatus(uid, "starting");
+    try {
+      openDeviceInHub(uid, service);
+    } catch (err) {
+      console.error(`❌ Gagal membuka device di hub untuk ${uid}:`, err);
+      updateDeviceStatus(uid, "stopped");
+      throw err;
+    }
+    return;
+  }
+
+  // Mode window baru (autoSender, local file, android, atau force)
   const existingWindow = deviceWindows[uid];
   if (existingWindow && !existingWindow.isDestroyed()) {
     console.log(
@@ -8652,7 +9162,7 @@ function startDevice(uid, service) {
   }
 
   console.log(
-    `🚀 Menjalankan device ${uid} (${service}) sebagai jendela baru.`
+    `🚀 Menjalankan device ${uid} (${serviceKey}) sebagai jendela baru.`
   );
   updateDeviceStatus(uid, "starting");
 
@@ -8672,6 +9182,14 @@ ipcMain.on("stop-device", (event, uid) => {
 });
 
 ipcMain.on("focus-device", (event, uid) => {
+  // Cek hub terlebih dahulu
+  if (hubDevices.has(uid) && webHubWindow && !webHubWindow.isDestroyed()) {
+    if (webHubWindow.isMinimized()) webHubWindow.restore();
+    webHubWindow.show();
+    webHubWindow.focus();
+    webHubWindow.webContents.send('hub-focus-tab', uid);
+    return;
+  }
   const win = deviceWindows[uid];
   if (win && !win.isDestroyed()) {
     if (win.isMinimized()) {
@@ -9016,8 +9534,9 @@ ipcMain.handle("set-input-guard-state", (_event, uid, enabled) => {
 
 ipcMain.handle("is-device-running", (_event, uid) => {
   if (!uid) return false;
+  if (hubDevices.has(uid)) return true;
   const deviceWindow = deviceWindows[uid];
-  return deviceWindow && !deviceWindow.isDestroyed();
+  return !!(deviceWindow && !deviceWindow.isDestroyed());
 });
 
 ipcMain.handle("load-devices", (_event, dbType) => {
@@ -11736,6 +12255,13 @@ app.on("before-quit", () => {
 });
 
 app.on("window-all-closed", () => {
+  // Jangan quit kalau Web Hub masih aktif
+  if (webHubWindow && !webHubWindow.isDestroyed()) return;
+  // Jangan quit kalau ada device di hub (hub sedang dibuat)
+  if (hubDevices.size > 0) return;
+  // Di macOS, jangan quit saat semua window tutup — biarkan di dock
+  if (process.platform === 'darwin') return;
+
   console.log("🛑 Menutup semua jendela, akan menghentikan semua device...");
 
   const uids = Object.keys(deviceWindows);
@@ -11748,9 +12274,7 @@ app.on("window-all-closed", () => {
   uids.forEach((uid) => {
     const win = deviceWindows[uid];
     if (win && !win.isDestroyed()) {
-      try {
-        win.destroy();
-      } catch (err) {
+      try { win.destroy(); } catch (err) {
         console.warn(`⚠️ Gagal menghentikan jendela ${uid}:`, err.message);
       }
     }

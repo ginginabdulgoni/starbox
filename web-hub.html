@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>StarBox Web Hub</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      height: 100%; width: 100%;
+      background: #0d1117; color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+    }
+    /* No flexbox on root — tab-bar and content use explicit fixed positions
+       so both reference the same viewport coordinate system as window.innerHeight */
+    #root { position: fixed; inset: 0; }
+
+    /* ── Tab Bar ── */
+    #tab-bar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+      display: flex; align-items: center;
+      background: #161b22;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      height: 38px; user-select: none;
+    }
+    /* Desktop switcher pills */
+    #desktop-switcher {
+      display: flex; align-items: center; gap: 3px;
+      padding: 0 8px; border-right: 1px solid rgba(255,255,255,0.07);
+      flex-shrink: 0;
+    }
+    .desktop-pill {
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 4px; cursor: pointer; padding: 2px 6px 2px 8px;
+      font-size: 11px; color: #666; white-space: nowrap;
+      transition: all 0.12s; display: flex; align-items: center; gap: 4px;
+    }
+    .desktop-pill:hover { color: #aaa; background: rgba(255,255,255,0.09); }
+    .desktop-pill.active { background: rgba(124,111,224,0.18); color: #a99cf0; border-color: rgba(124,111,224,0.4); }
+    .desktop-pill-del {
+      display: none; width: 13px; height: 13px; border-radius: 3px;
+      background: none; border: none; cursor: pointer;
+      color: #555; font-size: 10px; line-height: 1;
+      align-items: center; justify-content: center; flex-shrink: 0;
+      padding: 0; transition: color 0.1s, background 0.1s;
+    }
+    .desktop-pill:hover .desktop-pill-del,
+    .desktop-pill.active .desktop-pill-del { display: flex; }
+    .desktop-pill-del:hover { color: #e87070; background: rgba(220,60,60,0.2); }
+    #new-desktop-btn {
+      background: none; border: 1px solid rgba(255,255,255,0.08); border-radius: 4px;
+      cursor: pointer; color: #555; width: 20px; height: 20px;
+      font-size: 14px; display: flex; align-items: center; justify-content: center;
+      transition: all 0.12s;
+    }
+    #new-desktop-btn:hover { color: #a99cf0; border-color: rgba(124,111,224,0.4); background: rgba(124,111,224,0.1); }
+
+    #tab-list {
+      flex: 1; display: flex; align-items: center;
+      overflow-x: auto; overflow-y: hidden; height: 100%;
+    }
+    #tab-list::-webkit-scrollbar { height: 3px; }
+    #tab-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+
+    .wh-tab {
+      display: flex; align-items: center; gap: 6px;
+      padding: 0 10px; height: 100%;
+      min-width: 110px; max-width: 170px;
+      cursor: pointer; flex-shrink: 0; position: relative;
+      border-right: 1px solid rgba(255,255,255,0.05);
+      font-size: 12px; color: #888; white-space: nowrap;
+      transition: background 0.15s, color 0.15s;
+    }
+    .wh-tab:hover { background: rgba(255,255,255,0.04); color: #ccc; }
+    .wh-tab.active { background: #0d1117; color: #e0e0e0; border-bottom: 2px solid #7c6fe0; }
+    .wh-tab.in-slot:not(.active) { color: #a99cf0; }
+    .wh-tab.other-desktop { color: #55607a; }
+    .wh-tab.other-desktop:hover { color: #8899bb; }
+    .wh-tab.drag-target::before {
+      content: ''; position: absolute; left: 0; top: 4px; bottom: 4px;
+      width: 2px; background: #7c6fe0; border-radius: 2px;
+    }
+    .wh-tab-icon { width: 14px; height: 14px; border-radius: 2px; flex-shrink: 0; object-fit: contain; }
+    .wh-tab-label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+    .wh-tab-slot-num {
+      font-size: 9px; color: #7c6fe0;
+      background: rgba(124,111,224,0.2); border-radius: 3px; padding: 1px 4px; flex-shrink: 0;
+    }
+    .wh-tab-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: #555; }
+    .wh-tab-dot.loading { background: #f0a040; animation: wh-pulse 1s infinite; }
+    .wh-tab-dot.ready   { background: #50c878; box-shadow: 0 0 4px #50c87866; }
+    .wh-tab-dot.error   { background: #e87070; }
+    .wh-tab-actions { display: none; align-items: center; gap: 1px; flex-shrink: 0; }
+    .wh-tab:hover .wh-tab-actions,
+    .wh-tab.active .wh-tab-actions { display: flex; }
+    .wh-tab-btn {
+      background: none; border: none; cursor: pointer;
+      color: #555; padding: 2px 4px; font-size: 11px; line-height: 1;
+      border-radius: 3px; transition: color 0.12s, background 0.12s;
+    }
+    .wh-tab-btn:hover       { color: #ccc; background: rgba(255,255,255,0.08); }
+    .wh-tab-btn.close:hover { color: #e87070; background: rgba(220,60,60,0.15); }
+
+    /* ── Add Tab Button ── */
+    #tab-bar-actions {
+      display: flex; align-items: center; padding: 0 4px;
+      border-right: 1px solid rgba(255,255,255,0.07); flex-shrink: 0;
+    }
+    #add-tab-btn {
+      background: none; border: 1px solid rgba(255,255,255,0.1); border-radius: 5px;
+      cursor: pointer; color: #888; width: 26px; height: 22px; font-size: 16px;
+      display: flex; align-items: center; justify-content: center;
+      transition: color 0.12s, border-color 0.12s, background 0.12s;
+    }
+    #add-tab-btn:hover { color: #e0e0e0; border-color: #7c6fe0; background: rgba(124,111,224,0.12); }
+
+    /* ── Layout Selector ── */
+    #layout-selector {
+      display: flex; align-items: center; gap: 2px;
+      padding: 0 6px; border-left: 1px solid rgba(255,255,255,0.07); flex-shrink: 0;
+    }
+    .layout-btn {
+      background: none; border: 1px solid transparent; border-radius: 4px;
+      cursor: pointer; padding: 3px; display: flex; align-items: center; justify-content: center;
+      color: #555; flex-shrink: 0; transition: color 0.12s, border-color 0.12s, background 0.12s;
+    }
+    .layout-btn:hover  { color: #aaa; background: rgba(255,255,255,0.06); }
+    .layout-btn.active { color: #7c6fe0; border-color: rgba(124,111,224,0.4); background: rgba(124,111,224,0.1); }
+    .li { display: grid; gap: 1px; width: 14px; height: 14px; }
+    .li span { background: currentColor; border-radius: 1px; display: block; }
+    .li-1  { grid-template-columns: 1fr; }
+    .li-2h { grid-template-columns: 1fr 1fr; }
+    .li-2v { grid-template-rows: 1fr 1fr; }
+    .li-3h { grid-template-columns: 1fr 1fr 1fr; }
+    .li-4  { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+    .li-3l { grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; }
+    .li-3l .span-big { grid-row: span 2; }
+    .li-6  { grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
+    .li-8  { grid-template-columns: 1fr 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
+
+    /* ── Content Area ── */
+    #content {
+      position: fixed;
+      top: 38px;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      overflow: hidden;
+      background: #161b22;
+    }
+
+    /* Webview layer — webviews NEVER leave this element */
+    #webview-layer { position: absolute; inset: 0; }
+    /* <webview> must have explicit px size set via JS — CSS % / inset anchors don't work */
+    #webview-layer webview { position: absolute; display: none; }
+
+    /* Slot overlay — headers, borders, empty placeholders */
+    #slot-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+
+    .wh-slot-header {
+      position: absolute; pointer-events: auto;
+      background: #1a1f28; border-bottom: 1px solid rgba(255,255,255,0.05);
+      display: flex; align-items: center; padding: 0 4px 0 6px; gap: 5px;
+      cursor: grab; font-size: 11px; color: #666; user-select: none;
+      transition: background 0.12s, color 0.12s;
+    }
+    .wh-slot-header:active { cursor: grabbing; }
+    .wh-slot-header:hover  { background: rgba(255,255,255,0.04); }
+    .wh-slot-header.focused { color: #a99cf0; background: rgba(124,111,224,0.1); }
+    .wh-slot-header.drop-target { background: rgba(124,111,224,0.22); color: #c0b0ff; }
+    .wh-slot-drag-handle { color: #444; font-size: 10px; flex-shrink: 0; margin-right: 1px; }
+    .wh-slot-header-icon { width: 12px; height: 12px; border-radius: 2px; object-fit: contain; flex-shrink: 0; }
+    .wh-slot-header-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .wh-slot-header-close {
+      background: none; border: none; color: #444; font-size: 10px;
+      cursor: pointer; padding: 2px 3px; border-radius: 3px; line-height: 1; flex-shrink: 0;
+    }
+    .wh-slot-header-close:hover { color: #e87070; background: rgba(220,60,60,0.15); }
+
+    .wh-slot-empty {
+      position: absolute; pointer-events: none;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 8px; color: #3a3f4a; font-size: 12px;
+    }
+    .wh-slot-empty .icon { font-size: 1.6rem; opacity: 0.3; }
+    .wh-slot-empty.hidden { display: none; }
+
+    /* Side panel divider */
+    #side-divider {
+      position: absolute; top: 0; bottom: 0; width: 1px;
+      background: rgba(255,255,255,0.07); display: none; z-index: 6;
+    }
+    #side-divider.visible { display: block; }
+
+    /* ── Splash ── */
+    #splash {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 14px; color: #555; z-index: 10;
+    }
+    #splash.hidden { display: none; }
+    #splash .splash-icon { font-size: 3rem; opacity: 0.4; }
+    #splash h3 { font-size: 16px; color: #666; font-weight: 500; }
+    #splash p  { font-size: 13px; color: #555; text-align: center; max-width: 300px; line-height: 1.5; }
+    #splash-add-btn {
+      margin-top: 4px; padding: 8px 20px;
+      border: 1px solid rgba(124,111,224,0.3); border-radius: 6px;
+      background: rgba(124,111,224,0.15); color: #a99cf0;
+      cursor: pointer; font-size: 13px; transition: background 0.15s;
+    }
+    #splash-add-btn:hover { background: rgba(124,111,224,0.3); }
+
+    /* ── Device Picker ── */
+    #device-picker { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; }
+    #device-picker.hidden { display: none; }
+    #dp-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(2px); }
+    #dp-panel {
+      position: relative; z-index: 1; background: #1c2128;
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+      width: 440px; max-height: 70vh; display: flex; flex-direction: column;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+    }
+    #dp-header { padding: 14px 16px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    #dp-header h4 { font-size: 14px; font-weight: 600; color: #e2e8f0; flex-shrink: 0; }
+    #dp-search { flex: 1; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 5px 10px; color: #e2e8f0; font-size: 12px; outline: none; }
+    #dp-search::placeholder { color: #555; }
+    #dp-search:focus { border-color: rgba(124,111,224,0.5); }
+    #dp-close { background: none; border: none; cursor: pointer; color: #666; font-size: 14px; padding: 4px; border-radius: 4px; flex-shrink: 0; }
+    #dp-close:hover { color: #e87070; background: rgba(220,60,60,0.12); }
+    #dp-list { overflow-y: auto; padding: 8px; }
+    #dp-list::-webkit-scrollbar { width: 4px; }
+    #dp-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+    .dp-empty { padding: 24px; text-align: center; color: #555; font-size: 13px; }
+    .dp-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; cursor: pointer; transition: background 0.12s; }
+    .dp-item:hover { background: rgba(255,255,255,0.05); }
+    .dp-item-icon { width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; background: rgba(255,255,255,0.06); }
+    .dp-item-icon img { width: 18px; height: 18px; object-fit: contain; border-radius: 2px; }
+    .dp-item-info { flex: 1; min-width: 0; }
+    .dp-item-name { font-size: 13px; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dp-item-svc  { font-size: 11px; color: #555; }
+    .dp-item-action { flex-shrink: 0; padding: 4px 10px; border-radius: 5px; border: none; font-size: 11px; cursor: pointer; transition: background 0.12s; }
+    .dp-item-action.open   { background: rgba(124,111,224,0.2); color: #a99cf0; border: 1px solid rgba(124,111,224,0.3); }
+    .dp-item-action.open:hover { background: rgba(124,111,224,0.35); }
+    .dp-item-action.active { background: rgba(80,200,120,0.1); color: #50c878; border: 1px solid rgba(80,200,120,0.25); cursor: default; }
+    .dp-section-label { font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 0.08em; padding: 6px 10px 4px; }
+
+    @keyframes wh-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  </style>
+</head>
+<body>
+<div id="root">
+  <div id="tab-bar">
+    <!-- Desktop switcher pills -->
+    <div id="desktop-switcher">
+      <button class="desktop-pill active" data-desktop="0">Desktop 1</button>
+      <button id="new-desktop-btn" title="Tambah desktop baru">+</button>
+    </div>
+
+    <div id="tab-list"></div>
+
+    <div id="tab-bar-actions">
+      <button id="add-tab-btn" title="Pilih device">+</button>
+    </div>
+    <div id="layout-selector">
+      <button class="layout-btn active" data-layout="single" title="1 panel">
+        <div class="li li-1"><span></span></div>
+      </button>
+      <button class="layout-btn" data-layout="split2h" title="2 kolom">
+        <div class="li li-2h"><span></span><span></span></div>
+      </button>
+      <button class="layout-btn" data-layout="split2v" title="2 baris">
+        <div class="li li-2v"><span></span><span></span></div>
+      </button>
+      <button class="layout-btn" data-layout="split3h" title="3 kolom">
+        <div class="li li-3h"><span></span><span></span><span></span></div>
+      </button>
+      <button class="layout-btn" data-layout="split4" title="4 panel (2×2)">
+        <div class="li li-4"><span></span><span></span><span></span><span></span></div>
+      </button>
+      <button class="layout-btn" data-layout="split3l" title="3 panel (besar kiri)">
+        <div class="li li-3l"><span class="span-big"></span><span></span><span></span></div>
+      </button>
+      <button class="layout-btn" data-layout="split6" title="6 panel (3×2)">
+        <div class="li li-6"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      </button>
+      <button class="layout-btn" data-layout="split8" title="8 panel (4×2)">
+        <div class="li li-8"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      </button>
+    </div>
+  </div>
+
+  <div id="content">
+    <div id="webview-layer"></div>
+    <div id="slot-overlay"></div>
+    <div id="side-divider"></div>
+    <div id="splash">
+      <span class="splash-icon">&#127760;</span>
+      <h3>StarBox Web Hub</h3>
+      <p>Belum ada device yang terbuka. Jalankan device dari jendela utama, atau klik tombol di bawah.</p>
+      <button id="splash-add-btn">&#43; Pilih Device</button>
+    </div>
+  </div>
+</div>
+
+<!-- Device Picker -->
+<div id="device-picker" class="hidden">
+  <div id="dp-overlay"></div>
+  <div id="dp-panel">
+    <div id="dp-header">
+      <h4>Pilih Device</h4>
+      <input id="dp-search" type="text" placeholder="Cari nama atau layanan...">
+      <button id="dp-close">&#10005;</button>
+    </div>
+    <div id="dp-list"></div>
+  </div>
+</div>
+
+<script>
+// ─── Constants ────────────────────────────────────────────────────────────────
+const SLOT_HEADER_H = 22;
+const LAYOUT_SLOTS = {
+  single: 1, split2h: 2, split2v: 2, split3h: 3,
+  split4: 4, split3l: 3, split6: 6, split8: 8,
+};
+
+// ─── State ────────────────────────────────────────────────────────────────────
+const tabs = []; // global tab list (all desktops)
+
+// Desktop model: array of desktop objects
+// desktop = { layoutMode, slotUids[], focusedSlot, label }
+let desktops = [createDesktop('single')];
+let activeDesktopIdx = 0;
+
+function createDesktop(layout) {
+  const count = LAYOUT_SLOTS[layout] || 1;
+  return { layoutMode: layout, slotUids: Array(count).fill(null), focusedSlot: 0 };
+}
+
+// Current desktop shorthand getters
+function desk()            { return desktops[activeDesktopIdx]; }
+function getSlotCount()    { return LAYOUT_SLOTS[desk().layoutMode] || 1; }
+function getSlotForUid(uid){ return desk().slotUids.indexOf(uid); }
+function getTab(uid)       { return tabs.find(t => t.uid === uid); }
+
+// Which desktop contains this uid?
+function findDesktopForUid(uid) {
+  return desktops.findIndex(d => d.slotUids.includes(uid));
+}
+
+// ─── Slot Geometry ────────────────────────────────────────────────────────────
+function getSlotGeometry(slotIndex, mode) {
+  const m = mode || desk().layoutMode;
+  switch (m) {
+    case 'split2h': return { l: slotIndex*50, t:0, w:50, h:100 };
+    case 'split2v': return { l:0, t: slotIndex*50, w:100, h:50 };
+    case 'split3h': { const W=100/3; return { l:slotIndex*W, t:0, w:W, h:100 }; }
+    case 'split4':  { const c=slotIndex%2, r=Math.floor(slotIndex/2); return { l:c*50, t:r*50, w:50, h:50 }; }
+    case 'split3l': {
+      if (slotIndex===0) return { l:0, t:0, w:200/3, h:100 };
+      return { l:200/3, t:(slotIndex-1)*50, w:100/3, h:50 };
+    }
+    case 'split6': { const c=slotIndex%3, r=Math.floor(slotIndex/3); const W=100/3; return { l:c*W, t:r*50, w:W, h:50 }; }
+    case 'split8': { const c=slotIndex%4, r=Math.floor(slotIndex/4); return { l:c*25, t:r*50, w:25, h:50 }; }
+    default: return { l:0, t:0, w:100, h:100 };
+  }
+}
+
+// ─── Shared dimension source ──────────────────────────────────────────────────
+const HUB_TAB_H = 38; // must match #tab-bar { height: 38px } in CSS
+function getContentPx() {
+  // Primary: use window dimensions minus tab bar (most reliable in Electron).
+  // Secondary: cross-check with #content.offsetHeight to catch edge cases.
+  const W = window.innerWidth;
+  const Hraw = window.innerHeight - HUB_TAB_H;
+  const content = document.getElementById('content');
+  const Hel = content ? content.offsetHeight : 0;
+  // Use the larger of the two values to avoid zero/incorrect reads
+  const H = Math.max(Hraw, Hel, 100);
+  return { W: W || 800, H, tabH: HUB_TAB_H };
+}
+
+// ─── BrowserView Management (dihandle main process) ─────────────────────────
+// Renderer hanya kirim bounds via IPC, main process yang buat & posisikan BrowserView
+// Tidak ada <webview> tag di renderer
+
+function setTabStatus(uid, status) {
+  const tab = getTab(uid);
+  if (!tab) return;
+  tab.status = status;
+  renderTabs();
+}
+
+function applyAllPositions() {
+  const { W, H } = getContentPx();
+  if (!W || !H) return;
+  if (!document.getElementById('device-picker').classList.contains('hidden')) return;
+
+  const d = desk();
+  const slotCount = getSlotCount();
+  const boundsList = [];
+
+  for (let i = 0; i < slotCount; i++) {
+    const uid = d.slotUids[i];
+    if (!uid || !getTab(uid)) continue;
+    if (d.layoutMode === 'single') {
+      boundsList.push({ uid, x: 0, y: HUB_TAB_H, w: W, h: H });
+    } else {
+      const g = getSlotGeometry(i);
+      const x = Math.round(W * g.l / 100);
+      const y = Math.round(H * g.t / 100) + HUB_TAB_H + SLOT_HEADER_H;
+      const w = Math.max(100, Math.round(W * g.w / 100));
+      const h = Math.max(100, Math.round(H * g.h / 100) - SLOT_HEADER_H);
+      boundsList.push({ uid, x, y, w, h });
+    }
+  }
+
+  // Skip jika bounds tidak berubah — mencegah flicker akibat repeated removeBrowserView+add
+  const key = JSON.stringify(boundsList);
+  if (key === applyAllPositions._lastKey) return;
+  applyAllPositions._lastKey = key;
+
+  if (window.hubAPI) window.hubAPI.sendViewBounds(boundsList);
+}
+applyAllPositions._lastKey = '';
+
+let _applyTimer = null;
+function scheduleApplyPositions() {
+  if (_applyTimer) return; // sudah dijadwalkan, skip
+  _applyTimer = setTimeout(() => {
+    _applyTimer = null;
+    buildSlotOverlay();
+    applyAllPositions();
+  }, 32); // ~2 frame debounce
+}
+
+// ─── Slot Overlay (headers, empty placeholders) ───────────────────────────────
+const slotDragState = { fromSlot: -1 };
+
+function buildSlotOverlay() {
+  const overlay = document.getElementById('slot-overlay');
+  overlay.innerHTML = '';
+  const d = desk();
+  if (d.layoutMode === 'single') return;
+
+  // Use the same px source as applyAllPositions — CSS % would reference a different measurement
+  const { W, H } = getContentPx();
+
+  for (let i = 0; i < getSlotCount(); i++) {
+    const g   = getSlotGeometry(i);
+    const uid = d.slotUids[i];
+    const tab = uid ? getTab(uid) : null;
+
+    const slotL = Math.round(W * g.l / 100);
+    const slotT = Math.round(H * g.t / 100);
+    const slotW = Math.round(W * g.w / 100);
+    const slotH = Math.round(H * g.h / 100);
+
+    // Header
+    const hdr = document.createElement('div');
+    hdr.className = 'wh-slot-header' + (i === d.focusedSlot ? ' focused' : '');
+    hdr.id = 'slot-header-' + i;
+    hdr.draggable = true;
+    hdr.style.cssText = `left:${slotL}px;top:${slotT}px;width:${slotW}px;height:${SLOT_HEADER_H}px;`;
+    hdr.innerHTML = `
+      <span class="wh-slot-drag-handle">&#8942;&#8942;</span>
+      ${tab?.iconUrl ? `<img class="wh-slot-header-icon" src="${esc(tab.iconUrl)}" alt="" onerror="this.style.display='none'">` : ''}
+      <span class="wh-slot-header-label" id="slot-label-${i}">${tab ? esc(tab.name) : '—'}</span>
+      <button class="wh-slot-header-close">&#10005;</button>`;
+
+    hdr.addEventListener('click', e => { if (!e.target.closest('.wh-slot-header-close')) focusSlot(i); });
+    hdr.querySelector('.wh-slot-header-close').addEventListener('click', e => { e.stopPropagation(); clearSlot(i); });
+
+    hdr.addEventListener('dragstart', e => {
+      slotDragState.fromSlot = i;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', 'slot:' + i);
+      e.stopPropagation(); hdr.style.opacity = '0.45';
+    });
+    hdr.addEventListener('dragend', () => {
+      hdr.style.opacity = '';
+      document.querySelectorAll('.wh-slot-header.drop-target').forEach(el => el.classList.remove('drop-target'));
+      slotDragState.fromSlot = -1;
+    });
+    hdr.addEventListener('dragover', e => {
+      e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move';
+      document.querySelectorAll('.wh-slot-header.drop-target').forEach(el => el.classList.remove('drop-target'));
+      if (slotDragState.fromSlot !== i) hdr.classList.add('drop-target');
+    });
+    hdr.addEventListener('dragleave', e => { if (!hdr.contains(e.relatedTarget)) hdr.classList.remove('drop-target'); });
+    hdr.addEventListener('drop', e => {
+      e.preventDefault(); e.stopPropagation(); hdr.classList.remove('drop-target');
+      const raw = e.dataTransfer.getData('text/plain');
+      if (raw.startsWith('slot:')) {
+        const from = parseInt(raw.replace('slot:', ''));
+        if (from !== i) {
+          const d = desk();
+          const tmp = d.slotUids[from]; d.slotUids[from] = d.slotUids[i]; d.slotUids[i] = tmp;
+          applyAllPositions(); buildSlotOverlay(); renderTabs();
+        }
+      } else if (raw.startsWith('tab:')) {
+        const uid = raw.replace('tab:', '');
+        if (tabs.find(t => t.uid === uid)) { assignToSlot(uid, i); renderTabs(); }
+      }
+    });
+
+    overlay.appendChild(hdr);
+
+    // Empty placeholder
+    const empty = document.createElement('div');
+    empty.className = 'wh-slot-empty' + (uid ? ' hidden' : '');
+    empty.id = 'slot-empty-' + i;
+    empty.style.cssText = `left:${slotL}px;top:${slotT + SLOT_HEADER_H}px;width:${slotW}px;height:${slotH - SLOT_HEADER_H}px;`;
+    empty.innerHTML = '<span class="icon">&#9633;</span><span>Taruh tab di sini</span>';
+    overlay.appendChild(empty);
+  }
+}
+
+function updateSlotHeader(i) {
+  const d   = desk();
+  const uid = d.slotUids[i];
+  const tab = uid ? getTab(uid) : null;
+  const label = document.getElementById('slot-label-' + i);
+  if (label) label.textContent = tab ? tab.name : '—';
+  const hdr = document.getElementById('slot-header-' + i);
+  if (hdr) {
+    const old = hdr.querySelector('.wh-slot-header-icon');
+    if (old) old.remove();
+    if (tab?.iconUrl) {
+      const img = document.createElement('img');
+      img.className = 'wh-slot-header-icon'; img.src = tab.iconUrl; img.alt = '';
+      img.onerror = () => img.style.display = 'none';
+      hdr.insertBefore(img, hdr.querySelector('.wh-slot-header-label'));
+    }
+    hdr.classList.toggle('focused', i === d.focusedSlot);
+  }
+  const empty = document.getElementById('slot-empty-' + i);
+  if (empty) empty.classList.toggle('hidden', !!uid);
+}
+
+// ─── Desktop Management ───────────────────────────────────────────────────────
+function renderDesktopSwitcher() {
+  const sw = document.getElementById('desktop-switcher');
+  const addBtn = document.getElementById('new-desktop-btn');
+  sw.querySelectorAll('.desktop-pill').forEach(el => el.remove());
+  desktops.forEach((d, idx) => {
+    const pill = document.createElement('button');
+    pill.className = 'desktop-pill' + (idx === activeDesktopIdx ? ' active' : '');
+    pill.dataset.desktop = idx;
+
+    const label = document.createElement('span');
+    label.textContent = 'Desktop ' + (idx + 1);
+
+    const del = document.createElement('span');
+    del.className = 'desktop-pill-del';
+    del.textContent = '×';
+    del.title = 'Hapus desktop';
+    del.addEventListener('click', e => {
+      e.stopPropagation();
+      if (desktops.length > 1) removeDesktop(idx);
+    });
+
+    pill.appendChild(label);
+    pill.appendChild(del);
+    pill.addEventListener('click', () => switchDesktop(idx));
+    sw.insertBefore(pill, addBtn);
+  });
+}
+
+function switchDesktop(idx) {
+  if (idx === activeDesktopIdx) return;
+  activeDesktopIdx = idx;
+  buildSlotOverlay();
+  applyAllPositions();
+  renderDesktopSwitcher();
+  renderTabs();
+  updateLayoutButtons();
+  updateSplash();
+}
+
+function addDesktop(layout) {
+  desktops.push(createDesktop(layout || desk().layoutMode));
+  activeDesktopIdx = desktops.length - 1;
+  buildSlotOverlay();
+  applyAllPositions();
+  renderDesktopSwitcher();
+  renderTabs();
+  updateLayoutButtons();
+  updateSplash();
+}
+
+function removeDesktop(idx) {
+  if (desktops.length <= 1) return;
+  // Free any tabs assigned to this desktop's slots (they go back to "nowhere")
+  // They remain in tabs array but unslotted — they'll show as background tabs
+  desktops.splice(idx, 1);
+  if (activeDesktopIdx >= desktops.length) activeDesktopIdx = desktops.length - 1;
+  buildSlotOverlay();
+  applyAllPositions();
+  renderDesktopSwitcher();
+  renderTabs();
+  updateLayoutButtons();
+  updateSplash();
+}
+
+// ─── Layout ───────────────────────────────────────────────────────────────────
+function applyLayout(mode) {
+  if (!LAYOUT_SLOTS[mode]) return;
+  const d = desk();
+  if (d.layoutMode === mode) return;
+  const prev = LAYOUT_SLOTS[d.layoutMode] || 1;
+  d.layoutMode = mode;
+  const next = LAYOUT_SLOTS[mode];
+  if (next > prev) { while (d.slotUids.length < next) d.slotUids.push(null); }
+  else { d.slotUids = d.slotUids.slice(0, next); }
+  if (d.focusedSlot >= next) d.focusedSlot = 0;
+  if (mode === 'single' && !d.slotUids[0] && tabs.length > 0) {
+    // Try to find a tab already on this desktop
+    const any = tabs.find(t => desktops.indexOf(d) === findDesktopForUid(t.uid));
+    if (any) d.slotUids[0] = any.uid;
+  }
+  buildSlotOverlay();
+  scheduleApplyPositions();
+  updateLayoutButtons();
+  if (window.hubAPI) window.hubAPI.notifyLayoutMode(mode);
+  renderTabs();
+}
+
+function updateLayoutButtons() {
+  document.querySelectorAll('.layout-btn').forEach(btn =>
+    btn.classList.toggle('active', btn.dataset.layout === desk().layoutMode));
+}
+
+// ─── Slot Actions ─────────────────────────────────────────────────────────────
+function focusSlot(i) {
+  const d = desk();
+  d.focusedSlot = i;
+  for (let j = 0; j < getSlotCount(); j++) {
+    const hdr = document.getElementById('slot-header-' + j);
+    if (hdr) hdr.classList.toggle('focused', j === i);
+  }
+  const uid = d.slotUids[i];
+  if (uid) { if (window.hubAPI) window.hubAPI.switchTab(uid); }
+  renderTabs();
+}
+
+function clearSlot(i) {
+  desk().slotUids[i] = null;
+  applyAllPositions();
+  updateSlotHeader(i);
+  renderTabs();
+}
+
+function assignToSlot(uid, slotIndex) {
+  const d = desk();
+  // Remove uid from any slot on this desktop
+  d.slotUids = d.slotUids.map((u, k) => (u === uid && k !== slotIndex) ? null : u);
+  // Also remove from other desktops (uid can only be in one slot globally)
+  desktops.forEach((od, di) => {
+    if (di !== activeDesktopIdx) od.slotUids = od.slotUids.map(u => u === uid ? null : u);
+  });
+  d.slotUids[slotIndex] = uid;
+  scheduleApplyPositions();
+  updateSlotHeader(slotIndex);
+  focusSlot(slotIndex);
+}
+
+function updateSplash() {
+  const d = desk();
+  const hasVisible = d.slotUids.some(u => u !== null);
+  document.getElementById('splash').classList.toggle('hidden', tabs.length > 0 && hasVisible);
+  if (tabs.length === 0) document.getElementById('splash').classList.remove('hidden');
+}
+
+// ─── Tab Lifecycle ────────────────────────────────────────────────────────────
+function activateTab(uid) {
+  const d = desk();
+
+  // Check if uid is on current desktop
+  const existing = getSlotForUid(uid);
+  if (existing !== -1) {
+    if (d.layoutMode === 'single') {
+      applyAllPositions();
+      if (window.hubAPI) window.hubAPI.switchTab(uid);
+    } else {
+      focusSlot(existing);
+    }
+    document.getElementById('splash').classList.add('hidden');
+    renderTabs(); return;
+  }
+
+  // Check if uid is on a different desktop — switch to it
+  const otherDesk = findDesktopForUid(uid);
+  if (otherDesk !== -1 && otherDesk !== activeDesktopIdx) {
+    activeDesktopIdx = otherDesk;
+    buildSlotOverlay(); applyAllPositions();
+    renderDesktopSwitcher(); updateLayoutButtons();
+    const slot = desktops[otherDesk].slotUids.indexOf(uid);
+    if (slot !== -1) focusSlot(slot);
+    document.getElementById('splash').classList.add('hidden');
+    renderTabs(); return;
+  }
+
+  // Not on any desktop — place it
+  if (d.layoutMode === 'single') {
+    d.slotUids[0] = uid;
+    applyAllPositions();
+    if (window.hubAPI) window.hubAPI.switchTab(uid);
+    document.getElementById('splash').classList.add('hidden');
+    renderTabs(); return;
+  }
+
+  const emptySlot = d.slotUids.findIndex(u => u === null);
+  if (emptySlot !== -1) {
+    assignToSlot(uid, emptySlot);
+    const nxt = d.slotUids.findIndex(u => u === null);
+    if (nxt !== -1) d.focusedSlot = nxt;
+  } else {
+    // Current desktop full — create a new desktop with same layout
+    addDesktop(d.layoutMode);
+    // Now desk() is the new desktop
+    desk().slotUids[0] = uid;
+    applyAllPositions();
+    updateSlotHeader(0);
+    focusSlot(0);
+  }
+
+  document.getElementById('splash').classList.add('hidden');
+  renderTabs();
+}
+
+function openTab(data) {
+  document.getElementById('device-picker').classList.add('hidden');
+  if (tabs.find(t => t.uid === data.uid)) { activateTab(data.uid); scheduleApplyPositions(); return; }
+  tabs.push({
+    uid: data.uid, name: data.name, iconUrl: data.iconUrl || '',
+    status: 'loading', hasSidePanel: !!data.hasSidePanel,
+    url: data.url || 'about:blank', userAgent: data.userAgent || '',
+  });
+  // Jika hub baru pertama dibuka (tab pertama), force single layout
+  if (tabs.length === 1 && desk().layoutMode !== 'single') {
+    desk().layoutMode = 'single';
+    desk().slotUids = [null];
+    updateLayoutButtons();
+    if (window.hubAPI) window.hubAPI.notifyLayoutMode('single');
+  }
+  activateTab(data.uid);
+  scheduleApplyPositions();
+}
+
+function _removeTab(uid, notifyMain) {
+  const idx = tabs.findIndex(t => t.uid === uid);
+  if (idx === -1) return;
+  tabs.splice(idx, 1);
+  desktops.forEach(d => { d.slotUids = d.slotUids.map(u => u === uid ? null : u); });
+  if (notifyMain && window.hubAPI) window.hubAPI.notifyClose(uid);
+  buildSlotOverlay(); applyAllPositions();
+  updateSplash(); renderTabs();
+}
+function closeTab(uid) { _removeTab(uid, true); }
+function forceCloseTab(uid) { _removeTab(uid, false); }
+
+function popOut(uid) {
+  const idx = tabs.findIndex(t => t.uid === uid);
+  if (idx === -1) return;
+  tabs.splice(idx, 1);
+  desktops.forEach(d => { d.slotUids = d.slotUids.map(u => u === uid ? null : u); });
+  if (window.hubAPI) window.hubAPI.notifyPopOut(uid);
+  buildSlotOverlay(); applyAllPositions();
+  updateSplash(); renderTabs();
+}
+
+function setTabStatus(uid, status) {
+  const tab = getTab(uid);
+  if (tab) tab.status = status;
+  const dot = document.querySelector(`.wh-tab[data-uid="${uid}"] .wh-tab-dot`);
+  if (dot) dot.className = 'wh-tab-dot ' + status;
+}
+function setSidePanelLayout(uid, hasSidePanel) {
+  const tab = getTab(uid);
+  if (tab) tab.hasSidePanel = hasSidePanel;
+  const d = desk();
+  if (d.layoutMode === 'single' && d.slotUids[0] === uid) {
+    applyAllPositions();
+    const div = document.getElementById('side-divider');
+    if (hasSidePanel) { div.style.left = '66.667%'; div.classList.add('visible'); }
+    else div.classList.remove('visible');
+  }
+  renderTabs();
+}
+
+// ─── Tab Bar Rendering ────────────────────────────────────────────────────────
+const tabDragState = { uid: null };
+
+function renderTabs() {
+  const bar = document.getElementById('tab-list');
+  bar.innerHTML = '';
+  const d = desk();
+
+  tabs.forEach(tab => {
+    const slotIdx   = getSlotForUid(tab.uid);
+    const inSlot    = slotIdx !== -1;
+    const otherDesk = !inSlot && findDesktopForUid(tab.uid) !== -1;
+    const isActive  = d.layoutMode === 'single'
+      ? d.slotUids[0] === tab.uid
+      : inSlot && slotIdx === d.focusedSlot;
+
+    const el = document.createElement('div');
+    el.className = 'wh-tab'
+      + (isActive ? ' active' : '')
+      + (inSlot && !isActive ? ' in-slot' : '')
+      + (otherDesk ? ' other-desktop' : '');
+    el.dataset.uid = tab.uid;
+    el.draggable = true;
+    el.title = otherDesk ? 'Pada Desktop ' + (findDesktopForUid(tab.uid) + 1) : '';
+
+    const badge = (d.layoutMode !== 'single' && inSlot)
+      ? `<span class="wh-tab-slot-num">${slotIdx + 1}</span>` : '';
+
+    el.innerHTML = `
+      ${tab.iconUrl ? `<img class="wh-tab-icon" src="${esc(tab.iconUrl)}" onerror="this.style.display='none'" alt="">` : ''}
+      <span class="wh-tab-label">${esc(tab.name)}</span>
+      ${badge}
+      <span class="wh-tab-dot ${tab.status}"></span>
+      <div class="wh-tab-actions">
+        <button class="wh-tab-btn" title="Pop out ke window" onclick="event.stopPropagation();popOut('${esc(tab.uid)}')">&#10697;</button>
+        <button class="wh-tab-btn close" title="Tutup tab" onclick="event.stopPropagation();closeTab('${esc(tab.uid)}')">&#10005;</button>
+      </div>`;
+
+    el.addEventListener('click', () => activateTab(tab.uid));
+    el.addEventListener('dragstart', e => {
+      tabDragState.uid = tab.uid;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', 'tab:' + tab.uid);
+      el.style.opacity = '0.5';
+    });
+    el.addEventListener('dragover', e => {
+      if (!tabDragState.uid || tabDragState.uid === tab.uid) return;
+      e.preventDefault();
+      document.querySelectorAll('.wh-tab.drag-target').forEach(x => x.classList.remove('drag-target'));
+      el.classList.add('drag-target');
+    });
+    el.addEventListener('drop', e => {
+      e.preventDefault();
+      const raw = e.dataTransfer.getData('text/plain');
+      if (raw.startsWith('tab:') && tabDragState.uid && tabDragState.uid !== tab.uid)
+        reorderTab(tabDragState.uid, tab.uid);
+    });
+    el.addEventListener('dragend', () => {
+      el.style.opacity = '';
+      document.querySelectorAll('.wh-tab.drag-target').forEach(x => x.classList.remove('drag-target'));
+      tabDragState.uid = null;
+    });
+    bar.appendChild(el);
+  });
+}
+
+function reorderTab(fromUid, toUid) {
+  const fi = tabs.findIndex(t => t.uid === fromUid);
+  const ti = tabs.findIndex(t => t.uid === toUid);
+  if (fi === -1 || ti === -1) return;
+  const [m] = tabs.splice(fi, 1); tabs.splice(ti, 0, m);
+  renderTabs();
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── Device Picker ────────────────────────────────────────────────────────────
+let dpDevices = [];
+async function openDevicePicker() {
+  if (window.hubAPI?.updateViewBounds) window.hubAPI.updateViewBounds([]);
+  document.getElementById('device-picker').classList.remove('hidden');
+  document.getElementById('dp-search').value = '';
+  document.getElementById('dp-list').innerHTML = '<div class="dp-empty">Memuat...</div>';
+  setTimeout(() => document.getElementById('dp-search').focus(), 50);
+  if (!window.hubAPI) return;
+  try { dpDevices = await window.hubAPI.getDevices() || []; renderDevicePicker(''); }
+  catch (_) { document.getElementById('dp-list').innerHTML = '<div class="dp-empty">Gagal memuat device.</div>'; }
+}
+function closeDevicePicker() {
+  document.getElementById('device-picker').classList.add('hidden');
+  scheduleApplyPositions();
+}
+function renderDevicePicker(q) {
+  const list = document.getElementById('dp-list');
+  list.innerHTML = '';
+  const lq = q.toLowerCase();
+  const filtered = dpDevices.filter(d => !lq || d.name.toLowerCase().includes(lq) || (d.service||'').toLowerCase().includes(lq));
+  if (!filtered.length) { list.innerHTML = '<div class="dp-empty">Tidak ada device yang cocok.</div>'; return; }
+  const open  = filtered.filter(d =>  tabs.find(t => t.uid === d.uid));
+  const avail = filtered.filter(d => !tabs.find(t => t.uid === d.uid));
+  if (open.length) {
+    list.appendChild(Object.assign(document.createElement('div'), { className:'dp-section-label', textContent:'Sudah terbuka' }));
+    open.forEach(d => list.appendChild(buildDpItem(d, true)));
+  }
+  if (avail.length) {
+    if (open.length) list.appendChild(Object.assign(document.createElement('div'), { className:'dp-section-label', textContent:'Tersedia' }));
+    avail.forEach(d => list.appendChild(buildDpItem(d, false)));
+  }
+}
+function buildDpItem(device, isOpen) {
+  const el = document.createElement('div');
+  el.className = 'dp-item';
+  el.innerHTML = `
+    <div class="dp-item-icon">${device.iconUrl ? `<img src="${esc(device.iconUrl)}" alt="" onerror="this.style.display='none'">` : esc(device.name.charAt(0))}</div>
+    <div class="dp-item-info">
+      <div class="dp-item-name">${esc(device.name)}</div>
+      <div class="dp-item-svc">${esc(device.service||'custom')}</div>
+    </div>
+    <button class="dp-item-action ${isOpen?'active':'open'}">${isOpen?'Terbuka':'Buka'}</button>`;
+  if (!isOpen) {
+    const btn = el.querySelector('.dp-item-action');
+    const doOpen = async () => { btn.textContent='...'; btn.disabled=true; try { await window.hubAPI?.startDevice(device.uid); } catch(_){} btn.textContent='Buka'; btn.disabled=false; };
+    btn.addEventListener('click', e => { e.stopPropagation(); doOpen(); });
+    el.addEventListener('click', doOpen);
+  } else {
+    el.addEventListener('click', () => { activateTab(device.uid); closeDevicePicker(); });
+  }
+  return el;
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.layout-btn').forEach(btn => btn.addEventListener('click', () => applyLayout(btn.dataset.layout)));
+document.getElementById('add-tab-btn').addEventListener('click', openDevicePicker);
+document.getElementById('splash-add-btn').addEventListener('click', openDevicePicker);
+document.getElementById('new-desktop-btn').addEventListener('click', () => addDesktop());
+document.getElementById('dp-close').addEventListener('click', closeDevicePicker);
+document.getElementById('dp-overlay').addEventListener('click', closeDevicePicker);
+document.getElementById('dp-search').addEventListener('input', e => renderDevicePicker(e.target.value));
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeDevicePicker(); return; }
+  // Block page refresh — all webview state lives in memory
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R')) { e.preventDefault(); return; }
+  if (e.key === 'F5') { e.preventDefault(); return; }
+});
+
+if (window.hubAPI) {
+  window.hubAPI.onOpenTab(data => openTab(data));
+  window.hubAPI.onFocusTab(uid  => activateTab(uid));
+  window.hubAPI.onCloseTab(uid  => forceCloseTab(uid));
+  window.hubAPI.onSetLayout((uid, hasSidePanel) => setSidePanelLayout(uid, hasSidePanel));
+  window.hubAPI.onTabStatus((uid, status) => setTabStatus(uid, status));
+  window.hubAPI.onTabTitle((uid, title) => {
+    const tab = getTab(uid);
+    if (tab && title) { tab.name = title; renderTabs(); }
+  });
+  window.hubAPI.onWindowResized(() => {
+    buildSlotOverlay(); applyAllPositions();
+  });
+}
+
+let _resizeTimer = null;
+function onResize() {
+  if (_resizeTimer) clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(() => { buildSlotOverlay(); applyAllPositions(); _resizeTimer = null; }, 80);
+}
+window.addEventListener('resize', onResize);
+window.addEventListener('orientationchange', () => requestAnimationFrame(onResize));
+new ResizeObserver(() => onResize()).observe(document.getElementById('content'));
+</script>
+</body>
+</html>
