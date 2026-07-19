@@ -17,6 +17,8 @@ class AndroidManager {
     this.sdkPath = null;
     this.downloadProgress = 0;
     this.isDownloading = false;
+    this.activeDownloadPromise = null;
+    this.downloadProgressCallbacks = new Set();
 
     // Platform specific paths
     this.platform = process.platform;
@@ -525,22 +527,40 @@ class AndroidManager {
   async downloadAndSetup(progressCallback) {
     this.initializePaths();
 
-    if (this.isDownloading) {
-      throw new Error('Download already in progress');
+    if (typeof progressCallback === 'function') {
+      this.downloadProgressCallbacks.add(progressCallback);
     }
 
+    if (!this.activeDownloadPromise) {
+      this.activeDownloadPromise = this._downloadAndSetup().finally(() => {
+        this.activeDownloadPromise = null;
+      });
+    }
+
+    try {
+      return await this.activeDownloadPromise;
+    } finally {
+      if (typeof progressCallback === 'function') {
+        this.downloadProgressCallbacks.delete(progressCallback);
+      }
+    }
+  }
+
+  async _downloadAndSetup() {
     this.isDownloading = true;
     this.downloadProgress = 0;
 
     const emitProgress = (payload = {}) => {
-      if (typeof progressCallback !== 'function') return;
-      try {
-        progressCallback({
-          timestamp: Date.now(),
-          ...payload,
-        });
-      } catch (callbackError) {
-        console.error('Progress callback error:', callbackError.message);
+      const progress = {
+        timestamp: Date.now(),
+        ...payload,
+      };
+      for (const callback of this.downloadProgressCallbacks) {
+        try {
+          callback(progress);
+        } catch (callbackError) {
+          console.error('Progress callback error:', callbackError.message);
+        }
       }
     };
 
@@ -923,6 +943,9 @@ class AndroidManager {
       });
 
       request.on('error', handleError);
+      request.setTimeout(30000, () => {
+        request.destroy(new Error('Download timed out: no data received for 30 seconds'));
+      });
     });
   }
 

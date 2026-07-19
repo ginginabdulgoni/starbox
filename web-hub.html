@@ -438,7 +438,7 @@ function setTabStatus(uid, status) {
 function applyAllPositions() {
   const { W, H } = getContentPx();
   if (!W || !H) return;
-  if (!document.getElementById('device-picker').classList.contains('hidden')) return;
+  if (isHubOverlayOpen()) return;
 
   const d = desk();
   const slotCount = getSlotCount();
@@ -951,9 +951,29 @@ function esc(s) {
 }
 
 // ─── Device Picker ────────────────────────────────────────────────────────────
+function suspendHubViewsForOverlay() {
+  if (window.hubAPI?.updateViewBounds) window.hubAPI.updateViewBounds([]);
+  applyAllPositions._lastKey = '';
+}
+
+function isHubOverlayOpen() {
+  const devicePicker = document.getElementById('device-picker');
+  const clipboardPanel = document.getElementById('clipboard-panel');
+  return !!(
+    (devicePicker && !devicePicker.classList.contains('hidden')) ||
+    document.getElementById('bgPickerOverlay') ||
+    (clipboardPanel && clipboardPanel.style.display !== 'none')
+  );
+}
+
+function restoreHubViewsAfterOverlay() {
+  applyAllPositions._lastKey = '';
+  if (!isHubOverlayOpen()) scheduleApplyPositions();
+}
+
 let dpDevices = [];
 async function openDevicePicker() {
-  if (window.hubAPI?.updateViewBounds) window.hubAPI.updateViewBounds([]);
+  suspendHubViewsForOverlay();
   document.getElementById('device-picker').classList.remove('hidden');
   document.getElementById('dp-search').value = '';
   document.getElementById('dp-list').innerHTML = '<div class="dp-empty">Memuat...</div>';
@@ -964,7 +984,7 @@ async function openDevicePicker() {
 }
 function closeDevicePicker() {
   document.getElementById('device-picker').classList.add('hidden');
-  scheduleApplyPositions();
+  restoreHubViewsAfterOverlay();
 }
 function renderDevicePicker(q) {
   const list = document.getElementById('dp-list');
@@ -1044,6 +1064,8 @@ function loadBackground() {
 }
 
 function openBgPicker() {
+  if (document.getElementById('bgPickerOverlay')) return;
+  suspendHubViewsForOverlay();
   _bgSelected = localStorage.getItem(BG_KEY) || '';
 
   const overlay = document.createElement('div');
@@ -1067,7 +1089,7 @@ function openBgPicker() {
       <div style="background:#1c2030;border-radius:14px;padding:22px;width:360px;box-shadow:0 16px 48px rgba(0,0,0,0.5);">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
           <span style="font-weight:600;color:#e2e8f0;font-size:14px;">&#127912; Background Web Hub</span>
-          <button onclick="document.getElementById('bgPickerOverlay').remove();loadBackground()" style="background:none;border:none;color:#666;font-size:16px;cursor:pointer;">&#10005;</button>
+          <button onclick="_bgCancel()" style="background:none;border:none;color:#666;font-size:16px;cursor:pointer;">&#10005;</button>
         </div>
         <div style="font-size:11px;color:#888;margin-bottom:8px;">Preset</div>
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">${presetBtns}</div>
@@ -1085,9 +1107,15 @@ function openBgPicker() {
   }
 
   overlay.innerHTML = buildHTML();
-  overlay.onclick = e => { if (e.target === overlay) { overlay.remove(); loadBackground(); } };
+  overlay.onclick = e => { if (e.target === overlay) _bgCancel(); };
   document.body.appendChild(overlay);
 }
+
+window._bgCancel = function() {
+  document.getElementById('bgPickerOverlay')?.remove();
+  loadBackground();
+  restoreHubViewsAfterOverlay();
+};
 
 window._bgSelectPreset = function(val) {
   _bgSelected = val || '';
@@ -1112,6 +1140,7 @@ window._bgReset = function() {
   localStorage.removeItem(BG_KEY);
   applyBackground('');
   document.getElementById('bgPickerOverlay')?.remove();
+  restoreHubViewsAfterOverlay();
 };
 
 window._bgSave = function() {
@@ -1122,6 +1151,7 @@ window._bgSave = function() {
   try { localStorage.setItem(BG_KEY, _bgSelected); } catch {}
   applyBackground(_bgSelected);
   document.getElementById('bgPickerOverlay')?.remove();
+  restoreHubViewsAfterOverlay();
 };
 
 // Load background saat init
@@ -1152,7 +1182,19 @@ loadBackground();
 
 function toggleClipboardPanel() {
   const p = document.getElementById('clipboard-panel');
-  if (p) p.style.display = p.style.display === 'none' ? 'block' : 'none';
+  if (!p) return;
+  if (p.style.display === 'none') {
+    suspendHubViewsForOverlay();
+    p.style.display = 'block';
+  } else {
+    closeClipboardPanel();
+  }
+}
+function closeClipboardPanel() {
+  const p = document.getElementById('clipboard-panel');
+  if (!p || p.style.display === 'none') return;
+  p.style.display = 'none';
+  restoreHubViewsAfterOverlay();
 }
 function renderClipboardList(list) {
   const el = document.getElementById('clipboard-list');
@@ -1173,7 +1215,7 @@ function renderClipboardList(list) {
 document.addEventListener('click', e => {
   const panel = document.getElementById('clipboard-panel');
   const wrap  = document.getElementById('clipboard-btn-wrap');
-  if (panel && wrap && !wrap.contains(e.target)) panel.style.display = 'none';
+  if (panel && wrap && !wrap.contains(e.target)) closeClipboardPanel();
 });
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'V') {
@@ -1188,7 +1230,12 @@ document.getElementById('dp-close').addEventListener('click', closeDevicePicker)
 document.getElementById('dp-overlay').addEventListener('click', closeDevicePicker);
 document.getElementById('dp-search').addEventListener('input', e => renderDevicePicker(e.target.value));
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeDevicePicker(); return; }
+  if (e.key === 'Escape') {
+    if (document.getElementById('bgPickerOverlay')) _bgCancel();
+    else if (document.getElementById('clipboard-panel')?.style.display !== 'none') closeClipboardPanel();
+    else closeDevicePicker();
+    return;
+  }
   // Block page refresh — all webview state lives in memory
   if ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R')) { e.preventDefault(); return; }
   if (e.key === 'F5') { e.preventDefault(); return; }

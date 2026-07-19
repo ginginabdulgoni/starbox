@@ -5908,8 +5908,15 @@ async function startAndroidEmulatorCard(uid, cardEl) {
       setProgress('Mengunduh Android SDK (~1.5GB)...', 0);
       showToast('📥 Mengunduh Android SDK (~1.5GB)...', 5000, 'info');
       window.electronAPI.android.onDownloadProgress((data) => {
-        const pct = Math.round((data.downloaded / (data.total || 1)) * 100) || 0;
-        setProgress(`Mengunduh SDK: ${pct}% — ${data.phase || ''}`, pct);
+        const pct = Number.isFinite(data.overallProgress)
+          ? Math.round(data.overallProgress)
+          : data.totalBytes
+            ? Math.round((data.bytesDownloaded / data.totalBytes) * 100)
+            : 0;
+        setProgress(
+          data.message || `Mengunduh SDK: ${pct}% — ${data.phase || ''}`,
+          pct
+        );
       });
       await window.electronAPI.android.download(uid);
     }
