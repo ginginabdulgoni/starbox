@@ -25,9 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   editDevice: (payload) => ipcRenderer.invoke('edit-device', payload),
   toggleRemoteEnabled: (uid, enabled) => ipcRenderer.invoke('toggle-remote-enabled', uid, enabled),
   onDeviceStatusUpdated: (callback) => {
-    ipcRenderer.on('device-status-updated', (event, uid) => {
+    ipcRenderer.on('device-status-updated', (event, uid, status) => {
       if (typeof callback === 'function') {
-        callback(uid);
+        callback(uid, status);
       }
     });
   },
@@ -77,6 +77,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   android: {
     checkInstallation: () => ipcRenderer.invoke('android-check-installation'),
+    getStatus: (uid) => ipcRenderer.invoke('android-get-status', uid),
     download: (uid) => ipcRenderer.invoke('android-download', uid),
     start: (uid, options = {}) => ipcRenderer.invoke('android-start', uid, options),
     stop: (uid) => ipcRenderer.invoke('android-stop', uid),
@@ -104,12 +105,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteDevice: (uid) => ipcRenderer.invoke('android-remote-delete', uid),
     updateStatus: (uid, status) =>
       ipcRenderer.invoke('android-remote-update-status', uid, status),
-    listAdbDevices: () => ipcRenderer.invoke('android-list-physical-devices'),
-    runAction: (uid, action, payload) =>
-      ipcRenderer.invoke('android-remote-run-action', uid, action, payload),
-    openDisplay: (uid) => ipcRenderer.invoke('android-remote-open-display', uid),
-    checkScrcpy: () => ipcRenderer.invoke('scrcpy-check'),
-    installScrcpy: () => ipcRenderer.invoke('scrcpy-install'),
+      listAdbDevices: () => ipcRenderer.invoke('android-list-physical-devices'),
+      runAction: (uid, action, payload) =>
+        ipcRenderer.invoke('android-remote-run-action', uid, action, payload),
+      openDisplay: (uid) => ipcRenderer.invoke('android-remote-open-display', uid),
+      closeDisplay: (uid) => ipcRenderer.invoke('android-remote-close-display', uid),
+      checkScrcpy: () => ipcRenderer.invoke('scrcpy-check'),
+      installScrcpy: () => ipcRenderer.invoke('scrcpy-install'),
     sendShortcut: (uid, shortcutId) =>
       ipcRenderer.invoke('android-remote-send-shortcut', uid, shortcutId),
     captureScreenshot: (uid) =>
@@ -249,6 +251,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     get: () => ipcRenderer.invoke('resource-monitor-get'),
     getProcesses: (limit) => ipcRenderer.invoke('resource-monitor-processes', limit),
     killProcess: (pid) => ipcRenderer.invoke('resource-monitor-kill', pid),
+    cleanScan: () => ipcRenderer.invoke('system-clean-scan'),
+    cleanRun: (ids) => ipcRenderer.invoke('system-clean-run', ids),
   },
 
   // MikroTik Manager
@@ -293,6 +297,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     stop: (id) => ipcRenderer.invoke('os-vm-stop', id),
     restart: (id) => ipcRenderer.invoke('os-vm-restart', id),
     snapshot: (id, name) => ipcRenderer.invoke('os-vm-snapshot', id, name),
+    snapshotRestore: (id, snapshotId) => ipcRenderer.invoke('os-vm-snapshot-restore', id, snapshotId),
+    snapshotDelete: (id, snapshotId) => ipcRenderer.invoke('os-vm-snapshot-delete', id, snapshotId),
+    pause: (id) => ipcRenderer.invoke('os-vm-pause', id),
+    resume: (id) => ipcRenderer.invoke('os-vm-resume', id),
     browseIsoFile: () => ipcRenderer.invoke('browse-iso-file'),
     downloadIso: (opts) => ipcRenderer.invoke('download-iso', opts),
     listCachedIsos: () => ipcRenderer.invoke('list-cached-isos'),

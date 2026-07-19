@@ -146,7 +146,7 @@
   </head>
   <body>
     <div class="container">
-      <h1>🤖 Android Emulator</h1>
+      <h1 id="emulator-title">🤖 Android Emulator</h1>
       <p id="device-name">Android Device</p>
 
       <div class="status">
@@ -179,6 +179,9 @@
         const uid = params.get("uid") || "";
         const deviceNameParam = params.get("deviceName") || "Android Device";
         const sdkRootParam = params.get("sdkRoot") || "";
+        const autoStartRequested =
+          params.get("autoStart") === "1" ||
+          params.get("autoStart") === "true";
 
         const statusText = document.getElementById("status-text");
         const statusDetail = document.getElementById("status-detail");
@@ -189,6 +192,7 @@
         const stopBtn = document.getElementById("stop-btn");
         const logBody = document.getElementById("start-log");
         const deviceNameEl = document.getElementById("device-name");
+        const emulatorTitleEl = document.getElementById("emulator-title");
 
         const maxLogEntries = 80;
         let bootWaitEntry = null;
@@ -196,8 +200,13 @@
         let lastDownloadLogKey = "";
         let initInterval = null;
         let initTimeout = null;
+        let autoStartTriggered = false;
 
         deviceNameEl.textContent = deviceNameParam;
+        document.title = `${deviceNameParam} - Android Emulator`;
+        if (emulatorTitleEl) {
+          emulatorTitleEl.textContent = `🤖 ${deviceNameParam}`;
+        }
 
         function clampProgress(value) {
           if (typeof value !== "number" || Number.isNaN(value)) {
@@ -442,6 +451,9 @@
             appendLog("success", rawMessage || "Emulator berhasil boot.");
             statusText.textContent = "Emulator Berjalan!";
             statusDetail.textContent = rawMessage || "Emulator siap digunakan.";
+            startBtn.style.display = "none";
+            stopBtn.style.display = "inline-block";
+            stopBtn.disabled = false;
             return;
           }
 
@@ -481,13 +493,40 @@
           }
           try {
             const result = await electronAPI.android.checkInstallation();
+            const runtimeStatus = uid
+              ? await electronAPI.android.getStatus(uid)
+              : null;
+            if (runtimeStatus && runtimeStatus.running) {
+              statusText.textContent = "Emulator Berjalan!";
+              clearInitializationWatch("Emulator sudah berjalan");
+              startBtn.style.display = "none";
+              stopBtn.style.display = "inline-block";
+              stopBtn.disabled = false;
+              document.getElementById("download-info").style.display = "none";
+              appendLog(
+                "success",
+                "Emulator sudah berjalan" +
+                  (runtimeStatus.port ? " pada port " + runtimeStatus.port : ".")
+              );
+              statusDetail.textContent = runtimeStatus.adbId
+                ? "ADB: " + runtimeStatus.adbId
+                : "Emulator siap digunakan.";
+              return;
+            }
             if (result.installed) {
               statusText.textContent = "Siap Dimulai";
               clearInitializationWatch("Emulator sudah terpasang");
               startBtn.disabled = false;
+              startBtn.style.display = "inline-block";
+              stopBtn.style.display = "none";
               startBtn.textContent = "Mulai Emulator";
               document.getElementById("download-info").style.display = "none";
               appendLog("success", "Emulator sudah terpasang. Klik Mulai untuk menjalankan.");
+              if (autoStartRequested && !autoStartTriggered) {
+                autoStartTriggered = true;
+                appendLog("info", "AutoRun aktif. Menjalankan emulator otomatis...");
+                setTimeout(() => startEmulator(), 150);
+              }
             } else {
               statusText.textContent = "Perlu Diunduh";
               clearInitializationWatch("Klik tombol untuk mengunduh emulator");
@@ -500,7 +539,7 @@
               if (result.downloadSize) {
                 downloadSizeText.innerHTML = `<strong>Ukuran Download:</strong> ${result.downloadSize}`;
               } else {
-                downloadSizeText.innerHTML = "<strong>Ukuran Download:</strong> ~800MB (estimasi)";
+                downloadSizeText.innerHTML = "<strong>Ukuran Download:</strong> ~1.5GB (estimasi)";
               }
               downloadInfo.style.display = "block";
 
@@ -508,6 +547,11 @@
                 "warn",
                 'Emulator belum terpasang. Klik "Unduh & Mulai" untuk mengunduh.'
               );
+              if (autoStartRequested && !autoStartTriggered) {
+                autoStartTriggered = true;
+                appendLog("info", "AutoRun aktif. Mengunduh lalu menjalankan emulator otomatis...");
+                setTimeout(() => startEmulator(), 150);
+              }
             }
           } catch (err) {
             statusText.textContent = "Error Inisialisasi";
@@ -577,10 +621,18 @@
             const result = await electronAPI.android.start(uid, {});
             if (result && result.success) {
               statusText.textContent = "Emulator Berjalan!";
-              statusDetail.textContent = "Port: " + result.port;
+              statusDetail.textContent = result.alreadyRunning
+                ? "Emulator sudah berjalan" + (result.port ? " pada port " + result.port : ".")
+                : "Port: " + result.port;
               startBtn.style.display = "none";
               stopBtn.style.display = "inline-block";
-              appendLog("success", "Emulator berjalan pada port " + result.port);
+              stopBtn.disabled = false;
+              appendLog(
+                "success",
+                result.alreadyRunning
+                  ? "Emulator sudah berjalan" + (result.port ? " pada port " + result.port : ".")
+                  : "Emulator berjalan pada port " + result.port
+              );
             } else {
               const message =
                 (result && result.error) || "Gagal memulai emulator";

@@ -29,8 +29,11 @@ function sanitizeString(value, max = 128) {
   return value.slice(0, max).trim();
 }
 
-function sanitizeVmPayload(payload = {}) {
-  const safe = { ...DEFAULT_VM_FIELDS };
+// partial=true: hanya field yang dikirim yang di-sanitize (untuk update record
+// yang sudah ada) — mencegah field lain ke-reset ke default.
+function sanitizeVmPayload(payload = {}, { partial = false } = {}) {
+  const safe = partial ? {} : { ...DEFAULT_VM_FIELDS };
+  const has = (k) => Object.prototype.hasOwnProperty.call(payload, k);
   if (payload.name) safe.name = sanitizeString(payload.name, 128);
   if (payload.osType) safe.osType = sanitizeString(payload.osType, 32);
   if (Number.isFinite(payload.cpu)) {
@@ -43,12 +46,12 @@ function sanitizeVmPayload(payload = {}) {
     safe.storageGb = Math.max(5, Math.min(2048, parseInt(payload.storageGb, 10) || 20));
   }
   if (payload.networkMode) safe.networkMode = sanitizeString(payload.networkMode, 32);
-  if (payload.bridgeInterface) safe.bridgeInterface = sanitizeString(payload.bridgeInterface, 64);
-  if (payload.macAddress) safe.macAddress = sanitizeString(payload.macAddress, 32);
-  if (payload.isoPath) safe.isoPath = sanitizeString(payload.isoPath, 512);
-  if (payload.diskPath) safe.diskPath = sanitizeString(payload.diskPath, 512);
-  safe.autostart = !!payload.autostart;
-  if (payload.notes) safe.notes = sanitizeString(payload.notes, 1024);
+  if (has("bridgeInterface")) safe.bridgeInterface = sanitizeString(payload.bridgeInterface, 64);
+  if (has("macAddress")) safe.macAddress = sanitizeString(payload.macAddress, 32);
+  if (has("isoPath")) safe.isoPath = sanitizeString(payload.isoPath, 512);
+  if (has("diskPath")) safe.diskPath = sanitizeString(payload.diskPath, 512);
+  if (!partial || has("autostart")) safe.autostart = !!payload.autostart;
+  if (has("notes")) safe.notes = sanitizeString(payload.notes, 1024);
   if (payload.qemuBinary) safe.qemuBinary = sanitizeString(payload.qemuBinary, 256);
   if (payload.bootOrder) safe.bootOrder = sanitizeString(payload.bootOrder, 8);
   if (Number.isFinite(payload.vncPort)) {
@@ -117,8 +120,9 @@ class VirtualOSStorage {
     const data = this.readAll();
     const id = payload.id || uuidv4();
     const now = new Date().toISOString();
-    const sanitized = sanitizeVmPayload(payload);
     const idx = data.vms.findIndex((vm) => vm.id === id);
+    // Record lama → partial update agar field yang tidak dikirim tidak ke-reset.
+    const sanitized = sanitizeVmPayload(payload, { partial: idx >= 0 });
 
     if (idx >= 0) {
       data.vms[idx] = {
@@ -175,7 +179,23 @@ class VirtualOSStorage {
     return this.updateStatus(id, "running");
   }
 
-  snapshot(id, name = "") {
+  // Update field runtime (bukan konfigurasi) tanpa melewati sanitizer.
+  patchRuntime(id, patch = {}) {
+    if (!id) return null;
+    const data = this.readAll();
+    const idx = data.vms.findIndex((vm) => vm.id === id);
+    if (idx < 0) return null;
+    const allowed = ["accelUsed", "lastWsPort"];
+    for (const key of allowed) {
+      if (Object.prototype.hasOwnProperty.call(patch, key)) {
+        data.vms[idx][key] = patch[key];
+      }
+    }
+    this.writeAll(data);
+    return data.vms[idx];
+  }
+
+  snapshot(id, name = "", extra = {}) {
     if (!id) return null;
     const data = this.readAll();
     const idx = data.vms.findIndex((vm) => vm.id === id);
@@ -183,6 +203,9 @@ class VirtualOSStorage {
     const snap = {
       id: uuidv4(),
       name: sanitizeString(name || "Snapshot", 128),
+      // tag qcow2 internal (dipakai qemu-img snapshot / savevm-loadvm)
+      tag: sanitizeString(extra.tag || "", 64),
+      live: !!extra.live,
       createdAt: new Date().toISOString(),
     };
     if (!Array.isArray(data.vms[idx].snapshots)) {
@@ -191,6 +214,24 @@ class VirtualOSStorage {
     data.vms[idx].snapshots.push(snap);
     this.writeAll(data);
     return { vm: data.vms[idx], snapshot: snap };
+  }
+
+  getSnapshot(id, snapshotId) {
+    const vm = this.get(id);
+    if (!vm || !Array.isArray(vm.snapshots)) return null;
+    return vm.snapshots.find((s) => s.id === snapshotId) || null;
+  }
+
+  removeSnapshot(id, snapshotId) {
+    if (!id || !snapshotId) return null;
+    const data = this.readAll();
+    const idx = data.vms.findIndex((vm) => vm.id === id);
+    if (idx < 0) return null;
+    const snaps = Array.isArray(data.vms[idx].snapshots) ? data.vms[idx].snapshots : [];
+    const removed = snaps.find((s) => s.id === snapshotId) || null;
+    data.vms[idx].snapshots = snaps.filter((s) => s.id !== snapshotId);
+    this.writeAll(data);
+    return removed;
   }
 }
 

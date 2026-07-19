@@ -116,7 +116,7 @@ All use `contextBridge.exposeInMainWorld` for secure IPC.
 ### Platform-Specific Managers
 
 **android-manager.js**
-- Downloads Android emulator (~800MB) on-demand
+- Downloads Android emulator (~1.5GB, Google Play image) on-demand
 - Manages AVD (Android Virtual Device) creation and lifecycle
 - Platform detection: Windows, macOS (including Apple Silicon), Linux
 - ADB integration for APK installation and device control

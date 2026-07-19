@@ -643,6 +643,18 @@
             -
           </a>
         </div>
+        <div class="status-meta">
+          <span>URL Callback Status:</span>
+          <a
+            id="monitorCallbackUrl"
+            class="status-link is-disabled"
+            href="#"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            -
+          </a>
+        </div>
         <div class="status-meta status-meta-list">
           <span>Integrasi Billing MyWiFi:</span>
           <span>Menu: Integrasi > WA Gateway</span>
@@ -731,6 +743,7 @@
       const serviceLabel = document.getElementById("monitorService");
       const lastFetchLabel = document.getElementById("monitorLastFetch");
       const pendingUrlLink = document.getElementById("monitorPendingUrl");
+      const callbackUrlLink = document.getElementById("monitorCallbackUrl");
       const errorLabel = document.getElementById("monitorError");
       const integrationTokenLabel = document.getElementById(
         "monitorIntegrationToken"
@@ -801,6 +814,7 @@
         service: "",
         uid: "",
         pendingUrl: "",
+        callbackUrl: "",
         inputGuardEnabled: true,
         autoSender: false,
         fetchIntervalMs: FETCH_INTERVAL_MS,
@@ -1183,6 +1197,18 @@
           pendingUrlLink.classList.add("is-disabled");
         }
 
+        if (callbackUrlLink) {
+          if (monitorState.callbackUrl) {
+            callbackUrlLink.textContent = monitorState.callbackUrl;
+            callbackUrlLink.href = monitorState.callbackUrl;
+            callbackUrlLink.classList.remove("is-disabled");
+          } else {
+            callbackUrlLink.textContent = "-";
+            callbackUrlLink.href = "#";
+            callbackUrlLink.classList.add("is-disabled");
+          }
+        }
+
         if (integrationTokenLabel) {
           integrationTokenLabel.textContent = monitorState.uid
             ? `Token: ${monitorState.uid}`
@@ -1308,6 +1334,9 @@
 
         if ("pendingUrl" in payload) {
           monitorState.pendingUrl = payload.pendingUrl || "";
+        }
+        if ("callbackUrl" in payload) {
+          monitorState.callbackUrl = payload.callbackUrl || "";
         }
 
         if ("inputGuardEnabled" in payload) {

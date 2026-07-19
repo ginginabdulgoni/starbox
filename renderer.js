@@ -1266,17 +1266,30 @@ let cachedAndroidDevices = [];
 // Function to refresh device list (callable from global scope)
 window.refreshDeviceList = async function () {
   console.log("🔄 Refreshing device list for page:", window.currentActivePage);
-  // Always reload devices from storage to ensure fresh data
-  if (typeof loadAllDevices === "function") {
-    await loadAllDevices();
-  } else {
-    // Fallback: detect current page and render appropriate devices
-    const currentPage = document.querySelector(".page-content.active")?.id;
-    if (
-      currentPage === "page-android-ios" &&
-      typeof renderDevicesAndroid === "function"
-    ) {
+  const activePage =
+    window.currentActivePage ||
+    document.querySelector(".page-content.active")?.id?.replace(/^page-/, "") ||
+    "web-emulator";
+
+  if (activePage === "remox") {
+    if (typeof window.initRemoxPage === "function") {
+      await window.initRemoxPage();
+    }
+    return;
+  }
+
+  if (activePage === "android-ios") {
+    if (typeof loadAllDevicesAndroid === "function") {
+      await loadAllDevicesAndroid();
+    } else if (typeof renderDevicesAndroid === "function") {
       renderDevicesAndroid(cachedAndroidDevices);
+    }
+    return;
+  }
+
+  if (activePage === "web-emulator" || activePage === "whatsapp-gateway") {
+    if (typeof loadAllDevicesWeb === "function") {
+      await loadAllDevicesWeb();
     } else if (typeof renderDevices === "function") {
       renderDevices(cachedWebDevices);
     }
@@ -1317,12 +1330,6 @@ function getServiceMeta(serviceId) {
 
 function getServiceDisabledReason(service) {
   if (!service) return null;
-  if (
-    service.requiresFeature === "android" &&
-    !authState.allowsAndroidEmulator
-  ) {
-    return "Aktifkan paket yang mendukung Android Emulator.";
-  }
   if (
     service.requiresFeature === "private" &&
     !authState.allowsPrivateService
@@ -1601,11 +1608,11 @@ const authState = {
   guestServiceLimit: 2,
   lastSyncedAt: null,
   package: null,
-  isUnlimited: false,
+  isUnlimited: true,
   packageExpiresAt: null,
-  allowsPrivateService: false,
-  allowsAndroidEmulator: false,
-  allowsIosSimulator: false,
+  allowsPrivateService: true,
+  allowsAndroidEmulator: true,
+  allowsIosSimulator: true,
   limitDeviceWAGateway: DEFAULT_LIMITS.limitDeviceWAGateway,
   limitAutoReply: DEFAULT_LIMITS.limitAutoReply,
   limitBroadcastDay: DEFAULT_LIMITS.limitBroadcastDay,
@@ -1613,8 +1620,34 @@ const authState = {
 
 if (typeof window !== "undefined") {
   window.getCurrentAuthState = () => authState;
-  window.openAdsInfoModal = openAdsInfoModal;
-  window.closeAdsInfoModal = closeAdsInfoModal;
+}
+
+// Paket dianggap gratis jika: belum login, tidak punya paket, nama paketnya
+// free/gratis, atau harganya 0
+function isFreePackageTier() {
+  if (!authState.isLoggedIn) return true;
+  const pkg = authState.package;
+  if (!pkg) return true;
+  const name = String(pkg.name || "").toLowerCase();
+  if (/\bfree\b|\bgratis\b/.test(name)) return true;
+  const rawPrice = pkg.price ?? pkg.price_display ?? pkg.priceDisplay;
+  if (rawPrice != null) {
+    const digits = String(rawPrice).replace(/[^0-9.]/g, "");
+    const parsed = parseFloat(digits);
+    if (Number.isFinite(parsed)) return parsed <= 0;
+  }
+  return false;
+}
+
+// Fitur remote hanya untuk user login dengan paket berbayar
+function canUseRemoteFeatures() {
+  return authState.isLoggedIn && !isFreePackageTier();
+}
+
+// Tampilkan/sembunyikan tombol Remote Control di toolbar Web Emulator
+function updateRemoteUIVisibility() {
+  const btn = document.getElementById("btnToolbarRemoteControl");
+  if (btn) btn.style.display = canUseRemoteFeatures() ? "inline-flex" : "none";
 }
 
 const authModalState = {
@@ -1649,543 +1682,7 @@ const ADS_API_BASE = {
   dev: "http://starbox.test",
   prod: "https://starbox.weagate.com",
 };
-const ADS_API_PATH = "/api/ads/items";
-const PACKAGES_API_PATH = "/api/packages?include_inactive=1";
-const ADS_PAGE_KEYS = [
-  "web-emulator",
-  "android-ios",
-  "whatsapp-gateway",
-  "remox",
-  "os-virtual",
-  "cctv",
-];
-const ADS_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-const adsState = {
-  items: [],
-  endpoint: null,
-  lastError: null,
-  cache: new Map(),
-  loadingKeys: new Set(),
-  refreshTimer: null,
-  countdownTimer: null,
-  lastRefreshAt: null,
-  nextRefreshAt: null,
-};
-const packagesState = {
-  items: [],
-  loading: false,
-  lastError: null,
-};
-let cachedApiBase = null;
 
-function shuffleAdsItems(list = []) {
-  const array = list.slice();
-  for (let i = array.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [array[i], array[j]] = [array[j], array[i]];
-  }
-  return array;
-}
-
-function parsePriceValue(raw) {
-  if (raw === null || raw === undefined) return null;
-  if (typeof raw === "number") {
-    return Number.isFinite(raw) ? raw : null;
-  }
-  const text = String(raw).trim();
-  if (!text) return null;
-  const lowered = text.toLowerCase();
-  if (lowered.includes("gratis") || lowered.includes("free")) return 0;
-  const numeric = Number(text.replace(/[^0-9.-]/g, ""));
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function isFreePackageTier() {
-  if (!authState?.package) return false;
-  const priceValue = parsePriceValue(
-    authState.package.price ?? authState.package.price_display
-  );
-  if (priceValue === null) return false;
-  return priceValue <= 0;
-}
-
-function shouldDisplayAds() {
-  if (!authState.isLoggedIn) return true;
-  return isFreePackageTier();
-}
-
-function formatAdsPrice(price) {
-  const numeric = parsePriceValue(price);
-  if (numeric === null) {
-    return typeof price === "string" && price.trim() ? price : "Rp -";
-  }
-  return `Rp ${numeric.toLocaleString("id-ID")}`;
-}
-
-function buildAdsId(base, pageKey) {
-  if (!pageKey || pageKey === "web-emulator") return base;
-  return `${base}-${pageKey}`;
-}
-
-async function getApiBase() {
-  if (cachedApiBase) return cachedApiBase;
-  let isDev =
-    typeof process !== "undefined" &&
-    process.env &&
-    process.env.NODE_ENV === "development";
-  try {
-    if (window.electronAPI?.isDevBuild) {
-      isDev = await window.electronAPI.isDevBuild();
-    } else if (window.location?.hostname) {
-      isDev = window.location.hostname.includes("starbox.test");
-    }
-  } catch {
-    isDev = false;
-  }
-  isDevBuildCached = isDev;
-  cachedApiBase = (
-    (isDev ? ADS_API_BASE.dev : ADS_API_BASE.prod) || ""
-  ).replace(/\/$/, "");
-  return cachedApiBase;
-}
-
-async function resolveAdsEndpoint() {
-  if (adsState.endpoint) return adsState.endpoint;
-  const base = await getApiBase();
-  adsState.endpoint = `${base}${ADS_API_PATH}`;
-  return adsState.endpoint;
-}
-
-function ensureAdsSection(pageKey = "web-emulator") {
-  const isDefault = pageKey === "web-emulator";
-  const containerId = buildAdsId("adsShowcase", pageKey);
-  let container = document.getElementById(containerId);
-  if (container) {
-    return {
-      container,
-      horizontal: document.getElementById(
-        buildAdsId("adsTrackHorizontal", pageKey)
-      ),
-      vertical: document.getElementById(
-        buildAdsId("adsTrackVertical", pageKey)
-      ),
-    };
-  }
-
-  const pageMain = document.querySelector(`#page-${pageKey} .page-main`);
-  if (!pageMain) {
-    return { container: null, horizontal: null, vertical: null };
-  }
-
-  container = document.createElement("section");
-  container.id = containerId;
-  container.className = "ads-showcase";
-  container.dataset.pageKey = pageKey;
-
-  const head = document.createElement("div");
-  head.className = "ads-head";
-  const titleWrap = document.createElement("div");
-  titleWrap.className = "ads-title";
-  const eyebrow = document.createElement("p");
-  eyebrow.className = "ads-eyebrow";
-  eyebrow.textContent = "Rekomendasi pilihan";
-  const title = document.createElement("h4");
-  title.textContent = "Iklan";
-  titleWrap.appendChild(eyebrow);
-  titleWrap.appendChild(title);
-
-  const countdown = document.createElement("span");
-  countdown.id = buildAdsId("adsCountdown", pageKey);
-  countdown.className = "ads-countdown";
-  countdown.textContent = "";
-
-  const hideBtn = document.createElement("button");
-  hideBtn.type = "button";
-  hideBtn.className = "ads-hide-btn";
-  hideBtn.textContent = "Sembunyikan iklan";
-  hideBtn.addEventListener("click", openAdsInfoModal);
-  head.appendChild(titleWrap);
-  head.appendChild(countdown);
-  head.appendChild(hideBtn);
-
-  const marqueeH = document.createElement("div");
-  marqueeH.className = "ads-marquee ads-marquee-horizontal";
-  const trackH = document.createElement("div");
-  trackH.className = "ads-track";
-  trackH.id = buildAdsId("adsTrackHorizontal", pageKey);
-  trackH.innerHTML = `<div class="ads-empty">Memuat rekomendasi...</div>`;
-  marqueeH.appendChild(trackH);
-
-  const marqueeV = document.createElement("div");
-  marqueeV.className = "ads-marquee ads-marquee-vertical";
-  const trackV = document.createElement("div");
-  trackV.className = "ads-track";
-  trackV.id = buildAdsId("adsTrackVertical", pageKey);
-  trackV.innerHTML = `<div class="ads-empty">Memuat rekomendasi...</div>`;
-  marqueeV.appendChild(trackV);
-
-  container.appendChild(head);
-  container.appendChild(marqueeH);
-  container.appendChild(marqueeV);
-  pageMain.appendChild(container);
-
-  return { container, horizontal: trackH, vertical: trackV };
-}
-
-function setAdsContainerVisible(pageKey = "web-emulator", visible = false) {
-  const { container } = getAdsElements(pageKey);
-  if (!container) return;
-  container.style.display = visible ? "" : "none";
-}
-
-function getAdsElements(pageKey = "web-emulator") {
-  const result = ensureAdsSection(pageKey);
-  return result;
-}
-
-function setAdsMessage(message, pageKey = "web-emulator") {
-  const { horizontal, vertical } = getAdsElements(pageKey);
-  const content = `<div class="ads-empty">${message}</div>`;
-  if (horizontal) horizontal.innerHTML = content;
-  if (vertical) vertical.innerHTML = content;
-}
-
-function createAdsCardElement(item = {}) {
-  const link = document.createElement("a");
-  link.className = "ads-card";
-  const targetUrl =
-    item.short_url || item.product_url || item.productUrl || "#";
-  link.href = targetUrl || "#";
-  link.target = "_blank";
-  link.rel = "noopener noreferrer";
-
-  const imageUrl =
-    item.image || (Array.isArray(item.images) && item.images[0]?.url) || "";
-  const image = document.createElement("img");
-  image.alt = item.name || "Produk rekomendasi";
-  image.src = imageUrl;
-  image.onerror = () => {
-    image.onerror = null;
-    image.src = "assets/starbox.png";
-  };
-
-  const content = document.createElement("div");
-  content.className = "ads-card-content";
-
-  const title = document.createElement("p");
-  title.className = "ads-card-title";
-  title.textContent = item.name || "Produk rekomendasi";
-
-  const sourceName =
-    item.source?.name || item.source?.code || "StarBox Partner";
-  const source = document.createElement("div");
-  source.className = "ads-source";
-  source.textContent = sourceName;
-
-  const shortLink = document.createElement("p");
-  shortLink.className = "ads-short-url";
-  const shortValue =
-    item.short_url || item.product_url || item.productUrl || "";
-  shortLink.textContent = shortValue || "";
-
-  const priceEl = document.createElement("div");
-  priceEl.className = "ads-price";
-  priceEl.textContent = formatAdsPrice(
-    item.price ?? item.price_display ?? item.priceDisplay
-  );
-
-  content.appendChild(title);
-  content.appendChild(source);
-  content.appendChild(shortLink);
-  content.appendChild(priceEl);
-
-  link.appendChild(image);
-  link.appendChild(content);
-
-  return link;
-}
-
-function populateAdsTrack(track, cards = [], direction = "horizontal") {
-  if (!track) return;
-  track.innerHTML = "";
-  if (!cards.length) {
-    track.innerHTML = `<div class="ads-empty">Belum ada rekomendasi.</div>`;
-    return;
-  }
-  const minItems = direction === "horizontal" ? 6 : 4;
-  const baseSet = [];
-  const repeats = Math.max(minItems, cards.length);
-  for (let i = 0; i < repeats; i++) {
-    baseSet.push(cards[i % cards.length].cloneNode(true));
-  }
-  const fullSequence = baseSet.concat(
-    baseSet.map((node) => node.cloneNode(true))
-  );
-  fullSequence.forEach((node) => track.appendChild(node));
-  const speedSeconds = Math.max(24, Math.min(48, repeats * 4));
-  track.style.setProperty("--ads-speed", `${speedSeconds}s`);
-}
-
-function renderAdsShowcase(items = [], pageKey = "web-emulator") {
-  const { container, horizontal, vertical } = getAdsElements(pageKey);
-  if (!container || !horizontal || !vertical) return;
-
-  if (!items.length) {
-    setAdsContainerVisible(pageKey, false);
-    return;
-  }
-
-  const cards = items.map((item) => createAdsCardElement(item));
-  populateAdsTrack(horizontal, cards, "horizontal");
-  populateAdsTrack(vertical, cards, "vertical");
-  setAdsContainerVisible(pageKey, true);
-}
-
-async function loadAdsItems(force = false, pageKey = "web-emulator") {
-  if (!shouldDisplayAds()) return [];
-  const cache = adsState.cache.get(pageKey) || {
-    items: [],
-    lastFetchedAt: 0,
-  };
-  const now = Date.now();
-  if (
-    !force &&
-    adsState.loadingKeys.has(pageKey) &&
-    cache.items &&
-    cache.items.length
-  ) {
-    return cache.items;
-  }
-  if (!force && now - cache.lastFetchedAt < ADS_REFRESH_INTERVAL_MS) {
-    return cache.items;
-  }
-
-  adsState.loadingKeys.add(pageKey);
-  setAdsMessage("Memuat rekomendasi...", pageKey);
-
-  try {
-    const endpoint = await resolveAdsEndpoint();
-    const response = await fetch(endpoint);
-    if (!response.ok) {
-      throw new Error(`Server merespons ${response.status}`);
-    }
-    const payload = await response.json();
-    const data = Array.isArray(payload?.data) ? payload.data : [];
-    const shuffled = shuffleAdsItems(data).slice(0, 30);
-    adsState.items = shuffled;
-    adsState.lastError = null;
-    adsState.cache.set(pageKey, {
-      items: shuffled,
-      lastFetchedAt: Date.now(),
-    });
-    if (!shuffled.length) {
-      setAdsContainerVisible(pageKey, false);
-      return [];
-    }
-    renderAdsShowcase(shuffled, pageKey);
-    return shuffled;
-  } catch (err) {
-    console.error("⚠️ Gagal memuat iklan promosi:", err);
-    adsState.lastError = err?.message || String(err);
-    setAdsContainerVisible(pageKey, false);
-    return [];
-  } finally {
-    adsState.loadingKeys.delete(pageKey);
-  }
-}
-
-function syncAdsShowcaseForPage(pageKey = "web-emulator", options = {}) {
-  const { container } = getAdsElements(pageKey);
-  if (!container) return;
-  const shouldShow = shouldDisplayAds();
-  container.style.display = shouldShow ? "" : "none";
-  if (!shouldShow) return;
-
-  const cache = adsState.cache.get(pageKey);
-  if (cache?.items?.length && !options.forceRender && !options.forceRefresh) {
-    renderAdsShowcase(cache.items, pageKey);
-  }
-
-  if (options.forceRefresh || !cache?.items?.length) {
-    loadAdsItems(true, pageKey);
-  } else {
-    loadAdsItems(false, pageKey);
-  }
-
-  if (!cache?.items?.length) {
-    setAdsContainerVisible(pageKey, false);
-  }
-}
-
-function syncAllAdsShowcases(options = {}) {
-  if (!shouldDisplayAds()) return;
-  ADS_PAGE_KEYS.forEach((key) => {
-    syncAdsShowcaseForPage(key, options);
-  });
-  updateAdsCountdownDisplays();
-}
-
-function startAdsAutoRefresh() {
-  if (adsState.refreshTimer) return;
-  getApiBase()
-    .then(() => {
-      adsState.lastRefreshAt = Date.now();
-      adsState.nextRefreshAt = adsState.lastRefreshAt + ADS_REFRESH_INTERVAL_MS;
-      startAdsCountdownTimer();
-      adsState.refreshTimer = setInterval(() => {
-        if (!shouldDisplayAds()) return;
-        adsState.lastRefreshAt = Date.now();
-        adsState.nextRefreshAt =
-          adsState.lastRefreshAt + ADS_REFRESH_INTERVAL_MS;
-        syncAllAdsShowcases({ forceRefresh: true });
-      }, ADS_REFRESH_INTERVAL_MS);
-    })
-    .catch(() => {
-      // fallback tanpa countdown jika gagal resolve base
-      adsState.refreshTimer = setInterval(() => {
-        if (!shouldDisplayAds()) return;
-        syncAllAdsShowcases({ forceRefresh: true });
-      }, ADS_REFRESH_INTERVAL_MS);
-    });
-}
-
-function renderPackagesList(items = []) {
-  const container = document.getElementById("adsPackagesList");
-  if (!container) return;
-  if (!items.length) {
-    container.innerHTML = `<p class="loading-text">Belum ada data paket.</p>`;
-    return;
-  }
-  container.innerHTML = "";
-  items.forEach((pkg) => {
-    const card = document.createElement("div");
-    card.className = "ads-package-card";
-
-    const title = document.createElement("h4");
-    title.textContent = pkg.name || "Paket";
-
-    const price = document.createElement("p");
-    price.className = "ads-package-price";
-    price.textContent =
-      pkg.price_display ||
-      formatAdsPrice(pkg.price) ||
-      (pkg.price ? `Rp ${pkg.price}` : "Rp -");
-
-    const desc = document.createElement("p");
-    desc.className = "ads-package-desc";
-    desc.textContent = pkg.description || "Paket berlangganan StarBox.";
-
-    const meta = document.createElement("div");
-    meta.className = "ads-package-meta";
-    const limit =
-      pkg.is_device_limit_unlimited === true
-        ? "Device: Unlimited"
-        : `Device: ${pkg.device_limit ?? "-"} / layanan`;
-    const cycle = pkg.billing_cycle
-      ? `Billing: ${pkg.billing_cycle}/${pkg.billing_interval || 1}`
-      : "Billing: -";
-    [limit, cycle].forEach((text) => {
-      const pill = document.createElement("span");
-      pill.textContent = text;
-      meta.appendChild(pill);
-    });
-
-    card.appendChild(title);
-    card.appendChild(price);
-    card.appendChild(desc);
-    card.appendChild(meta);
-    container.appendChild(card);
-  });
-}
-
-async function loadPackagesList(force = false) {
-  if (packagesState.loading && !force) return packagesState.items;
-  const container = document.getElementById("adsPackagesList");
-  if (container) {
-    container.innerHTML = `<p class="loading-text">Memuat paket...</p>`;
-  }
-  packagesState.loading = true;
-  try {
-    const base = await getApiBase();
-    const response = await fetch(`${base}${PACKAGES_API_PATH}`);
-    if (!response.ok) throw new Error(`Server merespons ${response.status}`);
-    const payload = await response.json();
-    const data = Array.isArray(payload?.data) ? payload.data : [];
-    packagesState.items = data;
-    packagesState.lastError = null;
-    renderPackagesList(data);
-    return data;
-  } catch (err) {
-    console.error("⚠️ Gagal memuat daftar paket:", err);
-    packagesState.lastError = err?.message || String(err);
-    if (container) {
-      container.innerHTML = `<p class="loading-text">Gagal memuat paket: ${packagesState.lastError}</p>`;
-    }
-    return [];
-  } finally {
-    packagesState.loading = false;
-  }
-}
-
-function openAdsInfoModal() {
-  const modal = document.getElementById("adsInfoModal");
-  if (!modal) return;
-  modal.style.display = "flex";
-  if (packagesState.items.length) {
-    renderPackagesList(packagesState.items);
-  } else {
-    const container = document.getElementById("adsPackagesList");
-    if (container) {
-      container.innerHTML = `<p class="loading-text">Memuat paket...</p>`;
-    }
-    loadPackagesList();
-  }
-}
-
-function closeAdsInfoModal() {
-  const modal = document.getElementById("adsInfoModal");
-  if (modal) modal.style.display = "none";
-}
-
-function formatCountdown(ms) {
-  if (ms <= 0) return "0:00";
-  const totalSeconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
-
-function updateAdsCountdownDisplays() {
-  if (!isDevBuildCached) {
-    ADS_PAGE_KEYS.forEach((key) => {
-      const el = document.getElementById(buildAdsId("adsCountdown", key));
-      if (el) {
-        el.style.display = "none";
-        el.textContent = "";
-      }
-    });
-    return;
-  }
-  const remaining = (adsState.nextRefreshAt || 0) - Date.now();
-  const text =
-    remaining > 0
-      ? `Auto refresh: ${formatCountdown(remaining)}`
-      : "Refresh...";
-  ADS_PAGE_KEYS.forEach((key) => {
-    const el = document.getElementById(buildAdsId("adsCountdown", key));
-    if (el) {
-      el.style.display = "inline-flex";
-      el.textContent = text;
-    }
-  });
-}
-
-function startAdsCountdownTimer() {
-  if (!isDevBuildCached) return;
-  if (adsState.countdownTimer) return;
-  adsState.countdownTimer = setInterval(updateAdsCountdownDisplays, 1000);
-  updateAdsCountdownDisplays();
-}
 
 function getStoredLayout() {
   try {
@@ -2273,17 +1770,7 @@ function initThemeModeToggle() {
 }
 
 function getServiceLimitValue() {
-  if (authState.isLoggedIn) {
-    if (authState.package?.is_device_limit_unlimited) return Infinity;
-    if (authState.isUnlimited) return Infinity;
-    if (
-      typeof authState.deviceQuota === "number" &&
-      authState.deviceQuota > 0
-    ) {
-      return authState.deviceQuota;
-    }
-  }
-  return authState.guestServiceLimit > 0 ? authState.guestServiceLimit : 2;
+  return Infinity;
 }
 
 function getDeviceUniqueKey(device = {}) {
@@ -2453,7 +1940,7 @@ function syncServiceAvailability() {
   const androidOption = serviceSelect.querySelector('option[value="android"]');
   const customOption = serviceSelect.querySelector('option[value="other"]');
 
-  const canUseAndroid = authState.isLoggedIn && authState.allowsAndroidEmulator;
+  const canUseAndroid = true;
   const canUsePrivate = authState.isLoggedIn && authState.allowsPrivateService;
 
   if (androidOption) {
@@ -2483,7 +1970,7 @@ function updateIOSButtonVisibility() {
   const isMac =
     (systemPlatform || "").toLowerCase().includes("darwin") ||
     (systemPlatform || "").toLowerCase().includes("mac");
-  const canShow = authState.isLoggedIn && authState.allowsIosSimulator && isMac;
+  const canShow = authState.allowsIosSimulator !== false && isMac;
 
   if (button) button.style.display = canShow ? "inline-flex" : "none";
   if (buttonAndroid)
@@ -2521,6 +2008,20 @@ function getAndroidRemoteServiceMeta(serviceId) {
     color: meta?.color || "#6b7280",
     description: meta?.description || "",
   };
+}
+
+function getEffectiveAndroidServiceId(device = {}) {
+  const baseService = sanitizeServiceId(device.service);
+  if (baseService === "android") {
+    return sanitizeServiceId(
+      device.androidAutomationService || "android-general"
+    );
+  }
+  return baseService || "android-general";
+}
+
+function isAndroidWhatsAppService(serviceId = "") {
+  return sanitizeServiceId(serviceId) === "android-whatsapp";
 }
 
 function getAndroidRemoteServiceOptions() {
@@ -2924,36 +2425,6 @@ function countDevicesByService(service) {
 }
 
 function canAddDeviceForService(service) {
-  const serviceLabel = getServiceLabel(service);
-  const count = countDevicesByService(service);
-
-  if (authState.isLoggedIn) {
-    if (authState.isUnlimited) {
-      return { allowed: true };
-    }
-    const limit =
-      typeof authState.deviceQuota === "number"
-        ? authState.deviceQuota
-        : authState.guestServiceLimit;
-    if (count >= limit) {
-      return {
-        allowed: false,
-        reason: `Kuota akun membatasi ${limit} device untuk ${serviceLabel}. Upgrade paket untuk menambah limit.`,
-      };
-    }
-    return { allowed: true };
-  }
-
-  const guestLimit =
-    typeof authState.guestServiceLimit === "number"
-      ? authState.guestServiceLimit
-      : 2;
-  if (count >= guestLimit) {
-    return {
-      allowed: false,
-      reason: `Mode tamu hanya mengizinkan ${guestLimit} device untuk ${serviceLabel}. Silakan login untuk menambah kuota.`,
-    };
-  }
   return { allowed: true };
 }
 
@@ -3038,6 +2509,7 @@ function applyAuthSession(session = {}) {
   const prevLoggedIn = authState.isLoggedIn;
   const prevUnlimited = authState.isUnlimited;
   const prevLimit = getServiceLimitValue();
+  const prevRemoteAllowed = canUseRemoteFeatures();
 
   authState.isLoggedIn = !!session.isLoggedIn;
   authState.user = session.user || null;
@@ -3049,70 +2521,55 @@ function applyAuthSession(session = {}) {
       : null;
   authState.lastSyncedAt = session.lastSyncedAt || null;
   authState.package = session.package || null;
-  authState.isUnlimited = !!session.isUnlimited;
+  authState.isUnlimited = true;
   authState.packageExpiresAt = session.packageExpiresAt || null;
-  authState.limitDeviceWAGateway =
-    session.limit_device_wa_gateway ??
-    session.package?.limit_device_wa_gateway ??
-    null;
-  authState.limitAutoReply =
-    session.limit_auto_reply ?? session.package?.limit_auto_reply ?? null;
-  authState.limitBroadcastDay =
-    session.limit_broadcast_day ?? session.package?.limit_broadcast_day ?? null;
-  authState.allowsPrivateService = !!(
-    session.allowsPrivateService ||
-    session.package?.allows_private_service ||
-    session.package?.allowsPrivateService
-  );
-  authState.allowsAndroidEmulator = !!(
-    session.allowsAndroidEmulator ||
-    session.package?.allows_android_emulator ||
-    session.package?.allowsAndroidEmulator
-  );
-  authState.allowsIosSimulator = !!(
-    session.allowsIosSimulator ||
-    session.package?.allows_ios_simulator ||
-    session.package?.allowsIosSimulator
-  );
+  authState.limitDeviceWAGateway = Infinity;
+  authState.limitAutoReply = Infinity;
+  authState.limitBroadcastDay = Infinity;
+  authState.allowsPrivateService = true;
+  authState.allowsAndroidEmulator = true;
+  authState.allowsIosSimulator = true;
+
   if (typeof session.guestServiceLimit === "number") {
-    authState.guestServiceLimit = session.guestServiceLimit;
+    authState.guestServiceLimit = Infinity;
   }
   if (!authState.isUnlimited && typeof authState.deviceQuota !== "number") {
-    authState.deviceQuota = authState.guestServiceLimit;
+    authState.deviceQuota = Infinity;
   }
   if (!authState.isLoggedIn) {
     authState.package = null;
-    authState.isUnlimited = false;
-    authState.deviceQuota = null;
+    authState.isUnlimited = true;
+    authState.deviceQuota = Infinity;
     authState.packageExpiresAt = null;
-    authState.allowsPrivateService = false;
-    authState.allowsAndroidEmulator = false;
-    authState.allowsIosSimulator = false;
-    authState.limitDeviceWAGateway = null;
-    authState.limitAutoReply = null;
-    authState.limitBroadcastDay = null;
+    authState.allowsPrivateService = true;
+    authState.allowsAndroidEmulator = true;
+    authState.allowsIosSimulator = true;
+    authState.limitDeviceWAGateway = Infinity;
+    authState.limitAutoReply = Infinity;
+    authState.limitBroadcastDay = Infinity;
   }
   if (authState.limitDeviceWAGateway == null) {
-    authState.limitDeviceWAGateway = DEFAULT_LIMITS.limitDeviceWAGateway;
+    authState.limitDeviceWAGateway = Infinity;
   }
   if (authState.limitAutoReply == null) {
-    authState.limitAutoReply = DEFAULT_LIMITS.limitAutoReply;
+    authState.limitAutoReply = Infinity;
   }
   if (authState.limitBroadcastDay == null) {
-    authState.limitBroadcastDay = DEFAULT_LIMITS.limitBroadcastDay;
+    authState.limitBroadcastDay = Infinity;
   }
   ensurePackageCountdownTimer();
   updateAuthHeaderUI();
   updateDeviceQuotaBanner();
   syncServiceAvailability();
   updateAddDeviceQuotaHint();
-  syncAllAdsShowcases({ forceRefresh: true });
   updateIOSButtonVisibility();
+  updateRemoteUIVisibility();
   const nextLimit = getServiceLimitValue();
   const shouldReload =
     prevLoggedIn !== authState.isLoggedIn ||
     prevUnlimited !== authState.isUnlimited ||
-    prevLimit !== nextLimit;
+    prevLimit !== nextLimit ||
+    prevRemoteAllowed !== canUseRemoteFeatures();
   if (shouldReload) {
     if (typeof loadAllDevices === "function") {
       loadAllDevices();
@@ -3715,7 +3172,7 @@ function renderVersionBanner(info) {
       downloadBtn.style.display = "inline-flex";
       const label = preferred.platform
         ? `Download ${preferred.platform.toUpperCase()}`
-        : "Download & Install";
+        : "Download";
       const labelNode = document.getElementById("versionDownloadLabel");
       if (labelNode) {
         labelNode.textContent = label;
@@ -3845,11 +3302,11 @@ function updateVersionDownloadUI() {
   const human = versionDownloadState.message || "";
   const label =
     versionDownloadState.state === "downloading"
-      ? `Mengunduh pembaruan... ${pct}%`
+      ? `Menyiapkan unduhan... ${pct}%`
       : versionDownloadState.state === "installing"
-      ? "Membuka installer..."
+      ? "Membuka halaman download..."
       : versionDownloadState.state === "downloaded"
-      ? "Unduhan selesai. Membuka installer..."
+      ? "Link download dibuka."
       : versionDownloadState.state === "error"
       ? `Gagal: ${human || "Terjadi kesalahan"}`
       : human || "Menyiapkan unduhan...";
@@ -3881,9 +3338,9 @@ async function startVersionDownload() {
 
   resetVersionDownloadState();
   versionDownloadState.state = "downloading";
-  versionDownloadState.progress = 0;
+  versionDownloadState.progress = 100;
   updateVersionDownloadUI();
-  showToast("Mengunduh pembaruan StarBox...", 2000, "info");
+  showToast("Membuka link download StarBox...", 2000, "info");
 
   try {
     const result = await window.electronAPI.downloadVersion({
@@ -3898,41 +3355,30 @@ async function startVersionDownload() {
         (typeof window.electronAPI?.platform === "function"
           ? window.electronAPI.platform()
           : process.platform),
-      autoInstall: true,
+      openExternalOnly: true,
       channel: latestVersionInfo.channel || "stable",
       version: latestVersionInfo.version,
     });
     if (!result?.success) {
       versionDownloadState.state = "error";
-      versionDownloadState.message = result?.message || "Gagal mengunduh.";
+      versionDownloadState.message = result?.message || "Gagal membuka link download.";
       updateVersionDownloadUI();
       showToast(versionDownloadState.message, 4000, "error");
       return;
     }
     versionDownloadState.state = "downloaded";
     versionDownloadState.progress = 100;
-    versionDownloadState.path = result.path;
-    versionDownloadState.message =
-      result.opened === true
-        ? "Installer dibuka. Lanjutkan proses instalasi."
-        : "Unduhan selesai.";
+    versionDownloadState.path = result.url || preferred.url || "";
+    versionDownloadState.message = "Halaman download StarBox dibuka.";
     updateVersionDownloadUI();
-    if (result.opened) {
-      showToast(
-        "Installer sudah dibuka. Ikuti wizard instalasi.",
-        4000,
-        "success"
-      );
-    } else {
-      showToast(
-        "Unduhan selesai. Buka installer untuk memperbarui.",
-        4000,
-        "success"
-      );
-    }
+    showToast(
+      "Link download versi terbaru sudah dibuka.",
+      4000,
+      "success"
+    );
   } catch (err) {
     versionDownloadState.state = "error";
-    versionDownloadState.message = err?.message || "Gagal mengunduh.";
+    versionDownloadState.message = err?.message || "Gagal membuka link download.";
     updateVersionDownloadUI();
     showToast(versionDownloadState.message, 4000, "error");
   }
@@ -4457,6 +3903,18 @@ function sanitizePendingUrl(url = "") {
   return (url || "").trim().replace(/\/+$/, "");
 }
 
+function extractUrlRoot(url = "") {
+  const sanitized = sanitizePendingUrl(url);
+  if (!sanitized) return "";
+  try {
+    const parsed = new URL(sanitized);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    const match = sanitized.match(/^([a-z]+:\/\/[^/]+)/i);
+    return match ? match[1].replace(/\/+$/, "") : sanitized;
+  }
+}
+
 function hasCustomPathInUrl(url = "") {
   if (!url) return false;
   try {
@@ -4510,7 +3968,16 @@ function resolveAutomationCallbackUrl(pendingUrl = "", callbackUrl = "") {
   if (override) {
     return buildUrlWithDefaultPath(override, "/schedule/updatestatusmessage");
   }
-  return buildUrlWithDefaultPath(pendingUrl, "/schedule/updatestatusmessage");
+  return buildUrlWithDefaultPath(
+    extractUrlRoot(pendingUrl),
+    "/schedule/updatestatusmessage"
+  );
+}
+
+function getNormalizedCallbackInput(baseUrl = "", callbackUrl = "") {
+  const override = sanitizePendingUrl(callbackUrl);
+  if (override) return override;
+  return extractUrlRoot(baseUrl);
 }
 
 function getAutomationQueueSnapshot(session = getActiveSession()) {
@@ -5016,6 +4483,69 @@ async function syncAutomationSource(devices = [], options = {}) {
   }
 }
 
+async function syncAndroidWhatsappMonitorSource(devices = [], options = {}) {
+  const { silent = false } = options;
+  const candidates = (Array.isArray(devices) ? devices : [])
+    .filter((device) => {
+      const serviceId = getEffectiveAndroidServiceId(device);
+      const pendingUrl = sanitizePendingUrl(
+        device?.whatsappBaseUrl || device?.pendingUrl || ""
+      );
+      return isAndroidWhatsAppService(serviceId) && !!pendingUrl;
+    })
+    .map((device) => ({
+      uid: device.uid,
+      service: "android-whatsapp",
+      pendingUrl: sanitizePendingUrl(
+        device.whatsappBaseUrl || device.pendingUrl || ""
+      ),
+      callbackUrl: sanitizePendingUrl(
+        device.whatsappCallbackUrl || device.callbackUrl || ""
+      ),
+      name: device.name || device.deviceName || device.uid,
+    }));
+
+  const activeUidSet = new Set(candidates.map((device) => device.uid));
+
+  for (const [uid, session] of Array.from(automationSessions.entries())) {
+    if (
+      (session?.service || "").toLowerCase() === "android-whatsapp" &&
+      !activeUidSet.has(uid)
+    ) {
+      closeAutomationMonitor(uid);
+      removeAutomationSession(uid);
+    }
+  }
+
+  for (const device of candidates) {
+    const session = getOrCreateAutomationSession(device);
+    session.service = "android-whatsapp";
+    session.pendingUrl = device.pendingUrl;
+    session.callbackUrl = device.callbackUrl;
+    session.deviceName = device.name;
+
+    if (!automationTargetOrder.includes(device.uid)) {
+      automationTargetOrder.push(device.uid);
+    }
+
+    if (!silent && window.electronAPI?.ensureMonitorWindow) {
+      window.electronAPI.ensureMonitorWindow(device.uid);
+    }
+
+    if (!(session.messages || []).length) {
+      await refreshAutomationMessagesForSession(session, { silent: true });
+    } else {
+      broadcastAutomationMonitor(session);
+    }
+  }
+
+  if (!automationPrimaryUid && candidates.length) {
+    automationPrimaryUid = candidates[0].uid;
+    activateAutomationSession(automationPrimaryUid);
+    persistActiveAutomationSession();
+  }
+}
+
 function pendingAutomationCount(session = getActiveSession()) {
   if (!session) return 0;
   return (session.messages || []).filter((item) => item.status !== "done")
@@ -5298,7 +4828,8 @@ async function renderDevices(devices) {
     const runLabel = isActive ? "Restart" : "Jalankan";
     const runIcon = isActive ? "bi-arrow-clockwise" : "bi-play-fill";
 
-    const remoteEnabled = device.remoteEnabled !== false;
+    const showRemoteToggle = canUseRemoteFeatures();
+    const remoteEnabled = showRemoteToggle && device.remoteEnabled !== false;
     deviceCard.dataset.remoteEnabled = remoteEnabled ? "true" : "false";
 
     deviceCard.innerHTML = `
@@ -5340,13 +4871,14 @@ async function renderDevices(devices) {
       </div>
 
       <div class="device-footer">
+        ${showRemoteToggle ? `
         <div class="device-remote-toggle" title="Remote Control">
           <label class="device-remote-label">
             <span class="device-remote-text"><i class="bi bi-broadcast"></i> Remote</span>
             <input type="checkbox" class="remote-toggle-input" ${remoteEnabled ? "checked" : ""}>
             <span class="remote-toggle-slider"></span>
           </label>
-        </div>
+        </div>` : ""}
         <div class="device-actions">
           <button class="run">
             <i class="bi ${runIcon}"></i>
@@ -6115,20 +5647,23 @@ function renderDevicesAndroid(devices = []) {
 
   const fragment = document.createDocumentFragment();
 
-  cachedAndroidRemoteDevices.forEach((device) => {
-    if (device._deviceType === 'emulator') {
-      const card = buildAndroidEmulatorCard(device);
-      if (card) fragment.appendChild(card);
-      return;
-    }
+    cachedAndroidRemoteDevices.forEach((device) => {
+      if (device._deviceType === 'emulator') {
+        const card = buildAndroidEmulatorCard(device);
+        if (card) fragment.appendChild(card);
+        return;
+      }
 
-    const serviceMeta = getAndroidRemoteServiceMeta(device.service);
-    const statusMeta = formatAndroidRemoteStatus(device.status);
-    const deviceCard = document.createElement("div");
-    deviceCard.className = "device android-remote-card";
-    deviceCard.dataset.uid = device.uid;
-    deviceCard.dataset.service = device.service || "";
-    deviceCard.dataset.status = device.status || "disconnected";
+      const serviceMeta = getAndroidRemoteServiceMeta(device.service);
+      const statusMeta = formatAndroidRemoteStatus(device.status);
+      const isConnected = ["connected", "running", "active"].includes(
+        String(device.status || "").toLowerCase()
+      );
+      const deviceCard = document.createElement("div");
+      deviceCard.className = "device android-remote-card";
+      deviceCard.dataset.uid = device.uid;
+      deviceCard.dataset.service = device.service || "";
+      deviceCard.dataset.status = device.status || "disconnected";
     deviceCard.style.setProperty("--device-accent", serviceMeta.color);
 
     deviceCard.innerHTML = `
@@ -6146,14 +5681,22 @@ function renderDevicesAndroid(devices = []) {
             ? `<p><strong>Alias:</strong> ${device.adbName}</p>`
             : ""
         }
-      </div>
-      <div class="device-footer">
-        <div class="device-actions">
-          <button class="edit">
-            <i class="bi bi-pencil-fill"></i>
-            <span>Edit</span>
-          </button>
-          <button class="monitor">
+        </div>
+        <div class="device-footer">
+          <div class="device-actions">
+            <button class="restart ${isConnected ? 'secondary' : 'is-hidden'}">
+              <i class="bi bi-arrow-clockwise"></i>
+              <span>Restart</span>
+            </button>
+            <button class="stop ${isConnected ? '' : 'is-hidden'}">
+              <i class="bi bi-stop-fill"></i>
+              <span>Stop</span>
+            </button>
+            <button class="edit">
+              <i class="bi bi-pencil-fill"></i>
+              <span>Edit</span>
+            </button>
+            <button class="monitor">
             <i class="bi bi-display"></i>
             <span>Monitor</span>
           </button>
@@ -6182,19 +5725,34 @@ function renderDevicesAndroid(devices = []) {
       </div>
     `;
 
-    const editButton = deviceCard.querySelector(".edit");
-    const monitorButton = deviceCard.querySelector(".monitor");
-    const deleteButton = deviceCard.querySelector(".delete");
+      const editButton = deviceCard.querySelector(".edit");
+      const restartButton = deviceCard.querySelector(".restart");
+      const stopButton = deviceCard.querySelector(".stop");
+      const monitorButton = deviceCard.querySelector(".monitor");
+      const deleteButton = deviceCard.querySelector(".delete");
 
-    editButton?.addEventListener("click", (evt) => {
-      evt.stopPropagation();
-      openEditAndroidRemoteDevice(device);
-    });
+      editButton?.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        openEditAndroidRemoteDevice(device);
+      });
 
-    monitorButton?.addEventListener("click", (evt) => {
-      evt.stopPropagation();
-      openAndroidRemoteDisplay(device.uid);
-    });
+      restartButton?.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        restartAndroidAdbCard(device.uid);
+      });
+
+      stopButton?.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        stopAndroidAdbCard(device.uid);
+      });
+
+      monitorButton?.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        openAndroidRemoteDisplay(device.uid, { silentSuccess: true }).catch(() => {});
+        maybeOpenAndroidWhatsAppMonitor(device.uid, {
+          delayMs: 250,
+        }).catch(() => {});
+      });
 
     deleteButton?.addEventListener("click", (evt) => {
       evt.stopPropagation();
@@ -6229,9 +5787,16 @@ function renderDevicesAndroid(devices = []) {
 
 function buildAndroidEmulatorCard(device) {
   const spec = device.androidSpec || {};
-  const specLabel = spec.id === 'lite' ? '⚡ Lite' : spec.id === 'performance' ? '🚀 Performance' : '⚖️ Balanced';
-  const isRunning = device.status === 'running';
-
+  const specLabel = spec.id === 'lite' ? '⚡ Lite' : spec.id === 'performance' ? '🚀 Performance' : spec.id === 'custom' ? '🎛️ Custom' : '⚖️ Balanced';
+  const isRunning = ['running', 'active', 'starting'].includes((device.status || '').toLowerCase());
+  const effectiveServiceId = getEffectiveAndroidServiceId(device);
+  const serviceMeta = getAndroidRemoteServiceMeta(effectiveServiceId);
+  // Tombol Monitor hanya relevan untuk WhatsApp automation mode read-only
+  // (emulator headless, tampilan lewat mirror). Mode native/non-automation
+  // sudah punya window emulator sendiri — monitor hanya bikin tampilan dobel.
+  const showEmuMonitorButton =
+    isAndroidWhatsAppService(effectiveServiceId) &&
+    (device.androidDisplayMode || "readonly") !== "native";
   const card = document.createElement('div');
   card.className = 'device android-remote-card';
   card.dataset.uid = device.uid;
@@ -6243,7 +5808,7 @@ function buildAndroidEmulatorCard(device) {
     <div class="device-header">
       <div class="device-meta">
         <h3>${device.name || 'Android Emulator'}</h3>
-        <span class="device-service-name">Android Emulator</span>
+        <span class="device-service-name">Android Emulator • ${serviceMeta.label}</span>
       </div>
       <span class="status-badge ${isRunning ? 'active' : 'inactive'}">${isRunning ? 'Running' : 'Stopped'}</span>
     </div>
@@ -6251,6 +5816,7 @@ function buildAndroidEmulatorCard(device) {
       <p><strong>Preset:</strong> ${specLabel}</p>
       <p><strong>RAM:</strong> ${spec.memoryMb || 1536} MB &nbsp;·&nbsp; <strong>CPU:</strong> ${spec.cores || 2} Core</p>
       <p><strong>Resolusi:</strong> ${spec.resolution || '720x1280'}</p>
+      <p><strong>Mode:</strong> ${serviceMeta.label}</p>
     </div>
     <div id="emuProgress-${device.uid}" style="display:none;padding:8px 12px 0">
       <div style="font-size:11px;color:#888;margin-bottom:4px" id="emuProgressLabel-${device.uid}">Mempersiapkan...</div>
@@ -6261,13 +5827,26 @@ function buildAndroidEmulatorCard(device) {
     <div class="device-footer">
       <div class="device-actions">
         <button class="emu-start-btn ${isRunning ? 'secondary' : ''}">
-          <i class="bi bi-${isRunning ? 'stop-fill' : 'play-fill'}"></i>
-          <span>${isRunning ? 'Stop' : 'Start'}</span>
+          <i class="bi bi-${isRunning ? 'arrow-clockwise' : 'play-fill'}"></i>
+          <span>${isRunning ? 'Restart' : 'Start'}</span>
         </button>
-        <button class="emu-fix-btn">
-          <i class="bi bi-tools"></i>
-          <span>Fix</span>
+        <button class="emu-stop-btn ${isRunning ? '' : 'is-hidden'}">
+          <i class="bi bi-stop-fill"></i>
+          <span>Stop</span>
         </button>
+        <button class="emu-edit-btn">
+          <i class="bi bi-pencil-fill"></i>
+          <span>Edit</span>
+        </button>
+        <button class="emu-status-btn">
+          <i class="bi bi-card-text"></i>
+          <span>Status</span>
+        </button>
+        ${showEmuMonitorButton ? `
+        <button class="emu-monitor-btn">
+          <i class="bi bi-display"></i>
+          <span>Monitor</span>
+        </button>` : ''}
         <button class="delete">
           <i class="bi bi-trash-fill"></i>
           <span>Hapus</span>
@@ -6278,13 +5857,31 @@ function buildAndroidEmulatorCard(device) {
 
   card.querySelector('.emu-start-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (isRunning) stopAndroidEmulatorCard(device.uid);
+    if (isRunning) restartAndroidEmulatorCard(device.uid, card);
     else startAndroidEmulatorCard(device.uid, card);
   });
 
-  card.querySelector('.emu-fix-btn')?.addEventListener('click', (e) => {
+  card.querySelector('.emu-stop-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    fixAndroidEmulatorCard(device.uid);
+    stopAndroidEmulatorCard(device.uid);
+  });
+
+  card.querySelector('.emu-edit-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    window.openEditAndroidModal(device.uid);
+  });
+
+  card.querySelector('.emu-status-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    runDevice(device.uid, "android");
+  });
+
+  card.querySelector('.emu-monitor-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openAndroidRemoteDisplay(device.uid, { silentSuccess: true }).catch(() => {});
+    maybeOpenAndroidWhatsAppMonitor(device.uid, {
+      delayMs: 250,
+    }).catch(() => {});
   });
 
   card.querySelector('.delete')?.addEventListener('click', (e) => {
@@ -6308,8 +5905,8 @@ async function startAndroidEmulatorCard(uid, cardEl) {
   try {
     const check = await window.electronAPI.android.checkInstallation();
     if (!check?.installed) {
-      setProgress('Mengunduh Android SDK (~800MB)...', 0);
-      showToast('📥 Mengunduh Android SDK (~800MB)...', 5000, 'info');
+      setProgress('Mengunduh Android SDK (~1.5GB)...', 0);
+      showToast('📥 Mengunduh Android SDK (~1.5GB)...', 5000, 'info');
       window.electronAPI.android.onDownloadProgress((data) => {
         const pct = Math.round((data.downloaded / (data.total || 1)) * 100) || 0;
         setProgress(`Mengunduh SDK: ${pct}% — ${data.phase || ''}`, pct);
@@ -6319,6 +5916,11 @@ async function startAndroidEmulatorCard(uid, cardEl) {
 
     setProgress('Memulai emulator...', 5);
     window.electronAPI.android.onStartProgress((data) => {
+      if (data.phase === 'exit') {
+        setProgress(null, null);
+        loadAllDevicesAndroid();
+        return;
+      }
       const pct = data.phase === 'booted' ? 100 : data.phase === 'wait-boot' ? 50 : 20;
       setProgress(data.message || data.phase || 'Memulai...', pct);
     });
@@ -6329,6 +5931,14 @@ async function startAndroidEmulatorCard(uid, cardEl) {
     if (result?.success) {
       showToast('✅ Emulator Android berjalan!', 3000, 'success');
       await loadAllDevicesAndroid();
+      await maybeOpenAndroidWhatsAppDisplay(uid, {
+        delayMs: 250,
+        silent: true,
+        silentSuccess: true,
+      });
+      await maybeOpenAndroidWhatsAppMonitor(uid, {
+        delayMs: 450,
+      });
     } else {
       showToast('Gagal start emulator: ' + (result?.message || result?.error || ''), 5000, 'error');
     }
@@ -6338,13 +5948,106 @@ async function startAndroidEmulatorCard(uid, cardEl) {
   }
 }
 
+function closeAndroidAutomationMonitor(uid) {
+  if (uid && window.electronAPI?.closeMonitorWindow) {
+    window.electronAPI.closeMonitorWindow(uid);
+  }
+}
+
+function closeAndroidRemoteDisplay(uid, options = {}) {
+  if (!uid) return Promise.resolve(false);
+  const { silent = false, silentSuccess = false } = options;
+  const api = window.electronAPI?.androidRemote;
+  if (!api || typeof api.closeDisplay !== "function") {
+    if (!silent) {
+      showToast(
+        "Fitur menutup tampilan perangkat belum tersedia di versi ini.",
+        3500,
+        "warning"
+      );
+    }
+    return Promise.resolve(false);
+  }
+  return api
+    .closeDisplay(uid)
+    .then((response = {}) => {
+      if (response.success) {
+        if (!silentSuccess) {
+          showToast(
+            response.message || "Tampilan perangkat ditutup.",
+            2500,
+            "info"
+          );
+        }
+        return !!response.closed;
+      }
+      if (!silent) {
+        showToast(
+          response.message || "Gagal menutup tampilan perangkat.",
+          3500,
+          "error"
+        );
+      }
+      return false;
+    })
+    .catch((err) => {
+      console.error("⚠️ Tidak bisa menutup tampilan perangkat:", err);
+      if (!silent) {
+        showToast(
+          err?.message || "Gagal menutup tampilan perangkat.",
+          3500,
+          "error"
+        );
+      }
+      return false;
+    });
+}
+
+async function stopAndroidAdbCard(uid) {
+  try {
+    closeAndroidAutomationMonitor(uid);
+    await closeAndroidRemoteDisplay(uid, { silentSuccess: false });
+  } catch (err) {
+    showToast('Error stop monitor: ' + (err?.message || err), 4000, 'error');
+  }
+}
+
+async function restartAndroidAdbCard(uid) {
+  try {
+    closeAndroidAutomationMonitor(uid);
+    await closeAndroidRemoteDisplay(uid, { silent: true, silentSuccess: true });
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    await openAndroidRemoteDisplay(uid, { silentSuccess: true });
+    await maybeOpenAndroidWhatsAppMonitor(uid, {
+      delayMs: 250,
+    });
+  } catch (err) {
+    showToast('Error restart monitor: ' + (err?.message || err), 4000, 'error');
+  }
+}
+
 async function stopAndroidEmulatorCard(uid) {
   try {
+    closeAndroidAutomationMonitor(uid);
+    await closeAndroidRemoteDisplay(uid, { silent: true, silentSuccess: true });
     await window.electronAPI.android.stop(uid);
     showToast('Emulator dihentikan.', 2000, 'info');
     await loadAllDevicesAndroid();
   } catch (err) {
     showToast('Error stop: ' + (err?.message || err), 4000, 'error');
+  }
+}
+
+async function restartAndroidEmulatorCard(uid, cardEl) {
+  try {
+    closeAndroidAutomationMonitor(uid);
+    await closeAndroidRemoteDisplay(uid, { silent: true, silentSuccess: true });
+    await window.electronAPI.android.stop(uid);
+    await loadAllDevicesAndroid();
+    await new Promise((resolve) => window.setTimeout(resolve, 600));
+    await startAndroidEmulatorCard(uid, cardEl);
+  } catch (err) {
+    showToast('Error restart: ' + (err?.message || err), 4000, 'error');
   }
 }
 
@@ -6388,7 +6091,12 @@ async function loadAllDevicesAndroid() {
     const emulatorDevices = (allDevicesResult?.devices || [])
       .filter(d => (d.service || '').toLowerCase() === 'android')
       .map(d => ({ ...d, _deviceType: 'emulator' }));
-    renderDevicesAndroid([...emulatorDevices, ...adbDevices]);
+    const androidDevices = [...emulatorDevices, ...adbDevices];
+    renderDevicesAndroid(androidDevices);
+    await syncAndroidWhatsappMonitorSource(androidDevices);
+    if (automationSessions.size) {
+      ensureAutomationLoop();
+    }
   } catch (err) {
     console.error("⚠️ Gagal memuat Android devices:", err);
   }
@@ -6405,6 +6113,16 @@ async function loadAllDevices() {
 function runDevice(uid, service) {
   window.electronAPI.runDevice(uid, service);
   setDeviceState(uid, "active");
+  if ((service || "").toLowerCase() === "android") {
+    maybeOpenAndroidWhatsAppDisplay(uid, {
+      delayMs: 1200,
+      silent: true,
+      silentSuccess: true,
+    }).catch(() => {});
+    maybeOpenAndroidWhatsAppMonitor(uid, {
+      delayMs: 1500,
+    }).catch(() => {});
+  }
 }
 
 async function runDeviceInNewWindow(uid, service) {
@@ -6525,13 +6243,16 @@ function openEditAndroidRemoteDevice(device) {
   }
 
   // Populate WhatsApp automation fields if available
-  const baseUrlInput = document.getElementById("editWhatsAppBaseUrl");
-  const callbackUrlInput = document.getElementById("editWhatsAppCallbackUrl");
-  const variantSelect = document.getElementById("editWhatsAppVariant");
+    const baseUrlInput = document.getElementById("editWhatsAppBaseUrl");
+    const callbackUrlInput = document.getElementById("editWhatsAppCallbackUrl");
+    const variantSelect = document.getElementById("editWhatsAppVariant");
 
-  if (baseUrlInput) baseUrlInput.value = device.whatsappBaseUrl || "";
-  if (callbackUrlInput)
-    callbackUrlInput.value = device.whatsappCallbackUrl || "";
+    if (baseUrlInput) baseUrlInput.value = device.whatsappBaseUrl || "";
+    if (callbackUrlInput)
+      callbackUrlInput.value = getNormalizedCallbackInput(
+        device.whatsappBaseUrl || "",
+        device.whatsappCallbackUrl || ""
+      );
   if (variantSelect)
     variantSelect.value = device.whatsappVariant || "consumer";
 
@@ -6665,13 +6386,14 @@ async function saveEditAndroidRemoteDevice() {
   };
 
   // Add WhatsApp automation URLs if service is android-whatsapp
-  if (service === "android-whatsapp") {
-    const baseUrl = document.getElementById("editWhatsAppBaseUrl").value.trim();
-    const callbackUrl = document
-      .getElementById("editWhatsAppCallbackUrl")
-      .value.trim();
-    const whatsappVariant =
-      document.getElementById("editWhatsAppVariant")?.value || "consumer";
+    if (service === "android-whatsapp") {
+      const baseUrl = document.getElementById("editWhatsAppBaseUrl").value.trim();
+      const callbackUrl = getNormalizedCallbackInput(
+        baseUrl,
+        document.getElementById("editWhatsAppCallbackUrl").value.trim()
+      );
+      const whatsappVariant =
+        document.getElementById("editWhatsAppVariant")?.value || "consumer";
 
     updates.whatsappBaseUrl = baseUrl;
     updates.whatsappCallbackUrl = callbackUrl;
@@ -6833,13 +6555,21 @@ async function connectEditAdbDevice() {
 
 // Toggle WhatsApp automation fields in Add Android modal
 function toggleAddWhatsAppFields() {
-  const serviceSelect = document.getElementById("androidRemoteServiceSelect");
-  const whatsappFields = document.getElementById("addWhatsAppAutomationFields");
-  const variantSelect = document.getElementById("addWhatsAppVariant");
+  toggleAndroidWhatsAppFields(
+    "androidRemoteServiceSelect",
+    "addWhatsAppAutomationFields",
+    "addWhatsAppVariant"
+  );
+}
+
+function toggleAndroidWhatsAppFields(selectId, fieldsId, variantId) {
+  const serviceSelect = document.getElementById(selectId);
+  const whatsappFields = document.getElementById(fieldsId);
+  const variantSelect = document.getElementById(variantId);
 
   if (!serviceSelect || !whatsappFields) return;
 
-  const isWhatsApp = serviceSelect.value === "android-whatsapp";
+  const isWhatsApp = isAndroidWhatsAppService(serviceSelect.value);
   whatsappFields.style.display = isWhatsApp ? "block" : "none";
   if (variantSelect) {
     variantSelect.disabled = !isWhatsApp;
@@ -6851,11 +6581,24 @@ function toggleAddWhatsAppFields() {
   }
 }
 
+function toggleEmulatorWhatsAppFields() {
+  toggleAndroidWhatsAppFields(
+    "androidEmulatorServiceSelect",
+    "addEmuWhatsAppAutomationFields",
+    "addEmuWhatsAppVariant"
+  );
+}
+
+function toggleEditEmulatorWhatsAppFields() {
+  toggleAndroidWhatsAppFields(
+    "editAndroidAutomationService",
+    "editEmuWhatsAppAutomationFields",
+    "editEmuWhatsAppVariant"
+  );
+}
+
 function getAndroidRemoteLimit() {
-  if (authState.allowsAndroidEmulator) return Infinity;
-  if (!authState.isLoggedIn) return 1;
-  if (isFreePackageTier()) return 1;
-  return 1;
+  return Infinity;
 }
 
 function openAndroidRemoteDisplay(uid, options = {}) {
@@ -6906,6 +6649,51 @@ function openAndroidRemoteDisplay(uid, options = {}) {
       }
       return false;
     });
+}
+
+function findCachedAndroidDevice(uid) {
+  if (!uid || !Array.isArray(cachedAndroidRemoteDevices)) return null;
+  return cachedAndroidRemoteDevices.find((device) => device?.uid === uid) || null;
+}
+
+function maybeOpenAndroidWhatsAppDisplay(uid, options = {}) {
+  const { delayMs = 0, silent = true, silentSuccess = true } = options;
+  const device = findCachedAndroidDevice(uid);
+  if (!device) return Promise.resolve(false);
+  const serviceKey = getEffectiveAndroidServiceId(device);
+  if (!isAndroidWhatsAppService(serviceKey)) {
+    return Promise.resolve(false);
+  }
+
+  return new Promise((resolve) => {
+    window.setTimeout(() => {
+      openAndroidRemoteDisplay(uid, { silent, silentSuccess }).then(resolve);
+    }, Math.max(0, Number(delayMs) || 0));
+  });
+}
+
+function maybeOpenAndroidWhatsAppMonitor(uid, options = {}) {
+  const { delayMs = 0 } = options;
+  const device = findCachedAndroidDevice(uid);
+  if (!device) return Promise.resolve(false);
+  const serviceKey = getEffectiveAndroidServiceId(device);
+  const pendingUrl = sanitizePendingUrl(
+    device?.whatsappBaseUrl || device?.pendingUrl || ""
+  );
+  if (!isAndroidWhatsAppService(serviceKey) || !pendingUrl) {
+    return Promise.resolve(false);
+  }
+
+  return new Promise((resolve) => {
+    window.setTimeout(() => {
+      if (window.electronAPI?.ensureMonitorWindow) {
+        window.electronAPI.ensureMonitorWindow(uid);
+        resolve(true);
+        return;
+      }
+      resolve(false);
+    }, Math.max(0, Number(delayMs) || 0));
+  });
 }
 
 function wakeAndroidDeviceSilently(uid) {
@@ -7163,7 +6951,7 @@ function setupScrcpyHelperCard() {
 
 function remoteAndroidDevice(device) {
   if (!device || !device.uid) return;
-  const serviceKey = (device.service || "").toLowerCase();
+  const serviceKey = getEffectiveAndroidServiceId(device);
 
   if (serviceKey === "android-whatsapp") {
     Swal.fire({
@@ -7552,9 +7340,6 @@ window.addEventListener("DOMContentLoaded", () => {
   applyRememberedLogin();
   loadPhoneCodesIntoSelect();
   loadAllDevices();
-  ADS_PAGE_KEYS.forEach((key) => ensureAdsSection(key));
-  syncAllAdsShowcases({ forceRefresh: true });
-  startAdsAutoRefresh();
   loadSystemInfoBadge();
   document.addEventListener("DOMContentLoaded", loadSystemInfoBadge);
   window.addEventListener("focus", () => {
@@ -7644,10 +7429,15 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   // Update status otomatis
-  window.electronAPI.onDeviceStatusUpdated((uid) => {
-    console.log("📶 Status device berubah:", uid);
-    setDeviceState(uid, "active");
+  window.electronAPI.onDeviceStatusUpdated((uid, status) => {
+    console.log("📶 Status device berubah:", uid, status);
+    if (typeof status === "string" && status) {
+      setDeviceState(uid, status);
+    }
     loadAllDevices();
+    if (typeof loadAllDevicesAndroid === "function") {
+      loadAllDevicesAndroid();
+    }
   });
 
   // Listener untuk trigger fetch pending dari monitor
@@ -7946,6 +7736,29 @@ async function loadVmList() {
       const statusCls = isRunning ? "running" : isStarting ? "starting" : "stopped";
       const ramGb = vm.memoryMb >= 1024 ? (vm.memoryMb / 1024).toFixed(1) + " GB" : (vm.memoryMb || 0) + " MB";
 
+      // Badge akselerasi hardware (HVF/KVM/WHPX = cepat, TCG = emulasi software)
+      const accel = (vm.accelUsed || "").toLowerCase();
+      const accelHw = accel && accel !== "tcg";
+      const accelBadge = isRunning && accel
+        ? `<span title="${accelHw ? "Akselerasi hardware aktif — performa native" : "Emulasi software (TCG) — lebih lambat, arsitektur guest ≠ host"}" style="color:${accelHw ? "#50c878" : "#f0a040"}"><i class="bi bi-${accelHw ? "rocket-takeoff" : "cpu"}"></i> ${accel.toUpperCase()}</span>`
+        : "";
+
+      // Daftar snapshot (3 terbaru) + tombol restore / hapus
+      const snaps = Array.isArray(vm.snapshots) ? vm.snapshots : [];
+      const snapBtnStyle = "background:none;border:none;cursor:pointer;padding:1px 4px;border-radius:4px;font-size:11px";
+      const snapsHtml = snaps.length
+        ? `<div class="osv-snapshots">
+            <div class="osv-snap-title">Snapshot (${snaps.length})</div>
+            ${snaps.slice(-3).reverse().map((s) => `
+              <div class="osv-snap-item">
+                <i class="bi bi-camera"></i>
+                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${s.name} — ${new Date(s.createdAt).toLocaleString()}">${s.name}${s.live ? ' <i class="bi bi-lightning-charge-fill" style="color:#f0a040" title="Snapshot live (termasuk RAM)"></i>' : ""}</span>
+                <button style="${snapBtnStyle};color:#50c878" onclick="restoreVmSnapshot('${vm.id}','${s.id}')" title="Restore snapshot ini"><i class="bi bi-arrow-counterclockwise"></i></button>
+                <button style="${snapBtnStyle};color:#e87070" onclick="deleteVmSnapshot('${vm.id}','${s.id}')" title="Hapus snapshot"><i class="bi bi-x-lg"></i></button>
+              </div>`).join("")}
+          </div>`
+        : "";
+
       return `
         <div class="osv-card" data-vm-id="${vm.id}">
           <div class="osv-card-head">
@@ -7968,9 +7781,11 @@ async function loadVmList() {
           </div>
           <div class="osv-info">
             <span><i class="bi bi-diagram-3"></i> ${(vm.networkMode || "nat").toUpperCase()}</span>
+            ${accelBadge}
             ${vm.autostart ? '<span><i class="bi bi-lightning-fill" style="color:#f0a040"></i> Autostart</span>' : ""}
             ${vm.isoPath ? `<span title="${vm.isoPath}"><i class="bi bi-disc"></i> ISO</span>` : ""}
           </div>
+          ${snapsHtml}
           ${vm.notes ? `<div class="osv-notes">${vm.notes}</div>` : ""}
           <div class="osv-actions">
             <button class="osv-btn start" onclick="startVm('${vm.id}')" title="Start"><i class="bi bi-play-fill"></i> Start</button>
@@ -8098,6 +7913,45 @@ async function snapshotVm(id) {
   }
   await loadVmList();
   showToast("Snapshot dibuat.", 2000, "success");
+}
+
+async function restoreVmSnapshot(id, snapshotId) {
+  const confirm = await Swal.fire({
+    title: "Restore Snapshot?",
+    text: "Kondisi VM saat ini akan digantikan oleh snapshot. Perubahan setelah snapshot akan hilang.",
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonText: "Restore",
+    cancelButtonText: "Batal",
+  });
+  if (!confirm.isConfirmed) return;
+  showToast("Me-restore snapshot...", 2000, "info");
+  const result = await window.electronAPI.virtualOS.snapshotRestore(id, snapshotId);
+  if (!result?.success) {
+    showToast(result?.message || "Gagal restore snapshot.", 4000, "error");
+    return;
+  }
+  await loadVmList();
+  showToast("Snapshot di-restore.", 2500, "success");
+}
+
+async function deleteVmSnapshot(id, snapshotId) {
+  const confirm = await Swal.fire({
+    title: "Hapus Snapshot?",
+    text: "Data snapshot di dalam disk virtual juga akan dihapus.",
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonText: "Hapus",
+    cancelButtonText: "Batal",
+  });
+  if (!confirm.isConfirmed) return;
+  const result = await window.electronAPI.virtualOS.snapshotDelete(id, snapshotId);
+  if (!result?.success) {
+    showToast(result?.message || "Gagal menghapus snapshot.", 3500, "error");
+    return;
+  }
+  await loadVmList();
+  showToast("Snapshot dihapus.", 2000, "success");
 }
 
 async function openVncViewer(port, vmId, vmName) {
@@ -8407,11 +8261,49 @@ window.switchAndroidAddType = function(type) {
 };
 
 window.selectEmuSpec = function(spec) {
-  document.querySelectorAll('[id^="emuSpec"]').forEach(el => {
+  document.querySelectorAll('label[id^="emuSpec"]').forEach(el => {
     el.style.borderColor = el.id === 'emuSpec' + spec.charAt(0).toUpperCase() + spec.slice(1)
       ? 'rgba(61,220,132,0.4)' : '#30363d';
   });
+  const customPanel = document.getElementById('emuCustomPanel');
+  if (customPanel) customPanel.style.display = spec === 'custom' ? 'block' : 'none';
 };
+
+const EMU_RESOLUTION_DENSITY = {
+  '540x960': 220,
+  '720x1280': 265,
+  '1080x1920': 420,
+};
+
+function readCustomEmuSpec(prefix) {
+  const memoryMb = parseInt(document.getElementById(prefix + 'Ram')?.value, 10) || 1536;
+  const cores = parseInt(document.getElementById(prefix + 'Cores')?.value, 10) || 2;
+  const resolution = document.getElementById(prefix + 'Resolution')?.value || '720x1280';
+  return {
+    id: 'custom',
+    label: `Custom • ${cores} Core • ${(memoryMb / 1024).toFixed(1)} GB`,
+    memoryMb,
+    cores,
+    resolution,
+    density: EMU_RESOLUTION_DENSITY[resolution] || 265,
+  };
+}
+
+function setCustomEmuSpecInputs(prefix, spec = {}) {
+  const memoryMb = spec.memoryMb || 1536;
+  const cores = spec.cores || 2;
+  const resolution = EMU_RESOLUTION_DENSITY[spec.resolution] ? spec.resolution : '720x1280';
+  const ramInput = document.getElementById(prefix + 'Ram');
+  const ramLabel = document.getElementById(prefix + 'RamLabel');
+  if (ramInput) ramInput.value = memoryMb;
+  if (ramLabel) ramLabel.textContent = memoryMb + ' MB';
+  const coresInput = document.getElementById(prefix + 'Cores');
+  const coresLabel = document.getElementById(prefix + 'CoresLabel');
+  if (coresInput) coresInput.value = cores;
+  if (coresLabel) coresLabel.textContent = cores + ' Core';
+  const resSelect = document.getElementById(prefix + 'Resolution');
+  if (resSelect) resSelect.value = resolution;
+}
 
 window.openModalAndroid = async function () {
   const modal = document.getElementById("addModalAndroid");
@@ -8424,6 +8316,19 @@ window.openModalAndroid = async function () {
   if (nameInput) nameInput.value = "";
 
   populateAndroidRemoteServiceSelect("androidRemoteServiceSelect");
+  populateAndroidRemoteServiceSelect("androidEmulatorServiceSelect");
+  const emulatorServiceSelect = document.getElementById(
+    "androidEmulatorServiceSelect"
+  );
+  if (emulatorServiceSelect) {
+    emulatorServiceSelect.value = "android-general";
+  }
+  toggleEmulatorWhatsAppFields();
+  bindAndroidWhatsAppUrlSync("addWhatsAppBaseUrl", "addWhatsAppCallbackUrl");
+  bindAndroidWhatsAppUrlSync(
+    "addEmuWhatsAppBaseUrl",
+    "addEmuWhatsAppCallbackUrl"
+  );
 
   // Initialize select with placeholder (no auto-scan)
   const adbSelect = document.getElementById("androidAdbDeviceSelect");
@@ -8460,6 +8365,19 @@ window.closeModalAndroid = function () {
   if (baseUrlInput) baseUrlInput.value = "";
   if (callbackUrlInput) callbackUrlInput.value = "";
   if (whatsappFields) whatsappFields.style.display = "none";
+
+  const emuServiceSelect = document.getElementById("androidEmulatorServiceSelect");
+  const emuVariantSelect = document.getElementById("addEmuWhatsAppVariant");
+  const emuBaseUrlInput = document.getElementById("addEmuWhatsAppBaseUrl");
+  const emuCallbackUrlInput = document.getElementById("addEmuWhatsAppCallbackUrl");
+  const emuWhatsappFields = document.getElementById(
+    "addEmuWhatsAppAutomationFields"
+  );
+  if (emuServiceSelect) emuServiceSelect.value = "android-general";
+  if (emuVariantSelect) emuVariantSelect.value = "consumer";
+  if (emuBaseUrlInput) emuBaseUrlInput.value = "";
+  if (emuCallbackUrlInput) emuCallbackUrlInput.value = "";
+  if (emuWhatsappFields) emuWhatsappFields.style.display = "none";
 };
 
 async function submitEmulatorDeviceForm() {
@@ -8472,9 +8390,40 @@ async function submitEmulatorDeviceForm() {
     balanced:    { id: 'balanced',    memoryMb: 1536, cores: 2, resolution: '720x1280',  density: 265 },
     performance: { id: 'performance', memoryMb: 2048, cores: 4, resolution: '1080x1920', density: 420 },
   };
-  const androidSpec = SPEC_MAP[specId] || SPEC_MAP.balanced;
-  try {
-    const result = await window.electronAPI.addDevice({ name, service: 'android', androidSpec });
+  const androidSpec =
+    specId === 'custom'
+      ? readCustomEmuSpec('emuCustom')
+      : SPEC_MAP[specId] || SPEC_MAP.balanced;
+  const androidAutomationService =
+    document.getElementById("androidEmulatorServiceSelect")?.value ||
+    "android-general";
+  const isWhatsAppAutomation = isAndroidWhatsAppService(
+    androidAutomationService
+  );
+    try {
+      const whatsappBaseUrl = isWhatsAppAutomation
+        ? document.getElementById("addEmuWhatsAppBaseUrl")?.value.trim() || ""
+        : "";
+      const whatsappCallbackUrl = isWhatsAppAutomation
+        ? getNormalizedCallbackInput(
+            whatsappBaseUrl,
+            document.getElementById("addEmuWhatsAppCallbackUrl")?.value.trim() || ""
+          )
+        : "";
+      const result = await window.electronAPI.addDevice({
+        name,
+        service: 'android',
+        androidSpec,
+        androidAutomationService,
+        whatsappVariant: isWhatsAppAutomation
+          ? document.getElementById("addEmuWhatsAppVariant")?.value || "consumer"
+          : "consumer",
+        androidDisplayMode: isWhatsAppAutomation
+          ? document.getElementById("addEmuDisplayMode")?.value || "readonly"
+          : "readonly",
+        whatsappBaseUrl,
+        whatsappCallbackUrl,
+      });
     if (result?.success) {
       showToast('✅ Android Emulator ditambahkan!', 3000, 'success');
       closeModalAndroid();
@@ -8523,48 +8472,19 @@ window.submitAndroidDevice = async function () {
   };
 
   // Add WhatsApp automation URLs if service is android-whatsapp
-  if (service === "android-whatsapp") {
-    const baseUrl =
-      document.getElementById("addWhatsAppBaseUrl")?.value.trim() || "";
-    const callbackUrl =
-      document.getElementById("addWhatsAppCallbackUrl")?.value.trim() || "";
-    const whatsappVariant =
-      document.getElementById("addWhatsAppVariant")?.value || "consumer";
+    if (service === "android-whatsapp") {
+      const baseUrl =
+        document.getElementById("addWhatsAppBaseUrl")?.value.trim() || "";
+      const callbackUrl = getNormalizedCallbackInput(
+        baseUrl,
+        document.getElementById("addWhatsAppCallbackUrl")?.value.trim() || ""
+      );
+      const whatsappVariant =
+        document.getElementById("addWhatsAppVariant")?.value || "consumer";
 
     deviceData.whatsappBaseUrl = baseUrl;
     deviceData.whatsappCallbackUrl = callbackUrl;
     deviceData.whatsappVariant = whatsappVariant;
-  }
-
-  const limit = getAndroidRemoteLimit();
-  if (Number.isFinite(limit)) {
-    let currentCount = Array.isArray(cachedAndroidRemoteDevices)
-      ? cachedAndroidRemoteDevices.length
-      : 0;
-    if (currentCount < limit && window.electronAPI?.androidRemote?.getDevices) {
-      try {
-        const snapshot = await window.electronAPI.androidRemote.getDevices();
-        const list = Array.isArray(snapshot?.devices) ? snapshot.devices : [];
-        cachedAndroidRemoteDevices = list;
-        currentCount = list.length;
-      } catch (err) {
-        console.warn("⚠️ Gagal sinkron jumlah ADB devices:", err);
-      }
-    }
-    if (currentCount >= limit) {
-      const needUpgrade =
-        authState.allowsAndroidEmulator !== true &&
-        (authState.isLoggedIn ? !isFreePackageTier() : true);
-      const reason =
-        !authState.isLoggedIn || isFreePackageTier()
-          ? "Mode tamu/paket gratis dibatasi 1 device ADB Remote."
-          : "Paket Anda belum mendukung Android Emulator/ADB tanpa batas.";
-      const action = needUpgrade
-        ? "Silakan login atau upgrade paket yang mendukung Android Emulator."
-        : "Silakan hapus device lama sebelum menambah yang baru.";
-      showToast(`${reason} ${action}`, 4500, "warning");
-      return;
-    }
   }
 
   try {
@@ -8800,16 +8720,170 @@ window.refreshAdbDeviceOptions = function (
 // Edit Android device functions
 let editingAndroidDeviceUid = null;
 
-window.openEditAndroidModal = function () {
-  Swal.fire(
-    "Informasi",
-    "Pengelolaan device Android fisik dilakukan lewat daftar ADB baru. Silakan hapus & tambahkan ulang jika ingin mengubah pengaturan.",
-    "info"
-  );
+window.openEditAndroidModal = async function (uid) {
+  try {
+    const data = await window.electronAPI.loadDevices();
+    const device = (data?.devices || []).find((d) => d.uid === uid);
+    if (!device) {
+      showToast("Device tidak ditemukan.", 3000, "warning");
+      return;
+    }
+
+    editingAndroidDeviceUid = uid;
+    populateAndroidSpecPreset(
+      "editAndroidSpecPresetAndroid",
+      "editAndroidSpecDescriptionAndroid"
+    );
+
+    const nameInput = document.getElementById("editDeviceNameAndroid");
+    if (nameInput) nameInput.value = device.name || "";
+
+    // Slider custom selalu diisi dari spec aktif, jadi saat pindah ke Custom
+    // nilainya berangkat dari kondisi sekarang
+    setCustomEmuSpecInputs("editEmuCustom", device.androidSpec);
+
+    const presetSelect = document.getElementById("editAndroidSpecPresetAndroid");
+    if (presetSelect) {
+      const customOpt = document.createElement("option");
+      customOpt.value = "custom";
+      customOpt.textContent = "🎛️ Custom (atur sendiri dengan slider)";
+      presetSelect.appendChild(customOpt);
+
+      const toggleCustomPanel = () => {
+        const panel = document.getElementById("editEmuCustomPanel");
+        if (panel) {
+          panel.style.display = presetSelect.value === "custom" ? "block" : "none";
+        }
+        if (presetSelect.value === "custom") {
+          const descEl = document.getElementById("editAndroidSpecDescriptionAndroid");
+          if (descEl) descEl.textContent = "Geser slider untuk mengatur RAM, CPU, dan resolusi sesuai kebutuhan.";
+        }
+      };
+      presetSelect.addEventListener("change", toggleCustomPanel);
+
+      const specId = device.androidSpec?.id;
+      const isPreset = ANDROID_SPEC_PRESETS.some((p) => p.id === specId);
+      presetSelect.value = isPreset ? specId : "custom";
+      presetSelect.dispatchEvent(new Event("change"));
+    }
+
+    const autoRunInput = document.getElementById("editAutoRunAndroid");
+    if (autoRunInput) autoRunInput.checked = !!device.autoRun;
+
+    populateAndroidRemoteServiceSelect("editAndroidAutomationService");
+    const automationServiceSelect = document.getElementById(
+      "editAndroidAutomationService"
+    );
+    if (automationServiceSelect) {
+      automationServiceSelect.value =
+        device.androidAutomationService || "android-general";
+    }
+    const editVariantSelect = document.getElementById("editEmuWhatsAppVariant");
+    const editBaseUrlInput = document.getElementById("editEmuWhatsAppBaseUrl");
+    const editCallbackUrlInput = document.getElementById(
+      "editEmuWhatsAppCallbackUrl"
+    );
+    if (editVariantSelect) {
+      editVariantSelect.value = device.whatsappVariant || "consumer";
+    }
+    const editDisplayModeSelect = document.getElementById("editEmuDisplayMode");
+    if (editDisplayModeSelect) {
+      editDisplayModeSelect.value = device.androidDisplayMode || "readonly";
+    }
+      if (editBaseUrlInput) {
+        editBaseUrlInput.value = device.whatsappBaseUrl || "";
+      }
+      if (editCallbackUrlInput) {
+        editCallbackUrlInput.value = getNormalizedCallbackInput(
+          device.whatsappBaseUrl || "",
+          device.whatsappCallbackUrl || ""
+        );
+      }
+    toggleEditEmulatorWhatsAppFields();
+
+    const modal = document.getElementById("editModalAndroid");
+    if (modal) modal.style.display = "flex";
+  } catch (err) {
+    showToast("Error: " + (err?.message || err), 4000, "error");
+  }
 };
 
-window.closeEditModalAndroid = function () {};
-window.saveEditAndroidDevice = function () {};
+window.closeEditModalAndroid = function () {
+  editingAndroidDeviceUid = null;
+  const modal = document.getElementById("editModalAndroid");
+  if (modal) modal.style.display = "none";
+  const whatsappFields = document.getElementById(
+    "editEmuWhatsAppAutomationFields"
+  );
+  if (whatsappFields) whatsappFields.style.display = "none";
+};
+
+window.saveEditAndroidDevice = async function () {
+  if (!editingAndroidDeviceUid) return;
+
+  const name = document.getElementById("editDeviceNameAndroid")?.value.trim();
+  if (!name) {
+    showToast("Nama device wajib diisi.", 3000, "warning");
+    return;
+  }
+
+  const presetId =
+    document.getElementById("editAndroidSpecPresetAndroid")?.value ||
+    DEFAULT_ANDROID_SPEC_ID;
+  const androidSpec =
+    presetId === "custom"
+      ? readCustomEmuSpec("editEmuCustom")
+      : { ...(ANDROID_SPEC_PRESETS.find((p) => p.id === presetId) || {}) };
+  const autoRun = !!document.getElementById("editAutoRunAndroid")?.checked;
+  const androidAutomationService =
+    document.getElementById("editAndroidAutomationService")?.value ||
+    "android-general";
+  const isWhatsAppAutomation = isAndroidWhatsAppService(
+    androidAutomationService
+  );
+  const whatsappVariant = isWhatsAppAutomation
+    ? document.getElementById("editEmuWhatsAppVariant")?.value || "consumer"
+    : "consumer";
+  const androidDisplayMode = isWhatsAppAutomation
+    ? document.getElementById("editEmuDisplayMode")?.value || "readonly"
+    : "readonly";
+    const whatsappBaseUrl = isWhatsAppAutomation
+      ? document.getElementById("editEmuWhatsAppBaseUrl")?.value.trim() || ""
+      : "";
+    const whatsappCallbackUrl = isWhatsAppAutomation
+      ? getNormalizedCallbackInput(
+          whatsappBaseUrl,
+          document.getElementById("editEmuWhatsAppCallbackUrl")?.value.trim() || ""
+        )
+      : "";
+
+  try {
+    const result = await window.electronAPI.editDevice({
+      uid: editingAndroidDeviceUid,
+      name,
+      autoRun,
+      androidSpec,
+      androidAutomationService,
+      whatsappVariant,
+      androidDisplayMode,
+      whatsappBaseUrl,
+      whatsappCallbackUrl,
+    });
+    if (result?.success) {
+      showToast(
+        "✅ Perubahan disimpan. Restart device agar spesifikasi baru terpakai.",
+        3500,
+        "success"
+      );
+      closeEditModalAndroid();
+      await loadAllDevicesAndroid();
+    } else {
+      showToast(result?.message || "Gagal menyimpan perubahan.", 4000, "error");
+    }
+  } catch (err) {
+    showToast("Error: " + (err?.message || err), 4000, "error");
+  }
+};
 
 // Helper: Populate Android spec preset dropdown
 function populateAndroidSpecPreset(selectId, descriptionId) {
@@ -8923,6 +8997,15 @@ window.switchPage = async function (page) {
 
   console.log("🔄 Switching to page:", page);
 
+  const proPages = window.STARBOX_PRO_PAGES || ['remox', 'mikrotik', 'os-virtual', 'cctv', 'mystarbox', 'android-ios', 'cron'];
+  if (proPages.includes(page)) {
+    if (typeof window.setProMode === "function") {
+      window.setProMode(true);
+    } else {
+      try { localStorage.setItem("starbox-pro-mode", "true"); } catch (_) {}
+    }
+  }
+
   window.currentActivePage = page;
 
   // Hide all pages
@@ -8940,12 +9023,15 @@ window.switchPage = async function (page) {
     console.error("  ⚠️ Target page not found:", `page-${page}`);
   }
 
+  document.body.classList.toggle("remox-page-active", page === "remox");
+
   // Update sidebar active state
   document.querySelectorAll(".sidebar-item").forEach((item) => {
     item.classList.remove("active");
   });
+  const sidebarPage = page === "whatsapp-gateway" ? "web-emulator" : page;
   const activeItem = document.querySelector(
-    `.sidebar-item[data-page="${page}"]`
+    `.sidebar-item[data-page="${sidebarPage}"]`
   );
   if (activeItem) {
     activeItem.classList.add("active");
@@ -8980,7 +9066,7 @@ window.switchPage = async function (page) {
   } else if (page === "os-virtual") {
     await loadVmList();
   } else if (page === "remox") {
-    if (typeof window.initRemoxPage === "function") window.initRemoxPage();
+    if (typeof window.initRemoxPage === "function") await window.initRemoxPage();
   } else if (page === "resource-monitor") {
     if (typeof window.rmStartPolling === "function") window.rmStartPolling();
     else setTimeout(() => { if (typeof window.rmStartPolling === "function") window.rmStartPolling(); }, 100);
@@ -8995,9 +9081,6 @@ window.switchPage = async function (page) {
     if (typeof window.rmStopPolling === "function") window.rmStopPolling();
   }
 
-  // Refresh iklan per halaman (hit ulang per menu)
-  syncAdsShowcaseForPage(page, { forceRefresh: true });
-
   // Close sidebar overlay on mobile after switching pages
   if (window.innerWidth <= 768) {
     const sidebar = document.querySelector(".sidebar");
@@ -9010,6 +9093,19 @@ window.switchPage = async function (page) {
     window.syncVersionDots();
   }
 };
+
+document.addEventListener("click", (evt) => {
+  const target = evt.target;
+  if (!(target instanceof Element)) return;
+  const item = target.closest(".sidebar-item[data-page]");
+  if (!item) return;
+
+  const page = item.dataset.page;
+  if (!page) return;
+  evt.preventDefault();
+  evt.stopImmediatePropagation();
+  window.switchPage(page);
+}, true);
 
 // ============================================================
 // Remote Control – Status UI
@@ -9151,6 +9247,44 @@ async function cctvInit() {
       }
     }
   }
+
+  bindAndroidWhatsAppUrlSync(
+    selectId.includes("Emulator") || fieldsId.includes("Emu")
+      ? selectId === "editAndroidAutomationService"
+        ? "editEmuWhatsAppBaseUrl"
+        : "addEmuWhatsAppBaseUrl"
+      : selectId === "editAndroidRemoteService"
+        ? "editWhatsAppBaseUrl"
+        : "addWhatsAppBaseUrl",
+    selectId.includes("Emulator") || fieldsId.includes("Emu")
+      ? selectId === "editAndroidAutomationService"
+        ? "editEmuWhatsAppCallbackUrl"
+        : "addEmuWhatsAppCallbackUrl"
+      : selectId === "editAndroidRemoteService"
+        ? "editWhatsAppCallbackUrl"
+        : "addWhatsAppCallbackUrl"
+  );
+}
+
+function bindAndroidWhatsAppUrlSync(baseInputId, callbackInputId) {
+  const baseInput = document.getElementById(baseInputId);
+  const callbackInput = document.getElementById(callbackInputId);
+  if (!baseInput || !callbackInput) return;
+  if (baseInput.dataset.callbackSyncBound === "true") return;
+  baseInput.dataset.callbackSyncBound = "true";
+
+  const syncCallbackFromBase = () => {
+    const normalizedCallback = getNormalizedCallbackInput(
+      baseInput.value,
+      callbackInput.value
+    );
+    if (!sanitizePendingUrl(callbackInput.value) && normalizedCallback) {
+      callbackInput.value = normalizedCallback;
+    }
+  };
+
+  baseInput.addEventListener("blur", syncCallbackFromBase);
+  baseInput.addEventListener("change", syncCallbackFromBase);
 }
 
 async function cctvCheckFfmpeg() {
@@ -12346,6 +12480,7 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
 (function initProMode() {
   const LS_KEY = 'starbox-pro-mode';
   const PRO_PAGES = ['remox', 'mikrotik', 'os-virtual', 'cctv', 'mystarbox', 'android-ios', 'cron'];
+  window.STARBOX_PRO_PAGES = PRO_PAGES;
 
   function isProMode() {
     return localStorage.getItem(LS_KEY) === 'true';
@@ -12358,8 +12493,10 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
 
     // Update button appearance
     if (btn) {
-      btn.style.borderColor  = pro ? 'rgba(124,111,224,0.6)' : 'rgba(124,111,224,0.3)';
-      btn.style.color        = pro ? '#a99cf0' : '#9ca3af';
+      btn.style.backgroundColor = pro ? 'rgba(139, 92, 246, 0.2)' : 'transparent';
+      btn.style.borderLeftColor = pro ? 'var(--color-accent-purple)' : 'transparent';
+      btn.style.color = pro ? 'var(--color-text-light)' : 'var(--color-text-light)';
+      btn.style.fontWeight = pro ? '600' : '500';
     }
     if (label) {
       label.setAttribute('data-i18n', pro ? 'nav.mode_pro' : 'nav.mode_simple');
@@ -12382,10 +12519,14 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
     }
   }
 
-  window.toggleProMode = function () {
-    const next = !isProMode();
+  window.setProMode = function (enabled) {
+    const next = !!enabled;
     localStorage.setItem(LS_KEY, String(next));
     applyProMode(next);
+  };
+
+  window.toggleProMode = function () {
+    window.setProMode(!isProMode());
   };
 
   // Init on load

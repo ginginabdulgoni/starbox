@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StarBox v2.1.260414 – MultiService Emulator</title>
+    <title>StarBox v2.1.260701 – MultiService Emulator</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
@@ -16,6 +16,11 @@
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
     <link rel="stylesheet" href="style.css" />
     <script src="i18n.js"></script>
+    <style>
+      .swal-on-top {
+        z-index: 9999;
+      }
+    </style>
   </head>
 
   <body>
@@ -47,81 +52,14 @@
           style="display: none; position: absolute; visibility: hidden"
         ></span>
 
-        <!-- Auth Section -->
         <button
-          id="authButton"
-          onclick="handleAuthButtonClick()"
-          class="navbar-btn-auth"
+          id="supportUsNavbarBtn"
+          onclick="event.preventDefault(); switchPage('donate')"
+          class="navbar-btn-support"
         >
-          <i class="bi bi-box-arrow-in-right"></i> <span data-i18n="auth.signin">Sign In / Register</span>
+          <i class="bi bi-heart-fill"></i> <span data-i18n="nav.donate">Donate</span>
         </button>
 
-        <!-- Language Dropdown -->
-        <div class="navbar-lang-dropdown">
-          <button id="langDropdownToggle" type="button" class="navbar-btn-lang">
-            <span id="langFlag">🇺🇸</span>
-            <span id="langLabel">EN</span>
-          </button>
-          <div id="langSelectorPanel" class="lang-selector-panel" data-visible="false">
-            <button type="button" class="lang-option is-active" data-lang="en" onclick="window.setLang('en')">
-              <span class="lang-flag">🇺🇸</span> English
-            </button>
-            <button type="button" class="lang-option" data-lang="id" onclick="window.setLang('id')">
-              <span class="lang-flag">🇮🇩</span> Indonesia
-            </button>
-          </div>
-        </div>
-
-        <div class="navbar-theme-dropdown">
-          <button
-            id="themeDropdownToggle"
-            type="button"
-            class="navbar-btn-theme"
-          >
-            <i class="bi bi-palette"></i>
-            <span data-i18n="nav.theme">Theme</span>
-          </button>
-          <div
-            id="themeSelector"
-            class="theme-selector"
-            data-visible="false"
-            data-enabled="false"
-          >
-            <span data-i18n="nav.theme.select">Select StarBox Theme</span>
-            <div class="theme-options">
-              <button
-                type="button"
-                class="theme-option is-active"
-                data-theme="default"
-              >
-                <span class="theme-dot theme-dot-default"></span> Indigo
-              </button>
-              <button type="button" class="theme-option" data-theme="mint">
-                <span class="theme-dot theme-dot-mint"></span> Mint
-              </button>
-              <button type="button" class="theme-option" data-theme="sunset">
-                <span class="theme-dot theme-dot-sunset"></span> Sunset
-              </button>
-              <button type="button" class="theme-option" data-theme="midnight">
-                <span class="theme-dot theme-dot-midnight"></span> Midnight
-              </button>
-              <button
-                type="button"
-                class="theme-option mode-option"
-                data-mode="dark"
-              >
-                <span class="theme-dot theme-dot-dark"></span> Dark Mode
-              </button>
-              <button
-                type="button"
-                class="theme-option mode-option"
-                data-mode="light"
-              >
-                <span class="theme-dot theme-dot-light"></span> Light Mode
-              </button>
-            </div>
-          </div>
-        </div>
         <button
           id="userProfileButton"
           onclick="openAccountModal()"
@@ -154,23 +92,59 @@
           <span id="remoteLabel" style="color: #9ca3af;" data-i18n="nav.remote">Remote</span>
         </button>
 
-        <!-- Mode Pro Toggle -->
-        <button
-          id="modeProBtn"
-          onclick="toggleProMode()"
-          title="Mode Pro – aktifkan untuk fitur lanjutan"
-          style="
-            display: flex; align-items: center; gap: 5px;
-            padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(124,111,224,0.3);
-            background: transparent; cursor: pointer; font-size: 12px;
-            font-weight: 500; transition: all .15s; color: #9ca3af;
-          "
-          onmouseover="this.style.background='rgba(124,111,224,0.1)'"
-          onmouseout="this.style.background='transparent'"
-        >
-          <i class="bi bi-toggles" style="font-size:13px;"></i>
-          <span id="modeProLabel" data-i18n="nav.mode_simple">Simple</span>
-        </button>
+        <div class="navbar-lang-dropdown">
+          <button id="langDropdownToggle" type="button" class="navbar-btn-lang">
+            <i class="bi bi-translate"></i>
+            <span><span id="langFlag">🇺🇸</span> <span id="langLabel">EN</span></span>
+          </button>
+          <div id="langSelectorPanel" class="lang-selector-panel" data-visible="false">
+            <button type="button" class="lang-option is-active" data-lang="en" onclick="window.setLang('en')">
+              <span class="lang-flag">🇺🇸</span> English
+            </button>
+            <button type="button" class="lang-option" data-lang="id" onclick="window.setLang('id')">
+              <span class="lang-flag">🇮🇩</span> Indonesia
+            </button>
+          </div>
+        </div>
+
+        <div class="navbar-theme-dropdown">
+          <button
+            id="themeDropdownToggle"
+            type="button"
+            class="navbar-btn-theme"
+          >
+            <i class="bi bi-palette"></i>
+            <span data-i18n="nav.theme">Theme</span>
+          </button>
+          <div
+            id="themeSelector"
+            class="theme-selector"
+            data-visible="false"
+            data-enabled="false"
+          >
+            <span data-i18n="nav.theme.select">Select StarBox Theme</span>
+            <div class="theme-options">
+              <button type="button" class="theme-option is-active" data-theme="default">
+                <span class="theme-dot theme-dot-default"></span> Indigo
+              </button>
+              <button type="button" class="theme-option" data-theme="mint">
+                <span class="theme-dot theme-dot-mint"></span> Mint
+              </button>
+              <button type="button" class="theme-option" data-theme="sunset">
+                <span class="theme-dot theme-dot-sunset"></span> Sunset
+              </button>
+              <button type="button" class="theme-option" data-theme="midnight">
+                <span class="theme-dot theme-dot-midnight"></span> Midnight
+              </button>
+              <button type="button" class="theme-option mode-option" data-mode="dark">
+                <span class="theme-dot theme-dot-dark"></span> Dark Mode
+              </button>
+              <button type="button" class="theme-option mode-option" data-mode="light">
+                <span class="theme-dot theme-dot-light"></span> Light Mode
+              </button>
+            </div>
+          </div>
+        </div>
 
         <!-- DND / Focus Mode Button -->
         <button
@@ -245,18 +219,13 @@
           <i class="bi bi-laptop"></i>
           <span data-i18n="sidebar.web_emulator">Web Emulator</span>
         </a>
-        <a href="#" class="sidebar-item" data-page="whatsapp-gateway"
-          data-label="WhatsApp Gateway" onclick="switchPage('whatsapp-gateway')">
-          <i class="bi bi-whatsapp"></i>
-          <span data-i18n="sidebar.whatsapp_gateway">WhatsApp Gateway</span>
-        </a>
         <a href="#" class="sidebar-item" data-page="android-ios" data-pro="true"
           data-label="Android / iOS" onclick="switchPage('android-ios')">
           <i class="bi bi-phone"></i>
           <span data-i18n="sidebar.android_ios">Android / iOS</span>
         </a>
         <a href="#" class="sidebar-item" data-page="remox" data-pro="true"
-          data-label="Remox" onclick="switchPage('remox')">
+          data-label="Remox" onclick="event.preventDefault(); window.setProMode?.(true); localStorage.setItem('starbox-pro-mode','true'); window.switchPage('remox')">
           <i class="bi bi-terminal"></i>
           <span data-i18n="sidebar.remox">Remox</span>
         </a>
@@ -298,11 +267,17 @@
       </div>
 
       <div class="sidebar-footer">
-        <a href="#" class="sidebar-item sidebar-footer-item"
-          data-label="Support Us" onclick="event.preventDefault(); openSupportModal()">
-          <i class="bi bi-heart-fill"></i>
-          <span data-i18n="sidebar.support_us">Support Us</span>
-        </a>
+
+        <button id="modeProBtn" class="sidebar-item sidebar-footer-item sidebar-footer-button" onclick="toggleProMode()" title="Mode Pro – aktifkan untuk fitur lanjutan">
+          <i class="bi bi-toggles"></i>
+          <span id="modeProLabel" data-i18n="nav.mode_simple">Simple</span>
+        </button>
+
+        <button id="authButton" class="sidebar-item sidebar-footer-item sidebar-footer-button" onclick="handleAuthButtonClick()">
+          <i class="bi bi-box-arrow-in-right"></i>
+          <span data-i18n="auth.signin">Sign In / Register</span>
+        </button>
+
         <a href="#" class="sidebar-item sidebar-footer-item"
           data-label="Logs" onclick="event.preventDefault(); openLogsModal()">
           <i class="bi bi-journal-text"></i>
@@ -340,7 +315,7 @@
               onclick="window.startVersionDownload && window.startVersionDownload()"
             >
               <i class="bi bi-download"></i>
-              <span id="versionDownloadLabel" data-i18n="version.download">Download & Install</span>
+              <span id="versionDownloadLabel" data-i18n="version.download">Download</span>
             </button>
             <button
               type="button"
@@ -372,7 +347,7 @@
               id="versionDownloadText"
               style="font-size: 13px; color: #e2e8f0; margin-bottom: 6px"
             >
-              <span data-i18n="version.preparing">Preparing download...</span>
+              <span data-i18n="version.preparing">Opening download page...</span>
             </div>
             <div
               style="
@@ -408,6 +383,13 @@
             </label>
             <button onclick="openModal()">
               <i class="bi bi-plus-circle"></i> <span data-i18n="toolbar.add_device">Add Device</span>
+            </button>
+            <button
+              type="button"
+              class="secondary"
+              onclick="switchPage('whatsapp-gateway')"
+            >
+              <i class="bi bi-whatsapp"></i> <span data-i18n="toolbar.whatsapp_gateway">WhatsApp Gateway</span>
             </button>
             <div class="toolbar-actions-dropdown">
               <button
@@ -457,8 +439,8 @@
                 </button>
               </div>
             </div>
-            <button onclick="switchPage('remote-control')" title="Remote Control — kendalikan device dari komputer lain"
-              style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;
+            <button id="btnToolbarRemoteControl" onclick="switchPage('remote-control')" title="Remote Control — kendalikan device dari komputer lain"
+              style="display:none;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;
                 border:1px solid rgba(124,111,224,0.35);background:rgba(124,111,224,0.08);
                 color:#a78bfa;cursor:pointer;font-size:12px;font-weight:500;transition:all .15s;flex-shrink:0"
               onmouseover="this.style.background='rgba(124,111,224,0.18)'"
@@ -514,38 +496,7 @@
 
           <div id="device-list">Loading...</div>
 
-          <section
-            id="adsShowcase"
-            class="ads-showcase"
-            aria-live="polite"
-            style="display: none"
-          >
-            <div class="ads-head">
-              <div class="ads-title">
-                <p class="ads-eyebrow" data-i18n="ads.eyebrow">Featured recommendations</p>
-                <h4>Iklan</h4>
-              </div>
-              <span id="adsCountdown" class="ads-countdown"></span>
-              <button
-                type="button"
-                id="adsHideButton"
-                class="ads-hide-btn"
-                onclick="openAdsInfoModal()"
-              >
-                <span data-i18n="ads.hide">Hide ads</span>
-              </button>
-            </div>
-            <div class="ads-marquee ads-marquee-horizontal">
-              <div id="adsTrackHorizontal" class="ads-track">
-                <div class="ads-empty" data-i18n="ads.loading">Loading recommendations...</div>
-              </div>
-            </div>
-            <div class="ads-marquee ads-marquee-vertical">
-              <div id="adsTrackVertical" class="ads-track">
-                <div class="ads-empty" data-i18n="ads.loading">Loading recommendations...</div>
-              </div>
-            </div>
-          </section>
+
         </main>
       </div>
       <!-- End Page: Web Emulator -->
@@ -914,6 +865,73 @@
 
           /* ── Terminal area — intentionally kept dark (terminal UX) ── */
           .rmx-terminal-area { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #0d1117; }
+          .rmx-quickbar {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 10px;
+            background: #11161d;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            flex-shrink: 0;
+            position: relative;
+          }
+          .rmx-quickbar-label {
+            font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase; color: #6e7681; white-space: nowrap;
+          }
+          .rmx-quickbar-spacer { flex: 1; }
+          .rmx-quickbar-dropdown { position: relative; }
+          .rmx-quickbar-toggle {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px; color: #c9d1d9; padding: 7px 12px;
+            cursor: pointer; font-size: 12px; white-space: nowrap;
+            transition: background 0.15s, border-color 0.15s;
+          }
+          .rmx-quickbar-toggle:hover,
+          .rmx-quickbar-toggle[aria-expanded="true"] {
+            background: rgba(124,111,224,0.14);
+            border-color: rgba(124,111,224,0.35);
+          }
+          .rmx-quickbar-menu {
+            position: absolute; top: calc(100% + 8px); right: 0; z-index: 40;
+            width: min(420px, calc(100vw - 32px));
+            background: #161b22; border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px; box-shadow: 0 18px 40px rgba(0,0,0,0.42);
+            padding: 8px; display: none;
+          }
+          .rmx-quickbar-menu.open { display: block; }
+          .rmx-quickbar-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px;
+          }
+          .rmx-quick-btn {
+            display: inline-flex; align-items: center; gap: 7px;
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px; color: #c9d1d9; padding: 8px 10px;
+            cursor: pointer; font-size: 12px; white-space: nowrap; width: 100%;
+            justify-content: space-between;
+            transition: background 0.15s, border-color 0.15s, transform 0.12s;
+          }
+          .rmx-quick-btn span { flex: 1; text-align: left; }
+          .rmx-quick-btn:hover {
+            background: rgba(124,111,224,0.14);
+            border-color: rgba(124,111,224,0.35);
+            transform: translateY(-1px);
+          }
+          .rmx-quick-btn kbd {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 10px; color: #8b949e;
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+            border-bottom-color: rgba(255,255,255,0.16);
+            border-radius: 5px; padding: 2px 5px;
+          }
+          .rmx-quick-btn.help {
+            color: #a78bfa;
+            border-color: rgba(124,111,224,0.28);
+            background: rgba(124,111,224,0.10);
+          }
+          .rmx-quick-btn.help:hover {
+            background: rgba(124,111,224,0.18);
+            border-color: rgba(124,111,224,0.4);
+          }
           .rmx-tabs {
             display: flex; align-items: center; background: #161b22;
             border-bottom: 1px solid rgba(255,255,255,0.07); flex-shrink: 0; overflow-x: auto;
@@ -995,6 +1013,35 @@
           body.theme-mode-light .rmx-conn-btn:hover   { background: rgba(99,102,241,0.1); }
           body.theme-mode-light .rmx-ping-badge       { background: rgba(0,0,0,0.05); }
           body.theme-mode-light .rmx-ping-badge:hover { background: rgba(0,0,0,0.1); }
+          body.theme-mode-light .rmx-quickbar {
+            background: #f8fafc;
+            border-bottom-color: var(--card-border-light, #d4dbe9);
+          }
+          body.theme-mode-light .rmx-quickbar-label { color: #64748b; }
+          body.theme-mode-light .rmx-quickbar-menu {
+            background: #ffffff;
+            border-color: #d4dbe9;
+            box-shadow: 0 18px 36px rgba(15, 23, 42, 0.16);
+          }
+          body.theme-mode-light .rmx-quickbar-toggle {
+            background: #ffffff;
+            color: #0f172a;
+            border-color: #d4dbe9;
+          }
+          body.theme-mode-light .rmx-quick-btn {
+            background: #ffffff;
+            color: #0f172a;
+            border-color: #d4dbe9;
+          }
+          body.theme-mode-light .rmx-quick-btn:hover {
+            background: #eef2ff;
+            border-color: rgba(124,111,224,0.35);
+          }
+          body.theme-mode-light .rmx-quick-btn kbd {
+            color: #475569;
+            background: #f8fafc;
+            border-color: #d4dbe9;
+          }
 
           /* ── Modal form inputs ── */
           .rmx-modal-overlay {
@@ -1046,6 +1093,15 @@
           }
           .rmx-form-row { display: flex; gap: 10px; }
           .rmx-form-row .rmx-form-group { flex: 1; }
+          .rmx-pass-wrap { position: relative; }
+          .rmx-pass-wrap input { padding-right: 40px; }
+          .rmx-pass-toggle {
+            position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 24px; height: 24px; border: none; background: transparent;
+            color: #888; cursor: pointer; padding: 0;
+          }
+          .rmx-pass-toggle:hover { color: var(--color-accent-purple); }
           .rmx-pk-toggle { font-size: 11px; color: var(--color-accent-purple); cursor: pointer; text-decoration: underline; }
           #rmxPkField { display: none; }
 
@@ -1248,6 +1304,60 @@
 
           <!-- Terminal area -->
           <div class="rmx-terminal-area">
+            <div class="rmx-quickbar" id="rmxQuickbar">
+              <span class="rmx-quickbar-label">NOC Tools</span>
+              <div class="rmx-quickbar-spacer"></div>
+              <div class="rmx-quickbar-dropdown">
+                <button
+                  type="button"
+                  class="rmx-quickbar-toggle"
+                  id="rmxQuickbarToggle"
+                  onclick="rmxToggleQuickbarMenu(event)"
+                  aria-expanded="false"
+                >
+                  <i class="bi bi-lightning-charge"></i>
+                  <span>Quick Actions</span>
+                  <i class="bi bi-chevron-down"></i>
+                </button>
+                <div class="rmx-quickbar-menu" id="rmxQuickbarMenu">
+                  <div class="rmx-quickbar-grid">
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('health')">
+                      <i class="bi bi-activity"></i><span>Health</span><kbd>Ctrl+Shift+1</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('disk')">
+                      <i class="bi bi-device-hdd"></i><span>Disk</span><kbd>Ctrl+Shift+2</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('memory')">
+                      <i class="bi bi-memory"></i><span>Memory</span><kbd>Ctrl+Shift+3</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('network')">
+                      <i class="bi bi-diagram-3"></i><span>Network</span><kbd>Ctrl+Shift+4</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('services')">
+                      <i class="bi bi-gear-wide-connected"></i><span>Services</span><kbd>Ctrl+Shift+5</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('logs')">
+                      <i class="bi bi-journal-text"></i><span>Logs</span><kbd>Ctrl+Shift+6</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('docker')">
+                      <i class="bi bi-box-seam"></i><span>Docker</span><kbd>Ctrl+Shift+7</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('update')">
+                      <i class="bi bi-arrow-repeat"></i><span>Update</span><kbd>Ctrl+Shift+8</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('uptime')">
+                      <i class="bi bi-clock-history"></i><span>Uptime</span><kbd>Ctrl+Shift+9</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('ports')">
+                      <i class="bi bi-broadcast-pin"></i><span>Ports</span><kbd>Ctrl+Shift+0</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn help" onclick="rmxShowShortcutHelp()">
+                      <i class="bi bi-keyboard"></i><span>Shortcut</span><kbd>Ctrl+Shift+/</kbd>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div class="rmx-tabs" id="rmxTabs">
               <div class="rmx-tab-add" id="rmxTabAddBtn" onclick="rmxOpenTabModal()" title="Buka koneksi baru">+</div>
             </div>
@@ -1278,9 +1388,14 @@
               </div>
               <div class="rmx-form-group" style="flex:1">
                 <label>Group <span style="font-size:10px;color:#666;font-weight:400">(opsional)</span></label>
-                <select id="rmxFormGroup">
-                  <option value="">Tanpa group</option>
-                </select>
+                <div style="display: flex; gap: 5px;">
+                  <select id="rmxFormGroup" style="flex: 1;">
+                    <option value="">Tanpa group</option>
+                  </select>
+                  <button type="button" onclick="rmxAddNewGroup()" class="btn-secondary" style="padding: 0 12px;" title="Buat grup baru">
+                    <i class="bi bi-plus-lg"></i>
+                  </button>
+                </div>
               </div>
             </div>
             <div class="rmx-form-row">
@@ -1309,7 +1424,12 @@
                 </div>
                 <div class="rmx-form-group">
                   <label>Password <span class="rmx-pk-toggle" id="rmxPkToggleBtn" data-i18n="remox.form.pk_toggle" onclick="rmxTogglePk()">or Use Private Key</span></label>
-                  <input type="password" id="rmxFormPass" placeholder="••••••••">
+                  <div class="rmx-pass-wrap">
+                    <input type="password" id="rmxFormPass" placeholder="••••••••">
+                    <button type="button" class="rmx-pass-toggle" id="rmxPassToggleBtn" onclick="rmxTogglePasswordVisibility()" title="Show password" aria-label="Show password">
+                      <i class="bi bi-eye" id="rmxPassToggleIcon"></i>
+                    </button>
+                  </div>
                 </div>
               </div>
               <div id="rmxRdpFields" style="display:none">
@@ -1364,6 +1484,257 @@
         // connId -> { reachable, latency, ts }
         const rmxPingCache = new Map();
         const PING_TTL_MS = 3 * 60 * 1000; // 3 menit
+        const RMX_QUICK_ACTIONS = {
+          health: {
+            label: "Health",
+            command:
+              "(command -v htop >/dev/null 2>&1 && htop) || (command -v btop >/dev/null 2>&1 && btop) || top",
+          },
+          uptime: {
+            label: "Uptime",
+            command: "uptime && who -b 2>/dev/null || last reboot | head -n 1",
+          },
+          disk: { label: "Disk", command: "df -h" },
+          memory: {
+            label: "Memory",
+            command: "(command -v free >/dev/null 2>&1 && free -h) || vm_stat",
+          },
+          network: {
+            label: "Network",
+            command: "(command -v ip >/dev/null 2>&1 && ip a) || ifconfig",
+          },
+          services: {
+            label: "Services",
+            command:
+              "(command -v systemctl >/dev/null 2>&1 && systemctl --failed --no-pager) || service --status-all",
+          },
+          logs: {
+            label: "Logs",
+            command:
+              "(command -v journalctl >/dev/null 2>&1 && journalctl -xe --no-pager | tail -n 120) || tail -n 120 /var/log/syslog || tail -n 120 /var/log/messages",
+          },
+          docker: {
+            label: "Docker",
+            command:
+              "(command -v docker >/dev/null 2>&1 && docker ps --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}') || docker ps",
+          },
+          ports: {
+            label: "Ports",
+            command:
+              "(command -v ss >/dev/null 2>&1 && ss -tulpn) || (command -v netstat >/dev/null 2>&1 && netstat -tulpn) || lsof -i -P -n",
+          },
+          update: {
+            label: "Update",
+            command:
+              "if command -v apt >/dev/null 2>&1; then sudo apt update; elif command -v dnf >/dev/null 2>&1; then sudo dnf check-update; elif command -v yum >/dev/null 2>&1; then sudo yum check-update; elif command -v apk >/dev/null 2>&1; then sudo apk update; elif command -v pacman >/dev/null 2>&1; then sudo pacman -Sy; else echo 'Package manager tidak dikenali'; fi",
+          },
+        };
+
+        function rmxCloseSupportArtifacts() {
+          const supportModal = document.getElementById("supportModal");
+          if (supportModal) supportModal.style.display = "none";
+        }
+
+        function rmxSetQuickbarMenuOpen(open) {
+          const menu = document.getElementById("rmxQuickbarMenu");
+          const toggle = document.getElementById("rmxQuickbarToggle");
+          if (!menu || !toggle) return;
+          menu.classList.toggle("open", !!open);
+          toggle.setAttribute("aria-expanded", open ? "true" : "false");
+        }
+
+        window.rmxToggleQuickbarMenu = function (event) {
+          event?.stopPropagation?.();
+          const menu = document.getElementById("rmxQuickbarMenu");
+          if (!menu) return;
+          rmxSetQuickbarMenuOpen(!menu.classList.contains("open"));
+        };
+
+        function rmxHasBlockingOverlayOpen() {
+          const supportModal = document.getElementById("supportModal");
+          const remoxModal = document.getElementById("rmxModal");
+          const tabModal = document.getElementById("rmxTabModal");
+          return Boolean(
+            (supportModal && supportModal.style.display === "flex") ||
+            (remoxModal && remoxModal.style.display === "flex") ||
+            (tabModal && tabModal.classList.contains("open"))
+          );
+        }
+
+        function rmxGetActiveTerminalTab() {
+          return rmxTabs.find(
+            (tab) =>
+              tab.id === rmxActiveTab &&
+              tab.type !== "rdp" &&
+              tab.status === "connected"
+          ) || null;
+        }
+
+        function rmxFocusActiveTerminal() {
+          const tab = rmxTabs.find((item) => item.id === rmxActiveTab);
+          tab?.term?.focus();
+        }
+
+        function rmxRestoreActiveTerminal(forceFocus = false) {
+          if (window.currentActivePage !== "remox") return;
+          const activeTab = rmxGetActiveTerminalTab();
+          if (!activeTab) return;
+
+          const runRestore = () => {
+            try {
+              activeTab.fitAddon?.fit?.();
+            } catch (_) {}
+            try {
+              window.electronAPI?.remox?.resize({
+                sessionId: activeTab.id,
+                cols: activeTab.term?.cols,
+                rows: activeTab.term?.rows,
+              });
+            } catch (_) {}
+            if (forceFocus) {
+              try {
+                activeTab.term?.focus();
+              } catch (_) {}
+            }
+          };
+
+          runRestore();
+          setTimeout(runRestore, 60);
+          setTimeout(runRestore, 180);
+        }
+
+        function rmxSendActiveCommand(command) {
+          const activeTab = rmxGetActiveTerminalTab();
+          if (!activeTab || !window.electronAPI?.remox?.sendData) {
+            Swal.fire({
+              icon: "info",
+              title: "Sesi terminal belum aktif",
+              text: "Buka sesi SSH atau Telnet yang sudah terhubung terlebih dahulu.",
+              customClass: {
+                popup: "theme-aware-swal",
+                container: "swal-on-top",
+              },
+            });
+            return false;
+          }
+
+          const payload = String(command || "").endsWith("\r")
+            ? String(command)
+            : `${String(command)}\r`;
+          activeTab.term?.focus();
+          window.electronAPI.remox.sendData({ sessionId: activeTab.id, data: payload });
+          return true;
+        }
+
+        window.rmxRunQuickAction = function (key) {
+          const action = RMX_QUICK_ACTIONS[key];
+          if (!action) return;
+          rmxSetQuickbarMenuOpen(false);
+          rmxCloseSupportArtifacts();
+          rmxSendActiveCommand(action.command);
+        };
+
+        window.rmxShowShortcutHelp = function () {
+          rmxSetQuickbarMenuOpen(false);
+          const rows = [
+            ["Ctrl/Cmd + Shift + 1", "Health monitor (`htop` / `btop` / `top`)"],
+            ["Ctrl/Cmd + Shift + 2", "Disk usage (`df -h`)"],
+            ["Ctrl/Cmd + Shift + 3", "Memory usage (`free -h` / `vm_stat`)"],
+            ["Ctrl/Cmd + Shift + 4", "Network info (`ip a` / `ifconfig`)"],
+            ["Ctrl/Cmd + Shift + 5", "Failed services"],
+            ["Ctrl/Cmd + Shift + 6", "Recent logs"],
+            ["Ctrl/Cmd + Shift + 7", "Docker status"],
+            ["Ctrl/Cmd + Shift + 8", "Package update check"],
+            ["Ctrl/Cmd + Shift + 9", "Uptime & reboot info"],
+            ["Ctrl/Cmd + Shift + 0", "Listening ports"],
+            ["Ctrl/Cmd + Shift + K", "Focus terminal aktif"],
+            ["Ctrl/Cmd + Shift + /", "Buka bantuan shortcut"],
+          ];
+
+          Swal.fire({
+            title: "Shortcut Remox",
+            html: `
+              <div style="text-align:left;font-size:13px;line-height:1.7">
+                ${rows.map(([keys, desc]) => `
+                  <div style="display:flex;justify-content:space-between;gap:14px;padding:6px 0;border-bottom:1px solid rgba(148,163,184,0.16);">
+                    <strong style="white-space:nowrap">${keys}</strong>
+                    <span style="text-align:right">${desc}</span>
+                  </div>
+                `).join("")}
+              </div>
+            `,
+            width: 720,
+            confirmButtonText: "Tutup",
+            customClass: {
+              popup: "theme-aware-swal",
+              confirmButton: "btn-primary",
+              container: "swal-on-top",
+            },
+          });
+        };
+
+        document.addEventListener("keydown", (event) => {
+          if (window.currentActivePage !== "remox") return;
+          if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey) return;
+          if (rmxHasBlockingOverlayOpen()) return;
+
+          const target = event.target;
+          const tagName = target?.tagName?.toLowerCase?.() || "";
+          const isEditing =
+            tagName === "input" ||
+            tagName === "textarea" ||
+            tagName === "select" ||
+            target?.isContentEditable;
+          if (isEditing) return;
+
+          const quickActionMap = {
+            "1": "health",
+            "2": "disk",
+            "3": "memory",
+            "4": "network",
+            "5": "services",
+            "6": "logs",
+            "7": "docker",
+            "8": "update",
+            "9": "uptime",
+            "0": "ports",
+          };
+
+          if (quickActionMap[event.key]) {
+            event.preventDefault();
+            window.rmxRunQuickAction(quickActionMap[event.key]);
+            return;
+          }
+
+          if (event.key.toLowerCase() === "k") {
+            event.preventDefault();
+            rmxFocusActiveTerminal();
+            return;
+          }
+
+          if (event.key === "/" || event.key === "?") {
+            event.preventDefault();
+            window.rmxShowShortcutHelp();
+          }
+        });
+
+        document.addEventListener("click", (event) => {
+          if (!event.target.closest(".rmx-quickbar-dropdown")) {
+            rmxSetQuickbarMenuOpen(false);
+          }
+        });
+
+        window.addEventListener("focus", () => {
+          if (window.currentActivePage !== "remox") return;
+          rmxCloseSupportArtifacts();
+          rmxRestoreActiveTerminal(true);
+        });
+
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState !== "visible") return;
+          if (window.currentActivePage !== "remox") return;
+          rmxRestoreActiveTerminal(true);
+        });
 
         // ─── Init ─────────────────────────────────────────────────────────────
         // Expose active session count and refit helper for Resource Monitor
@@ -1386,11 +1757,12 @@
         }
 
         window.initRemoxPage = async function () {
-          if (rmxInitialized) { rmxRefreshSidebar(); rmxRefitActive(); return; }
+          rmxCloseSupportArtifacts();
+          const firstInit = !rmxInitialized;
           rmxInitialized = true;
 
           // Subscribe to IPC events
-          if (window.electronAPI?.remox) {
+          if (firstInit && window.electronAPI?.remox) {
             rmxDataUnlisten = window.electronAPI.remox.onData(({ sessionId, data }) => {
               const tab = rmxTabs.find((t) => t.id === sessionId);
               if (tab?.term) tab.term.write(data);
@@ -1410,19 +1782,24 @@
           await rmxCheckCloudAccess();
           await rmxLoadConnections();
           rmxUpdateWorkspaceLayout();
-          rmxScheduleAutoSync(); // mulai auto-sync setiap 5 menit
+          if (firstInit) rmxScheduleAutoSync(); // mulai auto-sync setiap 5 menit
 
           // Jika lokal kosong dan user sudah login, otomatis tarik dari server
           if (rmxConnections.length === 0) {
             await window.rmxPullCloud(true);
           }
+          rmxRefitActive();
         };
 
         async function rmxLoadConnections() {
           if (!window.electronAPI?.remox) return;
           try {
-            rmxConnections = await window.electronAPI.remox.loadConnections();
-          } catch { rmxConnections = []; }
+            const loaded = await window.electronAPI.remox.loadConnections();
+            rmxConnections = Array.isArray(loaded) ? loaded : [];
+          } catch (err) {
+            console.warn("Gagal memuat koneksi Remox:", err?.message || err);
+            rmxConnections = [];
+          }
           rmxRefreshSidebar();
           rmxPingAll();
         }
@@ -1432,7 +1809,7 @@
          * Dipanggil dari halaman lain (misal MikroTik).
          */
         window.rmxConnectById = async function (connectionId) {
-          switchPage("remox");
+          await switchPage("remox");
           // Tunggu initRemoxPage selesai (max 3 detik)
           let waited = 0;
           await new Promise((resolve) => {
@@ -1493,6 +1870,48 @@
             });
             groupSelect.appendChild(frag);
             groupSelect.value = selected || "";
+          }
+        };
+
+        window.rmxAddNewGroup = async function () {
+          const { value: newGroup } = await Swal.fire({
+            title: "Buat Grup Baru",
+            input: "text",
+            inputLabel: "Nama Grup",
+            inputPlaceholder: "Contoh: Server Kantor",
+            showCancelButton: true,
+            confirmButtonText: "Buat & Pilih",
+            cancelButtonText: "Batal",
+            customClass: {
+              popup: 'theme-aware-swal',
+              confirmButton: 'btn-primary',
+              cancelButton: 'btn-secondary',
+              container: 'swal-on-top'
+            },
+            inputValidator: (value) => {
+              if (!value || !value.trim()) {
+                return "Nama grup tidak boleh kosong!";
+              }
+            },
+          });
+
+          if (newGroup) {
+            const groupSelect = document.getElementById("rmxFormGroup");
+            const trimmedGroup = newGroup.trim();
+
+            // Cek jika grup sudah ada (case-insensitive)
+            const exists = Array.from(groupSelect.options).some(
+              (opt) => opt.value.toLowerCase() === trimmedGroup.toLowerCase()
+            );
+
+            if (!exists) {
+              const newOption = document.createElement("option");
+              newOption.value = trimmedGroup;
+              newOption.textContent = trimmedGroup;
+              groupSelect.appendChild(newOption);
+            }
+
+            groupSelect.value = trimmedGroup;
           }
         };
 
@@ -2085,6 +2504,7 @@
 
         function rmxSetActiveTab(id) {
           rmxActiveTab = id;
+          rmxCloseSupportArtifacts();
           rmxRenderTabs();
           document.querySelectorAll(".rmx-terminal-panel").forEach((p) => p.classList.remove("active"));
           const panel = document.getElementById("rmx-panel-" + id);
@@ -2147,6 +2567,7 @@
           const panelEl = document.getElementById("rmx-panel-" + sessionId);
           if (panelEl) {
             const container = panelEl.querySelector(".rmx-term-container");
+            container.addEventListener("mousedown", rmxCloseSupportArtifacts);
             container.style.display = "flex";
             container.style.alignItems = "center";
             container.style.justifyContent = "center";
@@ -2213,6 +2634,7 @@
 
         // ─── Connect / Focus ──────────────────────────────────────────────────
         window.rmxConnectOrFocus = async function (connId) {
+          rmxCloseSupportArtifacts();
           const existingTab = rmxTabs.find((t) => t.connId === connId && t.status !== "disconnected");
           if (existingTab) { rmxSetActiveTab(existingTab.id); return; }
           const sessionId = "rmx-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
@@ -2235,6 +2657,7 @@
           const panelEl = document.getElementById("rmx-panel-" + sessionId);
           if (panelEl) {
             const container = panelEl.querySelector(".rmx-term-container");
+            container.addEventListener("mousedown", rmxCloseSupportArtifacts);
             const term = new Terminal({
               theme: {
                 background: "#0d1117", foreground: "#c9d1d9", cursor: "#58a6ff",
@@ -2300,6 +2723,7 @@
           document.getElementById("rmxRdpFields").style.display = "none";
           document.getElementById("rmxPkToggleBtn").style.display = "";
           document.getElementById("rmxSshFields").style.display = "";
+          rmxSetPasswordVisibility(false);
           rmxUpdateGroupDatalist("");
           document.getElementById("rmxModal").style.display = "flex";
           document.getElementById("rmxFormName").focus();
@@ -2324,11 +2748,13 @@
           document.getElementById("rmxRdpFields").style.display = isRdp ? "" : "none";
           document.getElementById("rmxPkToggleBtn").style.display = isSsh ? "" : "none";
           document.getElementById("rmxSshFields").style.display = (isSsh || isRdp) ? "" : "none";
+          rmxSetPasswordVisibility(false);
           rmxUpdateGroupDatalist(c.group || "");
           document.getElementById("rmxModal").style.display = "flex";
         };
 
         window.rmxCloseModal = function () {
+          rmxSetPasswordVisibility(false);
           document.getElementById("rmxModal").style.display = "none";
         };
 
@@ -2346,6 +2772,25 @@
         window.rmxTogglePk = function () {
           const f = document.getElementById("rmxPkField");
           f.style.display = f.style.display === "none" ? "" : "none";
+        };
+
+        function rmxSetPasswordVisibility(show) {
+          const input = document.getElementById("rmxFormPass");
+          const icon = document.getElementById("rmxPassToggleIcon");
+          const btn = document.getElementById("rmxPassToggleBtn");
+          if (!input) return;
+          input.type = show ? "text" : "password";
+          if (icon) icon.className = show ? "bi bi-eye-slash" : "bi bi-eye";
+          if (btn) {
+            btn.title = show ? "Hide password" : "Show password";
+            btn.setAttribute("aria-label", show ? "Hide password" : "Show password");
+          }
+        }
+
+        window.rmxTogglePasswordVisibility = function () {
+          const input = document.getElementById("rmxFormPass");
+          if (!input) return;
+          rmxSetPasswordVisibility(input.type === "password");
         };
 
         window.rmxSaveConnection = async function () {
@@ -3988,6 +4433,24 @@
           </div>
         </div>
 
+        <!-- System Cleaner -->
+        <div class="rm-section">
+          <div class="rm-proc-toolbar">
+            <div class="rm-section-title" style="margin:0"><i class="bi bi-stars"></i> Pembersih Sistem</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button class="rm-btn" id="rmCleanScanBtn" onclick="rmCleanScan()"><i class="bi bi-search"></i> Scan</button>
+              <button class="rm-btn" id="rmCleanRunBtn" onclick="rmCleanRun()" disabled style="opacity:.5"><i class="bi bi-trash3"></i> Bersihkan</button>
+            </div>
+          </div>
+          <div id="rmCleanBody">
+            <div style="font-size:12px;color:var(--color-gray)">
+              Klik <strong>Scan</strong> untuk menghitung cache &amp; file sampah yang bisa dibersihkan
+              (cache web session StarBox, file temp sistem, data emulator yatim, cache aplikasi lain).
+              Login dan data aplikasi Anda tidak akan terhapus.
+            </div>
+          </div>
+        </div>
+
         <!-- System Processes -->
         <div class="rm-section">
           <div class="rm-proc-toolbar">
@@ -4185,6 +4648,70 @@
               rmRenderProcs();
             } else {
               Swal.fire({ title: 'Gagal', text: r.error, icon: 'error', background:'var(--color-medium-purple,#2d2446)',color:'var(--color-text-light,#e0e0e0)' });
+            }
+          }
+
+          /* ── system cleaner ── */
+          let _rmCleaning = false;
+
+          async function rmCleanScan() {
+            const body   = document.getElementById('rmCleanBody');
+            const runBtn = document.getElementById('rmCleanRunBtn');
+            if (!body || !runBtn) return;
+            body.innerHTML = '<div class="rm-loading"><span class="rm-spinner">⟳</span> Menghitung ukuran cache &amp; file sampah...</div>';
+            runBtn.disabled = true; runBtn.style.opacity = .5;
+            try {
+              const res  = await window.electronAPI.resourceMonitor.cleanScan();
+              const cats = res?.categories || [];
+              if (!res?.success) throw new Error(res?.error || 'Scan gagal');
+              let total = 0;
+              const rows = cats.map((c) => {
+                total += c.bytes;
+                const empty = c.bytes <= 0;
+                return `
+                  <label style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid rgba(128,128,128,.08);cursor:pointer;${empty ? 'opacity:.5' : ''}">
+                    <input type="checkbox" data-clean-id="${c.id}" ${c.defaultChecked && !empty ? 'checked' : ''} ${empty ? 'disabled' : ''} style="accent-color:var(--color-accent-purple)">
+                    <span style="flex:1;min-width:0">
+                      <span style="font-size:13px;font-weight:600;display:block;color:var(--color-text-light)">${c.label}</span>
+                      <span style="font-size:11px;color:var(--color-gray)">${c.desc} · ${c.files} file</span>
+                    </span>
+                    <span style="font-size:13px;font-weight:700;color:var(--color-warning,#fbbf24);white-space:nowrap">${rmFmtBytes(c.bytes)}</span>
+                  </label>`;
+              }).join('');
+              body.innerHTML = rows +
+                `<div style="text-align:right;font-size:12px;color:var(--color-gray);padding-top:10px">Total dapat dibersihkan: <strong style="color:var(--color-text-light)">${rmFmtBytes(total)}</strong></div>`;
+              if (total > 0) { runBtn.disabled = false; runBtn.style.opacity = 1; }
+            } catch (err) {
+              body.innerHTML = '<div style="font-size:12px;color:var(--color-danger,#ef4444)">Gagal scan: ' + (err?.message || err) + '</div>';
+            }
+          }
+
+          async function rmCleanRun() {
+            if (_rmCleaning) return;
+            const ids = Array.from(
+              document.querySelectorAll('#rmCleanBody input[data-clean-id]:checked')
+            ).map((el) => el.getAttribute('data-clean-id'));
+            if (!ids.length) return;
+
+            const runBtn = document.getElementById('rmCleanRunBtn');
+            _rmCleaning = true;
+            runBtn.disabled = true;
+            runBtn.innerHTML = '<span class="rm-spinner">⟳</span> Membersihkan...';
+            try {
+              const res = await window.electronAPI.resourceMonitor.cleanRun(ids);
+              if (!res?.success) throw new Error(res?.error || 'Gagal membersihkan');
+              const freed = (res.results || []).reduce((s, r) => s + (r.bytes || 0), 0);
+              if (typeof showToast === 'function') {
+                showToast('🧹 Selesai! ' + rmFmtBytes(freed) + ' berhasil dibersihkan.', 4000, 'success');
+              }
+              await rmCleanScan();
+            } catch (err) {
+              if (typeof showToast === 'function') {
+                showToast('Gagal membersihkan: ' + (err?.message || err), 4000, 'error');
+              }
+            } finally {
+              _rmCleaning = false;
+              runBtn.innerHTML = '<i class="bi bi-trash3"></i> Bersihkan';
             }
           }
 
@@ -4716,60 +5243,65 @@
         </div>
       </div>
 
-      <div id="supportModal" class="modal">
-        <div class="modal-content">
-          <span class="close" onclick="closeSupportModal()">&times;</span>
-          <h3>Support StarBox</h3>
-          <p>
-            Silakan berikan masukan atau pertanyaan seputar StarBox ke WhatsApp
-            berikut:
-          </p>
-          <div class="support-list">
-            <div class="support-item support-highlight">
-              <div class="support-title">WhatsApp</div>
-              <a
-                href="https://wa.me/6285283935826"
-                target="_blank"
-                rel="noreferrer"
-                class="support-link"
-                >6285283935826</a
-              >
+      <div id="page-donate" class="page-content">
+        <style>
+          #page-donate {
+            display: none;
+            flex-direction: column;
+            overflow-y: auto;
+            padding: 28px;
+            background: radial-gradient(circle at top, rgba(124, 111, 224, 0.22), transparent 32%), var(--color-dark-purple);
+            color: var(--color-text-light);
+          }
+          #page-donate.active { display: flex; }
+        </style>
+        <main class="page-main donate-page-main">
+          <section class="donate-hero-card">
+            <div class="donate-hero-copy">
+              <span class="donate-badge" data-i18n="support.badge">Support Development</span>
+              <h1 data-i18n="support.title">Support StarBox</h1>
+              <p class="donate-hero-intro" data-i18n="support.intro_professional">
+                StarBox is built to simplify real operational work—from device management, automation, and remote access to daily technical workflows. Your support helps keep StarBox stable, actively maintained, and continuously improved with better features, performance, and long-term reliability.
+              </p>
+              <p class="donate-hero-subcopy" data-i18n="support.subcopy">
+                Every contribution directly supports development time, infrastructure costs, bug fixing, testing, and future product improvements so StarBox can continue growing professionally for everyone.
+              </p>
             </div>
-            <div class="support-item support-dana">
-              <div class="support-title">eWallet DANA</div>
-              <p class="support-link">A/N Gingin Abdul Goni</p>
-              <p class="support-bold">6285283935826</p>
+          </section>
+
+          <section class="support-donate-grid donate-page-grid">
+            <div class="support-donate-card support-donate-card-trakteer">
+              <div class="support-donate-icon"><i class="bi bi-cup-hot"></i></div>
+              <div class="support-donate-title">Trakteer</div>
+              <div class="support-donate-subtitle" data-i18n="support.trakteer.subtitle">Dukungan lokal Indonesia via Trakteer / QRIS</div>
+              <div class="support-donate-qr-wrap">
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=https%3A%2F%2Ftrakteer.id%2Fginginabdulgoni%2Ftip" alt="QR Trakteer" class="support-donate-qr" />
+              </div>
+              <a href="https://trakteer.id/ginginabdulgoni/tip" target="_blank" rel="noreferrer" class="support-donate-open trakteer"><span data-i18n="support.open">Open</span> <i class="bi bi-box-arrow-up-right"></i></a>
             </div>
-            <div class="support-item">
-              <div class="support-title">PayPal</div>
-              <a
-                href="https://paypal.me/ginginabdulgoni"
-                target="_blank"
-                rel="noreferrer"
-                class="support-link"
-                >ginginabdulgoni@gmail.com</a
-              >
+
+            <div class="support-donate-card support-donate-card-paypal">
+              <div class="support-donate-icon"><i class="bi bi-paypal"></i></div>
+              <div class="support-donate-title">PayPal</div>
+              <div class="support-donate-subtitle" data-i18n="support.paypal.subtitle">Direct transfer via PayPal — international friendly</div>
+              <div class="support-donate-qr-wrap">
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=mailto%3Aginginabdulgoni%40gmail.com" alt="QR PayPal" class="support-donate-qr" />
+              </div>
+              <div class="support-donate-meta">ginginabdulgoni@gmail.com</div>
+              <a href="https://paypal.me/ginginabdulgoni" target="_blank" rel="noreferrer" class="support-donate-open paypal"><span data-i18n="support.open">Open</span> <i class="bi bi-box-arrow-up-right"></i></a>
             </div>
-            <div class="support-item" style="background:linear-gradient(135deg,#e8514a18,#c0392b12);border-color:#e8514a44;">
-              <div class="support-title" style="color:#e8514a;">☕ Trakteer</div>
-              <a
-                href="https://trakteer.id/ginginabdulgoni/tip"
-                target="_blank"
-                rel="noreferrer"
-                class="support-link"
-                >trakteer.id/ginginabdulgoni</a
-              >
-              <p style="font-size:0.75rem;color:var(--color-muted);margin:4px 0 0;">Traktir kopi buat developer 🙏</p>
+
+            <div class="support-donate-card support-donate-card-bmc">
+              <div class="support-donate-icon"><i class="bi bi-cup-straw"></i></div>
+              <div class="support-donate-title">Buy Me a Coffee</div>
+              <div class="support-donate-subtitle" data-i18n="support.bmc.subtitle">Support with coffee for development time</div>
+              <div class="support-donate-qr-wrap">
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=https%3A%2F%2Fbuymeacoffee.com%2Fginginabdulgoni" alt="QR Buy Me a Coffee" class="support-donate-qr" />
+              </div>
+              <a href="https://buymeacoffee.com/ginginabdulgoni" target="_blank" rel="noreferrer" class="support-donate-open bmc"><span data-i18n="support.open">Open</span> <i class="bi bi-box-arrow-up-right"></i></a>
             </div>
-          </div>
-          <p>
-            Terima kasih atas dukungan Anda. Setiap masukan membantu membangun
-            fitur yang lebih baik.
-          </p>
-          <div class="modal-buttons">
-            <button onclick="closeSupportModal()">Tutup</button>
-          </div>
-        </div>
+          </section>
+        </main>
       </div>
 
       <!-- Tutorial Install QEMU Modal -->
@@ -5084,29 +5616,7 @@
         </div>
       </div>
 
-      <div id="adsInfoModal" class="modal">
-        <div class="modal-content" style="max-width: 640px">
-          <span class="close" onclick="closeAdsInfoModal()">&times;</span>
-          <h3 data-i18n="ads.modal.title">Remove Ads</h3>
-          <p data-i18n="ads.modal.desc" style="color: #94a3b8; margin: 6px 0 12px">
-            Login and subscribe to a package to remove ads from the dashboard.
-          </p>
-          <div id="adsPackagesList" class="ads-packages-list">
-            <p class="loading-text" data-i18n="ads.modal.loading">Loading packages...</p>
-          </div>
-          <div class="modal-buttons" style="justify-content: flex-end">
-            <button
-              type="button"
-              class="secondary"
-              onclick="openAuthModal('login')"
-              data-i18n="ads.login_subscribe"
-            >
-              Login / Subscribe
-            </button>
-            <button type="button" onclick="closeAdsInfoModal()" data-i18n="common.close">Close</button>
-          </div>
-        </div>
-      </div>
+
 
       <div id="addModal" class="modal">
         <div class="modal-content" style="max-width: 560px">
@@ -6364,7 +6874,80 @@
           <div id="androidFormTypeEmulator" style="display:none">
             <div style="margin-bottom:14px;padding:10px 12px;background:rgba(61,220,132,0.06);border:1px solid rgba(61,220,132,0.2);border-radius:8px;font-size:12px;color:#aaa;line-height:1.5">
               <i class="bi bi-info-circle" style="color:#3ddc84"></i>
-              Emulator Android lokal menggunakan Android SDK (~800MB). SDK hanya diunduh sekali.
+              Emulator Android lokal menggunakan Android SDK (~1.5GB). SDK hanya diunduh sekali.
+            </div>
+            <label for="androidEmulatorServiceSelect" style="margin-top: 12px"
+              >Jenis Layanan</label
+            >
+            <select
+              id="androidEmulatorServiceSelect"
+              onchange="toggleEmulatorWhatsAppFields()"
+            ></select>
+            <p class="small-text" style="margin-top: 4px">
+              Pilih mode remote untuk emulator. WhatsApp Automation memakai engine
+              ADB yang sama seperti Android Remote Device.
+            </p>
+
+            <div
+              id="addEmuWhatsAppAutomationFields"
+              style="
+                display: none;
+                margin-top: 16px;
+                margin-bottom: 16px;
+                padding: 12px;
+                background: rgba(37, 211, 102, 0.05);
+                border: 1px solid rgba(37, 211, 102, 0.2);
+                border-radius: 8px;
+              "
+            >
+              <div
+                style="
+                  font-size: 13px;
+                  font-weight: 600;
+                  margin-bottom: 12px;
+                  color: #25d366;
+                "
+              >
+                <i class="bi bi-whatsapp"></i> WhatsApp Automation Emulator
+              </div>
+
+              <label for="addEmuWhatsAppVariant">Jenis WhatsApp</label>
+              <select id="addEmuWhatsAppVariant">
+                <option value="consumer" selected>WhatsApp Biasa</option>
+                <option value="business">WhatsApp Business</option>
+              </select>
+
+              <label for="addEmuDisplayMode" style="margin-top: 12px"
+                >Mode Tampilan</label
+              >
+              <select id="addEmuDisplayMode">
+                <option value="readonly" selected>
+                  Read-Only (headless + mirror, tidak bisa dikontrol)
+                </option>
+                <option value="native">
+                  Native Penuh (window emulator, kontrol penuh)
+                </option>
+              </select>
+
+              <label for="addEmuWhatsAppBaseUrl" style="margin-top: 12px"
+                >Base URL (Fetch Messages)</label
+              >
+              <input
+                type="url"
+                id="addEmuWhatsAppBaseUrl"
+                placeholder="https://yourapi.com/api/messages"
+                style="font-family: monospace; font-size: 12px"
+              />
+
+              <label for="addEmuWhatsAppCallbackUrl" style="margin-top: 12px"
+                >Callback URL (Status Update)</label
+              >
+              <input
+                type="url"
+                id="addEmuWhatsAppCallbackUrl"
+                placeholder="https://yourapi.com/api/callback"
+                style="font-family: monospace; font-size: 12px"
+              />
             </div>
             <label style="font-size:12px;font-weight:600;display:block;margin-bottom:8px">Spec Preset</label>
             <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
@@ -6392,6 +6975,28 @@
                   <div style="font-size:11px;color:#666">4 Core · 2 GB RAM · 1080×1920 — Untuk animasi dan app berat</div>
                 </div>
               </label>
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid #30363d;border-radius:8px;cursor:pointer;transition:border-color .15s"
+                id="emuSpecCustom" onclick="selectEmuSpec('custom')">
+                <input type="radio" name="emuSpec" value="custom" style="margin-top:3px;accent-color:#3ddc84">
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:#e0e0e0">🎛️ Custom</div>
+                  <div style="font-size:11px;color:#666">Atur sendiri RAM, CPU, dan resolusi dengan slider</div>
+                </div>
+              </label>
+              <div id="emuCustomPanel" style="display:none;padding:12px;border:1px dashed #30363d;border-radius:8px">
+                <label style="font-size:12px;display:flex;justify-content:space-between;color:#e0e0e0">RAM <span id="emuCustomRamLabel" style="color:#3ddc84">1536 MB</span></label>
+                <input type="range" id="emuCustomRam" min="512" max="4096" step="256" value="1536" style="width:100%;accent-color:#3ddc84"
+                  oninput="document.getElementById('emuCustomRamLabel').textContent=this.value+' MB'">
+                <label style="font-size:12px;display:flex;justify-content:space-between;margin-top:10px;color:#e0e0e0">CPU Core <span id="emuCustomCoresLabel" style="color:#3ddc84">2 Core</span></label>
+                <input type="range" id="emuCustomCores" min="1" max="8" step="1" value="2" style="width:100%;accent-color:#3ddc84"
+                  oninput="document.getElementById('emuCustomCoresLabel').textContent=this.value+' Core'">
+                <label style="font-size:12px;display:block;margin-top:10px;margin-bottom:4px;color:#e0e0e0">Resolusi</label>
+                <select id="emuCustomResolution" style="width:100%">
+                  <option value="540x960">540 × 960 (qHD)</option>
+                  <option value="720x1280" selected>720 × 1280 (HD)</option>
+                  <option value="1080x1920">1080 × 1920 (Full HD)</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -7224,10 +7829,94 @@ adb connect ip:port</code></pre>
             class="android-spec-note"
           ></p>
 
+          <div id="editEmuCustomPanel" style="display:none;padding:12px;border:1px dashed #30363d;border-radius:8px;margin-bottom:10px">
+            <label style="font-size:12px;display:flex;justify-content:space-between;color:#e0e0e0">RAM <span id="editEmuCustomRamLabel" style="color:#3ddc84">1536 MB</span></label>
+            <input type="range" id="editEmuCustomRam" min="512" max="4096" step="256" value="1536" style="width:100%;accent-color:#3ddc84"
+              oninput="document.getElementById('editEmuCustomRamLabel').textContent=this.value+' MB'">
+            <label style="font-size:12px;display:flex;justify-content:space-between;margin-top:10px;color:#e0e0e0">CPU Core <span id="editEmuCustomCoresLabel" style="color:#3ddc84">2 Core</span></label>
+            <input type="range" id="editEmuCustomCores" min="1" max="8" step="1" value="2" style="width:100%;accent-color:#3ddc84"
+              oninput="document.getElementById('editEmuCustomCoresLabel').textContent=this.value+' Core'">
+            <label style="font-size:12px;display:block;margin-top:10px;margin-bottom:4px;color:#e0e0e0">Resolusi</label>
+            <select id="editEmuCustomResolution" style="width:100%">
+              <option value="540x960">540 × 960 (qHD)</option>
+              <option value="720x1280">720 × 1280 (HD)</option>
+              <option value="1080x1920">1080 × 1920 (Full HD)</option>
+            </select>
+          </div>
+
           <label style="margin-top: 10px">
             <input type="checkbox" id="editAutoRunAndroid" />
             Auto Run saat aplikasi dibuka
           </label>
+
+          <label for="editAndroidAutomationService" style="margin-top: 12px"
+            >Jenis Layanan</label
+          >
+          <select
+            id="editAndroidAutomationService"
+            onchange="toggleEditEmulatorWhatsAppFields()"
+          ></select>
+
+          <div
+            id="editEmuWhatsAppAutomationFields"
+            style="
+              display: none;
+              margin-top: 16px;
+              padding: 12px;
+              background: rgba(37, 211, 102, 0.05);
+              border: 1px solid rgba(37, 211, 102, 0.2);
+              border-radius: 8px;
+            "
+          >
+            <div
+              style="
+                font-size: 13px;
+                font-weight: 600;
+                margin-bottom: 12px;
+                color: #25d366;
+              "
+            >
+              <i class="bi bi-whatsapp"></i> WhatsApp Automation Emulator
+            </div>
+
+            <label for="editEmuWhatsAppVariant">Jenis WhatsApp</label>
+            <select id="editEmuWhatsAppVariant">
+              <option value="consumer" selected>WhatsApp Biasa</option>
+              <option value="business">WhatsApp Business</option>
+            </select>
+
+            <label for="editEmuDisplayMode" style="margin-top: 12px"
+              >Mode Tampilan</label
+            >
+            <select id="editEmuDisplayMode">
+              <option value="readonly" selected>
+                Read-Only (headless + mirror, tidak bisa dikontrol)
+              </option>
+              <option value="native">
+                Native Penuh (window emulator, kontrol penuh)
+              </option>
+            </select>
+
+            <label for="editEmuWhatsAppBaseUrl" style="margin-top: 12px"
+              >Base URL (Fetch Messages)</label
+            >
+            <input
+              type="url"
+              id="editEmuWhatsAppBaseUrl"
+              placeholder="https://yourapi.com/api/messages"
+              style="font-family: monospace; font-size: 12px"
+            />
+
+            <label for="editEmuWhatsAppCallbackUrl" style="margin-top: 12px"
+              >Callback URL (Status Update)</label
+            >
+            <input
+              type="url"
+              id="editEmuWhatsAppCallbackUrl"
+              placeholder="https://yourapi.com/api/callback"
+              style="font-family: monospace; font-size: 12px"
+            />
+          </div>
 
           <div
             class="modal-buttons"
@@ -8266,13 +8955,11 @@ adb connect ip:port</code></pre>
         }
 
         function openSupportModal() {
-          const modal = document.getElementById("supportModal");
-          if (modal) modal.style.display = "flex";
+          switchPage("donate");
         }
 
         function closeSupportModal() {
-          const modal = document.getElementById("supportModal");
-          if (modal) modal.style.display = "none";
+          switchPage("web-emulator");
         }
 
         function showQemuTutorial() {
@@ -9458,7 +10145,7 @@ adb connect ip:port</code></pre>
 
     <footer class="app-footer">
       <span class="footer-left"
-        >StarBox v2.1.260414 &copy; 2025 Gingin Abdul Goni —
+        >StarBox v2.1.260701 &copy; 2025 Gingin Abdul Goni —
         <a
           href="https://1112-project.com"
           target="_blank"
@@ -9507,8 +10194,21 @@ adb connect ip:port</code></pre>
 
       // Function to switch between pages
       function switchPage(pageName) {
+        // renderer.js owns the full page-loading flow. Keep this legacy
+        // inline handler as a fallback only for early-load calls.
+        if (window.switchPage && window.switchPage !== switchPage) {
+          return window.switchPage(pageName);
+        }
+
         // Prevent default link behavior
-        event.preventDefault();
+        if (typeof event !== "undefined" && typeof event.preventDefault === "function") {
+          event.preventDefault();
+        }
+
+        const proPages = window.STARBOX_PRO_PAGES || ["remox", "mikrotik", "os-virtual", "cctv", "mystarbox", "android-ios", "cron"];
+        if (proPages.includes(pageName)) {
+          localStorage.setItem("starbox-pro-mode", "true");
+        }
 
         // Hide all pages
         const allPages = document.querySelectorAll(".page-content");
@@ -9529,8 +10229,10 @@ adb connect ip:port</code></pre>
         }
 
         // Add active class to selected sidebar item
+        const sidebarPageName =
+          pageName === "whatsapp-gateway" ? "web-emulator" : pageName;
         const selectedSidebarItem = document.querySelector(
-          `.sidebar-item[data-page="${pageName}"]`
+          `.sidebar-item[data-page="${sidebarPageName}"]`
         );
         if (selectedSidebarItem) {
           selectedSidebarItem.classList.add("active");
@@ -9546,9 +10248,15 @@ adb connect ip:port</code></pre>
         // so prevent global wrapper scrolling when this page is active.
         document.body.classList.toggle("remox-page-active", pageName === "remox");
 
-        // Refresh device list when switching pages
-        if (typeof window.refreshDeviceList === "function") {
-          window.refreshDeviceList();
+        // Load only content owned by the active page.
+        if (pageName === "remox") {
+          if (typeof window.initRemoxPage === "function") {
+            window.initRemoxPage();
+          }
+        } else if (pageName === "web-emulator" || pageName === "android-ios") {
+          if (typeof window.refreshDeviceList === "function") {
+            window.refreshDeviceList();
+          }
         }
 
         // Initialize Remote Control page on first visit
@@ -9648,9 +10356,12 @@ adb connect ip:port</code></pre>
       document.addEventListener("DOMContentLoaded", function () {
         const lastPage = localStorage.getItem("starbox-current-page");
         if (lastPage && document.getElementById("page-" + lastPage)) {
+          if (Array.isArray(window.STARBOX_PRO_PAGES) && window.STARBOX_PRO_PAGES.includes(lastPage)) {
+            localStorage.setItem("starbox-pro-mode", "true");
+          }
           // Set current page before switching to ensure it's available immediately
           window.currentActivePage = lastPage;
-          switchPage(lastPage);
+          window.switchPage(lastPage);
         } else {
           // Set initial page if none is stored
           window.currentActivePage = "web-emulator";

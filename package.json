@@ -1,13 +1,13 @@
 {
   "name": "starbox",
-  "version": "2.1.260414",
+  "version": "2.1.260701",
   "description": "StarBox - Emulator ringan multi-layanan",
   "main": "electron-main.js",
   "author": "Gingin Abdul Goni",
   "homepage": "https://starbox.app",
   "scripts": {
-    "dev": "NODE_ENV=development ./node_modules/.bin/electron .",
-    "start": "NODE_ENV=production ./node_modules/.bin/electron .",
+    "dev": "NODE_ENV=development node scripts/run-electron.js .",
+    "start": "NODE_ENV=production node scripts/run-electron.js .",
     "postinstall": "node scripts/ensure-cacheable-alias.js && electron-builder install-app-deps",
     "prebuild": "node update-version.js",
     "prebuild:mac": "node update-version.js",
@@ -25,6 +25,7 @@
   },
   "build": {
     "asar": true,
+    "npmRebuild": false,
     "asarUnpack": [
       "package.json",
       "node_modules/@whiskeysockets/baileys/**",

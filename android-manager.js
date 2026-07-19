@@ -369,6 +369,30 @@ class AndroidManager {
   }
 
   /**
+   * Guest ABI matching the host CPU (Apple Silicon runs arm64 images natively)
+   */
+  getGuestAbi() {
+    return this.isAppleSilicon ? 'arm64-v8a' : 'x86_64';
+  }
+
+  getGuestCpuArch() {
+    return this.isAppleSilicon ? 'arm64' : 'x86_64';
+  }
+
+  /**
+   * System image variant: Google Play images include the Play Store app,
+   * plain google_apis images only ship Play Services.
+   */
+  getImageTag() {
+    return 'google_apis_playstore';
+  }
+
+  getSystemImagesDir() {
+    this.initializePaths();
+    return path.join(this.sdkPath, 'system-images', 'android-30', this.getImageTag(), this.getGuestAbi());
+  }
+
+  /**
    * Check if emulator is already installed
    */
   isInstalled() {
@@ -376,7 +400,13 @@ class AndroidManager {
     const emulatorBin = this.getEmulatorBinary();
     const adbBin = this.getADBBinary();
     const platformsDir = path.join(this.sdkPath, 'platforms', 'android-30');
-    return fs.existsSync(emulatorBin) && fs.existsSync(adbBin) && fs.existsSync(platformsDir);
+    const systemImage = path.join(this.getSystemImagesDir(), 'system.img');
+    return (
+      fs.existsSync(emulatorBin) &&
+      fs.existsSync(adbBin) &&
+      fs.existsSync(platformsDir) &&
+      fs.existsSync(systemImage)
+    );
   }
 
   /**
@@ -723,9 +753,16 @@ class AndroidManager {
     const urls = [];
 
     if (this.isMac) {
+      // Apple Silicon needs the native arm64 emulator + arm64-v8a system image.
+      // Running the x86_64 stack under Rosetta has no hypervisor acceleration
+      // and results in a black screen / never finishing boot.
+      const emulatorArch = this.isAppleSilicon ? 'aarch64' : 'x64';
+      const systemImageFile = this.isAppleSilicon
+        ? 'arm64-v8a-30_r10-darwin.zip'
+        : 'x86_64-30_r10-darwin.zip';
       urls.push({
         name: 'Emulator',
-        url: `${baseUrl}/emulator-darwin_x64-11237101.zip`,
+        url: `${baseUrl}/emulator-darwin_${emulatorArch}-11237101.zip`,
         dest: path.join(this.sdkPath, 'emulator.zip')
       });
       urls.push({
@@ -740,7 +777,7 @@ class AndroidManager {
       });
       urls.push({
         name: 'System Image',
-        url: `${baseUrl}/sys-img/google_apis/x86_64-30_r10.zip`,
+        url: `${baseUrl}/sys-img/google_apis_playstore/${systemImageFile}`,
         dest: path.join(this.sdkPath, 'system-image.zip')
       });
     } else if (this.isWin) {
@@ -761,7 +798,7 @@ class AndroidManager {
       });
       urls.push({
         name: 'System Image',
-        url: `${baseUrl}/sys-img/google_apis/x86_64-30_r10.zip`,
+        url: `${baseUrl}/sys-img/google_apis_playstore/x86_64-30_r10-windows.zip`,
         dest: path.join(this.sdkPath, 'system-image.zip')
       });
     } else {
@@ -782,7 +819,7 @@ class AndroidManager {
       });
       urls.push({
         name: 'System Image',
-        url: `${baseUrl}/sys-img/google_apis/x86_64-30_r10.zip`,
+        url: `${baseUrl}/sys-img/google_apis_playstore/x86_64-30_r10-linux.zip`,
         dest: path.join(this.sdkPath, 'system-image.zip')
       });
     }
@@ -950,29 +987,23 @@ class AndroidManager {
       if (fs.existsSync(systemImageZip)) {
         console.log('Extracting system image...');
         notify('System Image', 'Extracting system image...');
-        const systemImagesPath = path.join(
-          this.sdkPath,
-          'system-images',
-          'android-30',
-          'google_apis',
-          'x86_64'
-        );
+        const systemImagesPath = this.getSystemImagesDir();
         if (!fs.existsSync(systemImagesPath)) {
           fs.mkdirSync(systemImagesPath, { recursive: true });
         }
         await this.extractZip(systemImageZip, systemImagesPath, (msg) =>
           notify('System Image', msg)
         );
-        // Some archives contain an extra nested x86_64 directory.
-        const nestedX64 = path.join(systemImagesPath, 'x86_64');
-        if (fs.existsSync(nestedX64) && fs.lstatSync(nestedX64).isDirectory()) {
-          const nestedEntries = fs.readdirSync(nestedX64);
+        // Some archives contain an extra nested ABI directory.
+        const nestedAbi = path.join(systemImagesPath, this.getGuestAbi());
+        if (fs.existsSync(nestedAbi) && fs.lstatSync(nestedAbi).isDirectory()) {
+          const nestedEntries = fs.readdirSync(nestedAbi);
           nestedEntries.forEach((entry) => {
-            const src = path.join(nestedX64, entry);
+            const src = path.join(nestedAbi, entry);
             const dest = path.join(systemImagesPath, entry);
             fs.renameSync(src, dest);
           });
-          fs.rmSync(nestedX64, { recursive: true, force: true });
+          fs.rmSync(nestedAbi, { recursive: true, force: true });
         }
         fs.unlinkSync(systemImageZip);
         notify('System Image', 'System image extracted');
@@ -1040,15 +1071,18 @@ target=android-30
     fs.writeFileSync(avdIni, configIni);
     notify('AVD base configuration written');
 
-    // Create config.ini optimized for software emulation with quick boot enabled
-    // Lower resolution (720x1280) for faster rendering on Apple Silicon
-    const gpuMode = this.isWin ? 'swiftshader_indirect' : 'guest';
+    // Mac memakai host GPU ('auto', render via Metal/OpenGL host).
+    // Windows & Linux memakai SwiftShader di host — aman untuk semua driver
+    // GPU dan tetap jalan headless. 'guest' (render software di dalam guest)
+    // dihindari karena sangat lambat dan bisa menyebabkan layar hitam.
+    const gpuMode = this.isMac ? 'auto' : 'swiftshader_indirect';
     const avdConfig = `
 avd.ini.encoding=UTF-8
+abi.type=${this.getGuestAbi()}
 hw.accelerometer=yes
 hw.audioInput=no
 hw.battery=yes
-hw.cpu.arch=x86_64
+hw.cpu.arch=${this.getGuestCpuArch()}
 hw.cpu.ncore=${resolvedSpec.cores}
 hw.device.manufacturer=Google
 hw.device.name=pixel_4
@@ -1061,20 +1095,20 @@ hw.lcd.width=${width}
 hw.lcd.density=${resolvedSpec.density}
 hw.ramSize=${resolvedSpec.memoryMb}
 hw.sdCard=yes
-image.sysdir.1=system-images/android-30/google_apis/x86_64/
+image.sysdir.1=system-images/android-30/${this.getImageTag()}/${this.getGuestAbi()}/
 skin.name=${resolvedSpec.resolution}
-tag.display=Google APIs
-tag.id=google_apis
+tag.display=Google Play
+tag.id=${this.getImageTag()}
 vm.heapSize=${heapSize}
 hw.arc=false
-hw.audioOutput=no
+hw.audioOutput=yes
 fastboot.chosenSnapshotFile=
 fastboot.forceChosenSnapshotBoot=no
 fastboot.forceColdBoot=yes
 fastboot.forceFastBoot=no
 snapshot.present=no
 disk.dataPartition.size=4294967296
-PlayStore.enabled=false
+PlayStore.enabled=yes
 hw.camera=no
 hw.camera.back=none
 hw.camera.front=none
@@ -1086,8 +1120,8 @@ hw.camera.front=none
 
   ensureSystemImageLayout() {
     try {
-      const systemImagesPath = path.join(this.sdkPath, 'system-images', 'android-30', 'google_apis', 'x86_64');
-      const nested = path.join(systemImagesPath, 'x86_64');
+      const systemImagesPath = this.getSystemImagesDir();
+      const nested = path.join(systemImagesPath, this.getGuestAbi());
       if (fs.existsSync(nested) && fs.lstatSync(nested).isDirectory()) {
         fs.readdirSync(nested).forEach((entry) => {
           const src = path.join(nested, entry);
@@ -1127,7 +1161,17 @@ hw.camera.front=none
           if (code === 0) resolve();
           else reject(new Error(`unzip exited with code ${code}`));
         });
-        unzip.on('error', reject);
+        unzip.on('error', (err) => {
+          if (err && err.code === 'ENOENT') {
+            reject(new Error(
+              "Perintah 'unzip' tidak ditemukan. Install terlebih dahulu " +
+              '(Debian/Ubuntu: sudo apt install unzip, Fedora: sudo dnf install unzip), ' +
+              'lalu ulangi download.'
+            ));
+          } else {
+            reject(err);
+          }
+        });
       });
     } else {
       await extractZip(zipPath, {
@@ -1203,18 +1247,25 @@ hw.camera.front=none
         const binaryPath = path.join(emulatorDir, binary);
         if (fs.existsSync(binaryPath)) {
           try {
-            // Remove existing signature first
-            try {
-              execSync(`codesign --remove-signature "${binaryPath}"`, { stdio: 'pipe' });
-            } catch (e) {
-              // Ignore errors - binary might not be signed
-            }
-
-            // Sign with entitlements
+            // Sign a temp copy, then swap it in. Signing in place can fail for
+            // the launcher because codesign mistakes the emulator root dir for
+            // a bundle ("In subcomponent: NOTICE.csv"), and a failed re-sign
+            // leaves an unsigned binary that macOS SIGKILLs on Apple Silicon.
+            const tmpCopy = path.join(
+              os.tmpdir(),
+              `starbox-sign-${path.basename(binary)}-${Date.now()}`
+            );
+            fs.copyFileSync(binaryPath, tmpCopy);
             execSync(
-              `codesign --force --sign - --entitlements "${entitlementsPath}" --timestamp=none "${binaryPath}"`,
+              `codesign --force --sign - --entitlements "${entitlementsPath}" --timestamp=none "${tmpCopy}"`,
               { encoding: 'utf8', stdio: 'pipe' }
             );
+            fs.copyFileSync(tmpCopy, binaryPath);
+            fs.unlinkSync(tmpCopy);
+            fs.chmodSync(binaryPath, 0o755);
+
+            // Verify the result actually carries a valid signature
+            execSync(`codesign --verify "${binaryPath}"`, { stdio: 'pipe' });
 
             console.log(`  ✓ Signed: ${binary}`);
             signedCount++;
@@ -1238,6 +1289,52 @@ hw.camera.front=none
       console.warn('   Emulator will run in software mode (slower but functional)');
       return { hasHvf: false };
     }
+  }
+
+  /**
+   * Check hardware acceleration support via `emulator -accel-check`
+   * (Windows: WHPX/AEHD/HAXM, macOS: HVF, Linux: KVM)
+   */
+  checkAccelSupport(timeoutMs = 10000) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (result) => {
+        if (!settled) {
+          settled = true;
+          resolve(result);
+        }
+      };
+      try {
+        const proc = spawn(this.getEmulatorBinary(), ['-accel-check'], {
+          env: this.getProcessEnv(),
+        });
+        let output = '';
+        proc.stdout.on('data', (d) => { output += d.toString(); });
+        proc.stderr.on('data', (d) => { output += d.toString(); });
+        proc.on('close', () => {
+          // Format output:
+          //   accel:
+          //   0                              <- kode status (0 = tersedia)
+          //   Hypervisor.Framework OS X ...  <- deskripsi hypervisor
+          //   accel
+          const lines = output.split('\n').map((l) => l.trim()).filter(Boolean);
+          const statusIdx = lines.indexOf('accel:');
+          const statusCode = statusIdx !== -1 ? parseInt(lines[statusIdx + 1], 10) : NaN;
+          const available =
+            statusCode === 0 || /is installed and usable/i.test(output);
+          const detail =
+            (statusIdx !== -1 && lines[statusIdx + 2]) || output.trim();
+          finish({ available, detail });
+        });
+        proc.on('error', (err) => finish({ available: false, detail: err.message }));
+        setTimeout(() => {
+          try { proc.kill('SIGKILL'); } catch (_) {}
+          finish({ available: false, detail: 'accel-check timeout' });
+        }, timeoutMs);
+      } catch (err) {
+        finish({ available: false, detail: err.message });
+      }
+    });
   }
 
   /**
@@ -1334,15 +1431,15 @@ hw.camera.front=none
       await this.ensureEmulatorEntitlements();
     }
 
-    // Build emulator arguments optimized for software emulation with quick boot
-    // Lower resolution (720x1280) for faster rendering on Apple Silicon
-    // Using 'guest' GPU mode instead of SwiftShader for better Apple Silicon compatibility
-    const gpuMode = this.isWin ? 'swiftshader_indirect' : 'guest';
+    // Mac: host GPU ('auto'). Windows & Linux: SwiftShader di host —
+    // aman untuk semua driver GPU dan tetap jalan headless.
+    // Hindari 'guest': render software di dalam guest sangat lambat
+    // dan bisa menyebabkan layar hitam.
+    const gpuMode = this.isMac ? 'auto' : 'swiftshader_indirect';
     const skinValue = (resolvedSpec.resolution || '720x1280').toLowerCase();
     const args = [
       '-avd', avdName,
       '-no-boot-anim',
-      '-no-audio',
       '-gpu', gpuMode,
       '-skin', skinValue,
       '-memory', String(resolvedSpec.memoryMb || 1536),
@@ -1352,18 +1449,36 @@ hw.camera.front=none
       '-no-snapshot-save',
       '-verbose'
     ];
-    if (this.isWin) {
-      args.push('-accel', 'off');
-    } else {
-      args.push('-no-accel');
-    }
+    // 'auto' memakai hypervisor host bila tersedia (Windows: WHPX/AEHD/HAXM,
+    // Linux: KVM) dan otomatis fallback ke mode software bila tidak ada
+    args.push('-accel', 'auto');
 
     if (headless) {
       args.push('-no-window');
     }
 
-    console.log('⚠️  Menjalankan dalam mode emulasi software (tanpa akselerasi hardware)');
-    console.log('   Boot pertama: ~15 menit | Boot berikutnya: ~30-60 detik (Quick Boot)');
+    // Laporkan status akselerasi supaya pengguna tahu kenapa boot cepat/lambat
+    const accelInfo = await this.checkAccelSupport();
+    if (accelInfo.available) {
+      console.log(`🚀 Akselerasi hardware aktif: ${accelInfo.detail}`);
+      emitProgress({
+        phase: 'accel',
+        message: 'Akselerasi hardware aktif — boot ±1 menit.',
+      });
+    } else {
+      const hint = this.isWin
+        ? 'Untuk mempercepat: aktifkan "Windows Hypervisor Platform" di Windows Features (atau install Android Emulator Hypervisor Driver dari Google), lalu restart PC.'
+        : this.isLinux
+          ? 'Untuk mempercepat: pastikan KVM aktif dan user tergabung di grup kvm.'
+          : '';
+      console.log('⚠️  Akselerasi hardware tidak tersedia — mode emulasi software (lambat).');
+      console.log(`   ${accelInfo.detail}`);
+      if (hint) console.log(`   ${hint}`);
+      emitProgress({
+        phase: 'accel',
+        message: `Akselerasi hardware tidak tersedia — emulator berjalan mode software (boot bisa >10 menit). ${hint}`,
+      });
+    }
 
     // Always recreate AVD config to ensure optimal settings for software emulation
     emitProgress({
@@ -1411,11 +1526,6 @@ hw.camera.front=none
           env.TMP = normalizedWinTemp;
         }
 
-        if (this.isMac) {
-          env.QEMU_AUDIO_DRV = 'none';
-          // Do NOT set ANDROID_EMULATOR_HVF when using -no-accel (software mode)
-          // HVF + no-accel conflict causes exit code 1
-        }
 
         // Log environment for debugging
         if (this.isWin) {
@@ -1739,10 +1849,10 @@ hw.camera.front=none
   getEstimatedDownloadSize() {
     // Approximate sizes for each component (in MB)
     const sizes = {
-      emulator: this.isMac ? 420 : this.isWin ? 350 : 380,
+      emulator: this.isAppleSilicon ? 260 : this.isMac ? 420 : this.isWin ? 350 : 380,
       platformTools: 15,
       platform: 5,
-      systemImage: 450
+      systemImage: 1250
     };
 
     const totalMB = sizes.emulator + sizes.platformTools + sizes.platform + sizes.systemImage;

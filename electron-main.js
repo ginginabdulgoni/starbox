@@ -192,13 +192,85 @@ function logConsoleOnly(...args) {
   }
 }
 
-function generateAvdName(uid = "") {
-  const base =
+function generateAvdName(uid = "", deviceName = "") {
+  const sanitizedName = String(deviceName || "")
+    .normalize("NFKD")
+    .replace(/[^\x00-\x7F]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 20);
+  const fallback =
     (uid || uuidv4())
       .toString()
       .replace(/[^a-zA-Z0-9]+/g, "")
-      .slice(0, 12) || `AVD${Date.now()}`;
-  return `StarBox_${base}`;
+      .slice(0, 8) || `AVD${Date.now()}`;
+  const suffix = (uid || "")
+    .toString()
+    .replace(/[^a-zA-Z0-9]+/g, "")
+    .slice(0, 6);
+  const base = sanitizedName || fallback;
+  const unique = suffix ? `${base}_${suffix}` : base;
+  return `StarBox_${unique}`.slice(0, 32);
+}
+
+function syncAndroidAvdIdentity(device = {}) {
+  if (!device || (device.service || "").toLowerCase() !== "android") {
+    return false;
+  }
+
+  const nextAvdName = generateAvdName(
+    device.uid || device.token || "",
+    device.name || ""
+  );
+  const currentAvdName = String(device.avdName || "").trim();
+  if (!nextAvdName) return false;
+  if (!currentAvdName) {
+    device.avdName = nextAvdName;
+    return true;
+  }
+  if (currentAvdName === nextAvdName) {
+    return false;
+  }
+
+  try {
+    const manager = ensureAndroidManagerReady();
+    if (typeof manager.initializePaths === "function") {
+      manager.initializePaths();
+    }
+    const avdRoot = manager.avdPath;
+    if (avdRoot) {
+      const oldDir = path.join(avdRoot, `${currentAvdName}.avd`);
+      const oldIni = path.join(avdRoot, `${currentAvdName}.ini`);
+      const newDir = path.join(avdRoot, `${nextAvdName}.avd`);
+      const newIni = path.join(avdRoot, `${nextAvdName}.ini`);
+
+      if (fs.existsSync(oldDir) && !fs.existsSync(newDir)) {
+        fs.renameSync(oldDir, newDir);
+      }
+      if (fs.existsSync(oldIni) && !fs.existsSync(newIni)) {
+        fs.renameSync(oldIni, newIni);
+      }
+      if (fs.existsSync(newIni)) {
+        fs.writeFileSync(
+          newIni,
+          [
+            "avd.ini.encoding=UTF-8",
+            `path=${newDir}`,
+            `path.rel=avd/${nextAvdName}.avd`,
+            "target=android-30",
+          ].join("\n")
+        );
+      }
+    }
+  } catch (err) {
+    console.warn(
+      "⚠️ Gagal sinkron nama AVD Android:",
+      err?.message || err
+    );
+  }
+
+  device.avdName = nextAvdName;
+  return true;
 }
 
 function buildWhatsAppUserAgent(version = DEFAULT_CHROME_VERSION) {
@@ -382,6 +454,36 @@ function ensureAndroidSpec(device) {
   return changed;
 }
 
+function ensureAndroidAutomationConfig(device) {
+  if (!device || (device.service || "").toLowerCase() !== "android") {
+    return false;
+  }
+  let changed = false;
+  const nextService = sanitizeRemoteServiceId(
+    device.androidAutomationService || "android-general"
+  );
+  if (device.androidAutomationService !== nextService) {
+    device.androidAutomationService = nextService;
+    changed = true;
+  }
+  if (typeof device.whatsappBaseUrl !== "string") {
+    device.whatsappBaseUrl = "";
+    changed = true;
+  }
+  if (typeof device.whatsappCallbackUrl !== "string") {
+    device.whatsappCallbackUrl = "";
+    changed = true;
+  }
+  const nextVariant = sanitizeWhatsappVariant(
+    device.whatsappVariant || "consumer"
+  );
+  if (device.whatsappVariant !== nextVariant) {
+    device.whatsappVariant = nextVariant;
+    changed = true;
+  }
+  return changed;
+}
+
 const withBrandTitle = (label) =>
   label ? `${label} - ${APP_BRAND_TITLE}` : APP_BRAND_TITLE;
 const withVersionSuffix = (label) =>
@@ -406,6 +508,7 @@ let chromeVersionFetchPromise = null;
 let OS_VM_DB_PATH = null;
 let CRON_JOBS_DB_PATH = null;
 const vmProcesses = new Map();
+const vmQmpPorts = new Map(); // vmId → port QMP monitor (graceful shutdown, pause, snapshot live)
 
 // ── StarCapture ─────────────────────────────────────────────────
 let scOverlayWindow = null;
@@ -508,6 +611,22 @@ function initializeLogging() {
   androidManager = new AndroidManager();
   iosManager = new iOSManager();
   virtualOSStorage = new VirtualOSStorage(userDataPath);
+  // Autostart VM yang ditandai autostart (checkbox di modal Lanjutan)
+  setTimeout(async () => {
+    try {
+      const vms = virtualOSStorage.list().filter((vm) => vm.autostart);
+      for (const vm of vms) {
+        try {
+          console.log(`🚀 Autostart VM: ${vm.name} (${vm.id})`);
+          await doStartVm(vm.id);
+        } catch (err) {
+          console.warn(`⚠️ Autostart VM ${vm.name} gagal:`, err?.message || err);
+        }
+      }
+    } catch (err) {
+      console.warn("⚠️ Autostart VM error:", err?.message || err);
+    }
+  }, 4000);
   const cctvDbPath  = path.join(app.getPath('userData'), 'cctv-cameras.json');
   const cctvToolsPath = path.join(app.getPath('userData'), 'tools');
   cctvManager = new CctvManager(cctvDbPath, cctvToolsPath);
@@ -730,6 +849,10 @@ function buildDeviceSnapshot(device = {}) {
     pendingUrl: device.pendingUrl || null,
     callbackUrl: device.callbackUrl || null,
     customUrl: device.customUrl || null,
+    androidAutomationService: device.androidAutomationService || null,
+    whatsappBaseUrl: device.whatsappBaseUrl || null,
+    whatsappCallbackUrl: device.whatsappCallbackUrl || null,
+    whatsappVariant: device.whatsappVariant || null,
     androidSpec: device.androidSpec
       ? {
           id: device.androidSpec.id,
@@ -2627,14 +2750,8 @@ async function runAndroidShortcutCommand(uid, shortcutId) {
   if (!shortcut) {
     throw new Error("Shortcut tidak dikenal.");
   }
-  const record = findAndroidRemoteDevice(uid);
-  if (!record) {
-    throw new Error("Device Android tidak ditemukan.");
-  }
+  const record = await resolveAndroidDeviceRecord(uid, { requireAdb: true });
   const adbId = record.adbId;
-  if (!adbId) {
-    throw new Error("Device tidak memiliki ADB ID.");
-  }
   switch (shortcut.type) {
     case "wake":
       await ensureDeviceScreenAwake(adbId);
@@ -2651,14 +2768,8 @@ async function runAndroidShortcutCommand(uid, shortcutId) {
 }
 
 async function captureAndroidScreenshot(uid, destinationPath = null) {
-  const record = findAndroidRemoteDevice(uid);
-  if (!record) {
-    throw new Error("Device Android tidak ditemukan.");
-  }
+  const record = await resolveAndroidDeviceRecord(uid, { requireAdb: true });
   const adbId = record.adbId;
-  if (!adbId) {
-    throw new Error("Device tidak memiliki ADB ID.");
-  }
   const manager = ensureAndroidManagerReady();
   const timestamp = Date.now();
   const remotePath = `/sdcard/Download/starbox_screenshot_${timestamp}.png`;
@@ -3716,6 +3827,9 @@ function normalizeDeviceList(data) {
     if (ensureAndroidSpec(device)) {
       modified = true;
     }
+    if (ensureAndroidAutomationConfig(device)) {
+      modified = true;
+    }
   });
   return modified;
 }
@@ -3734,6 +3848,9 @@ function getDeviceConfig(uid) {
         modified = true;
       }
       if (ensureAndroidSpec(device)) {
+        modified = true;
+      }
+      if (ensureAndroidAutomationConfig(device)) {
         modified = true;
       }
     }
@@ -3810,6 +3927,38 @@ function findAndroidRemoteDevice(uid) {
   return devices.find((device) => device.uid === uid) || null;
 }
 
+async function resolveEmulatorAdbTarget(device = {}) {
+  if (!device?.uid) return null;
+  const manager = ensureAndroidManagerReady();
+  const devices = await manager.listConnectedDevices();
+  const emulatorDevices = devices.filter(
+    (entry) =>
+      entry?.status === "device" &&
+      /^emulator-\d+$/i.test(String(entry.adbId || ""))
+  );
+  const expectedAvdName = String(
+    device.avdName || generateAvdName(device.uid)
+  ).trim();
+
+  for (const entry of emulatorDevices) {
+    try {
+      const output = await manager.runAdbCommand(
+        ["-s", entry.adbId, "emu", "avd", "name"],
+        { timeout: 4000, silent: true }
+      );
+      if (String(output || "").trim() === expectedAvdName) {
+        return entry.adbId;
+      }
+    } catch (_) {}
+  }
+
+  if (emulatorDevices.length === 1) {
+    return emulatorDevices[0].adbId;
+  }
+
+  return null;
+}
+
 function sanitizeRemoteServiceId(service = "") {
   return (service || "")
     .toString()
@@ -3834,6 +3983,77 @@ function resolveWhatsappPackageName(variant = "consumer") {
   return sanitizeWhatsappVariant(variant) === "business"
     ? "com.whatsapp.w4b"
     : "com.whatsapp";
+}
+
+// Mode tampilan device Android automation:
+// - "readonly" (default): emulator headless + mirror scrcpy --no-control
+// - "native": window QEMU asli (mandiri, kontrol penuh, tanpa scrcpy)
+function sanitizeAndroidDisplayMode(value = "") {
+  return String(value || "").trim().toLowerCase() === "native"
+    ? "native"
+    : "readonly";
+}
+
+async function resolveAndroidDeviceRecord(uid, options = {}) {
+  const { requireAdb = false } = options;
+  const remoteRecord = findAndroidRemoteDevice(uid);
+  if (remoteRecord) {
+    const resolvedTarget = await resolveAdbTarget(remoteRecord.adbId);
+    const adbId = resolvedTarget?.adbId || remoteRecord.adbId || "";
+    if (requireAdb && !adbId) {
+      throw new Error("Device tidak memiliki ADB ID.");
+    }
+    return {
+      source: "adb-remote",
+      uid: remoteRecord.uid,
+      name: remoteRecord.name || "Android Device",
+      service: sanitizeRemoteServiceId(remoteRecord.service || "android-general"),
+      adbId,
+      status: remoteRecord.status || "disconnected",
+      whatsappBaseUrl: sanitizePendingUrl(remoteRecord.whatsappBaseUrl || ""),
+      whatsappCallbackUrl: sanitizePendingUrl(
+        remoteRecord.whatsappCallbackUrl || ""
+      ),
+      whatsappVariant: sanitizeWhatsappVariant(
+        remoteRecord.whatsappVariant || "consumer"
+      ),
+      displayMode: sanitizeAndroidDisplayMode(remoteRecord.androidDisplayMode),
+      raw: remoteRecord,
+    };
+  }
+
+  const emulatorConfig = getDeviceConfig(uid);
+  if (emulatorConfig && (emulatorConfig.service || "").toLowerCase() === "android") {
+    const adbId = await resolveEmulatorAdbTarget(emulatorConfig);
+    if (requireAdb && !adbId) {
+      throw new Error(
+        "Emulator belum aktif atau belum terdeteksi ADB. Jalankan emulator terlebih dahulu."
+      );
+    }
+    return {
+      source: "emulator",
+      uid: emulatorConfig.uid || uid,
+      name: emulatorConfig.name || "Android Emulator",
+      service: sanitizeRemoteServiceId(
+        emulatorConfig.androidAutomationService || "android-general"
+      ),
+      adbId: adbId || "",
+      status: emulatorConfig.status || "stopped",
+      whatsappBaseUrl: sanitizePendingUrl(
+        emulatorConfig.whatsappBaseUrl || ""
+      ),
+      whatsappCallbackUrl: sanitizePendingUrl(
+        emulatorConfig.whatsappCallbackUrl || ""
+      ),
+      whatsappVariant: sanitizeWhatsappVariant(
+        emulatorConfig.whatsappVariant || "consumer"
+      ),
+      displayMode: sanitizeAndroidDisplayMode(emulatorConfig.androidDisplayMode),
+      raw: emulatorConfig,
+    };
+  }
+
+  throw new Error("Device Android tidak ditemukan.");
 }
 
 const androidRemoteActionTokens = new Map();
@@ -4200,21 +4420,26 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
     }
 
     const hasEmoji = hasEmojiOrComplexChars(message);
+    // Baris baru tidak bisa diketik via `input text` (token %0A akan terkirim
+    // sebagai teks mentah) — wajib lewat URL redirect agar format terjaga
+    const hasNewline = /[\r\n]/.test(message);
     const MAX_TYPING_CHARS = 200; // Batas untuk gunakan typing method
 
     console.log(
       `📲 [ADB:${adbId}] Mengirim pesan WhatsApp ${i + 1}/${messages.length} (${
         message.length
-      } chars, emoji: ${hasEmoji ? "yes" : "no"})`
+      } chars, emoji: ${hasEmoji ? "yes" : "no"}, newline: ${
+        hasNewline ? "yes" : "no"
+      })`
     );
 
     // Wrap sending logic in try-catch untuk error handling
     try {
       // LOGIKA:
-      // - Pesan < 200 chars & tanpa emoji: Gunakan typing method (cepat/instant)
-      // - Pesan >= 200 chars atau dengan emoji: Gunakan wa.me URL redirect
+      // - Pesan < 200 chars, tanpa emoji & tanpa baris baru: typing method
+      // - Pesan >= 200 chars, dengan emoji, atau multiline: wa.me URL redirect
 
-      if (message.length < MAX_TYPING_CHARS && !hasEmoji) {
+      if (message.length < MAX_TYPING_CHARS && !hasEmoji && !hasNewline) {
         // METODE 1: TYPING - Untuk pesan pendek tanpa emoji
         const cleanMessage = stripEmoji(message);
         const waUrl = `https://wa.me/${phoneNumber}`;
@@ -4239,7 +4464,28 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
           { timeout: 20000, silent: true }
         );
 
-        await sleep(3500);
+        await sleep(2000);
+
+        const isForeground = await waitForWhatsappForeground(
+          adbId,
+          whatsappPackage,
+          10000
+        );
+        if (!isForeground) {
+          throw new Error(
+            "WhatsApp tidak terbuka di foreground — pengiriman dibatalkan agar tidak mengetik di aplikasi lain."
+          );
+        }
+
+        // WAJIB: fokuskan kolom input dulu, kalau tidak keyevent/typing
+        // jatuh ke elemen lain di WhatsApp (terlihat seperti klik tombol acak)
+        const entryBounds = await tapWhatsappInputField(adbId);
+        if (!entryBounds) {
+          throw new Error(
+            "Kolom input pesan WhatsApp tidak ditemukan — chat mungkin belum terbuka."
+          );
+        }
+
         await clearWhatsappInputField(adbId);
 
         if (actionToken?.aborted) {
@@ -4262,7 +4508,7 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
         }
 
         console.log(`📤 [ADB:${adbId}] Klik tombol send...`);
-        await tapWhatsappSendButton(adbId);
+        await tapWhatsappSendButton(adbId, entryBounds);
 
         console.log(`⏳ [ADB:${adbId}] Menunggu pesan terkirim (3 detik)...`);
         await sleep(3000);
@@ -4293,11 +4539,27 @@ async function sendWhatsappSampleMessagesThroughAdb(adbId, options = {}) {
 
         await sleep(2500);
 
+        const isForeground = await waitForWhatsappForeground(
+          adbId,
+          whatsappPackage,
+          10000
+        );
+        if (!isForeground) {
+          throw new Error(
+            "WhatsApp tidak terbuka di foreground — pengiriman dibatalkan agar tidak salah klik."
+          );
+        }
+
         if (actionToken?.aborted) {
           throw new Error("Remote action dibatalkan oleh pengguna.");
         }
 
-        await tapWhatsappSendButton(adbId);
+        const entryBounds = await resolveWhatsappNodeBounds(
+          adbId,
+          WHATSAPP_ENTRY_FIELD_IDS,
+          { retries: 2, delayMs: 800 }
+        );
+        await tapWhatsappSendButton(adbId, entryBounds);
 
         console.log(`⏳ [ADB:${adbId}] Menunggu pesan terkirim (2 detik)...`);
         await sleep(2000);
@@ -4403,7 +4665,10 @@ async function sendSingleWhatsappMessage(
 function encodeCharForAdbInput(char = "") {
   if (!char) return "";
   if (char === " ") return "%s";
-  if (char === "\n") return "%0A";
+  // `input text` hanya mengenal token %s (spasi) — %0A TIDAK di-decode dan
+  // akan terkirim sebagai teks mentah. Pesan multiline dialihkan ke metode
+  // URL redirect; di sini newline diganti spasi sebagai jaring pengaman.
+  if (char === "\n" || char === "\r") return "%s";
   if (/^[0-9a-zA-Z]$/.test(char)) return char;
   if (/[.,!?@#\-]/.test(char)) return char;
   return "";
@@ -4573,11 +4838,7 @@ async function setClipboardAndPaste(adbId, text, manager) {
   }
 }
 
-async function tapWhatsappSendButton(adbId) {
-  const target =
-    (await resolveWhatsappSendButtonBounds(adbId)) ||
-    (await estimateWhatsappSendButton(adbId));
-  if (!target) return;
+async function tapAtPoint(adbId, x, y) {
   const manager = ensureAndroidManagerReady();
   await manager.runAdbCommand(
     [
@@ -4586,11 +4847,37 @@ async function tapWhatsappSendButton(adbId) {
       "shell",
       "input",
       "tap",
-      String(Math.round(target.x)),
-      String(Math.round(target.y)),
+      String(Math.round(x)),
+      String(Math.round(y)),
     ],
     { timeout: 10000, silent: true }
   );
+}
+
+async function tapWhatsappSendButton(adbId, entryBounds = null) {
+  let target = await resolveWhatsappNodeBounds(adbId, WHATSAPP_SEND_BUTTON_IDS, {
+    retries: 3,
+    delayMs: 900,
+  });
+
+  // Fallback: posisi tombol send selalu di kanan kolom input, sejajar vertikal.
+  if (!target && entryBounds) {
+    const { width } = await getDeviceDisplayMetrics(adbId);
+    target = {
+      x: entryBounds.x2 + (width - entryBounds.x2) / 2,
+      y: entryBounds.y1 + (entryBounds.y2 - entryBounds.y1) / 2,
+    };
+    console.warn(
+      `⚠️ [ADB:${adbId}] Tombol send tidak ketemu via uidump, pakai posisi relatif kolom input (${Math.round(target.x)},${Math.round(target.y)})`
+    );
+  }
+
+  if (!target) {
+    throw new Error(
+      "Tombol send WhatsApp tidak ditemukan — chat mungkin belum terbuka, pengiriman dibatalkan agar tidak salah klik."
+    );
+  }
+  await tapAtPoint(adbId, target.x, target.y);
 }
 
 async function getDeviceDisplayMetrics(adbId) {
@@ -4642,85 +4929,278 @@ async function clearWhatsappInputField(adbId) {
   }
 }
 
-async function resolveWhatsappSendButtonBounds(adbId) {
+const WHATSAPP_SEND_BUTTON_IDS = [
+  "com.whatsapp:id/send",
+  "com.whatsapp:id/send_btn",
+  "com.whatsapp:id/send_button",
+  "com.whatsapp.w4b:id/send",
+  "com.whatsapp.w4b:id/send_btn",
+  "com.whatsapp.w4b:id/send_button",
+];
+
+const WHATSAPP_ENTRY_FIELD_IDS = [
+  "com.whatsapp:id/entry",
+  "com.whatsapp.w4b:id/entry",
+];
+
+async function dumpUiHierarchy(adbId) {
   const manager = ensureAndroidManagerReady();
   const dumpPath = "/sdcard/starbox_uidump.xml";
-  const resourceIds = [
-    "com.whatsapp:id/send",
-    "com.whatsapp:id/send_btn",
-    "com.whatsapp:id/send_button",
-    "com.whatsapp.w4b:id/send",
-  ];
-  try {
-    await manager.runAdbCommand(
-      ["-s", adbId, "shell", "uiautomator", "dump", dumpPath],
-      { timeout: 10000, silent: true }
+  await manager.runAdbCommand(
+    ["-s", adbId, "shell", "uiautomator", "dump", dumpPath],
+    { timeout: 10000, silent: true }
+  );
+  const xml = await manager.runAdbCommand(
+    ["-s", adbId, "shell", "cat", dumpPath],
+    { timeout: 10000, silent: true }
+  );
+  return xml || "";
+}
+
+function extractBoundsForResourceIds(xml, resourceIds = []) {
+  if (!xml) return null;
+  for (const resourceId of resourceIds) {
+    const pattern = new RegExp(
+      `resource-id="${resourceId}"[\\s\\S]*?bounds="\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]"`,
+      "i"
     );
-    const xml = await manager.runAdbCommand(
-      ["-s", adbId, "shell", "cat", dumpPath],
-      { timeout: 10000, silent: true }
-    );
-    if (!xml) return null;
-    for (const resourceId of resourceIds) {
-      const pattern = new RegExp(
-        `resource-id="${resourceId}"[\\s\\S]*?bounds="\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]"`,
-        "i"
-      );
-      const match = xml.match(pattern);
-      if (match) {
-        const x1 = Number(match[1]);
-        const y1 = Number(match[2]);
-        const x2 = Number(match[3]);
-        const y2 = Number(match[4]);
-        const x = x1 + (x2 - x1) / 2;
-        const y = y1 + (y2 - y1) / 2;
-        return { x, y };
-      }
+    const match = xml.match(pattern);
+    if (match) {
+      const x1 = Number(match[1]);
+      const y1 = Number(match[2]);
+      const x2 = Number(match[3]);
+      const y2 = Number(match[4]);
+      return {
+        x1,
+        y1,
+        x2,
+        y2,
+        x: x1 + (x2 - x1) / 2,
+        y: y1 + (y2 - y1) / 2,
+      };
     }
-  } catch (err) {
-    console.warn(
-      `⚠️ Gagal membaca tombol send WhatsApp (${adbId}):`,
-      err?.message || err
-    );
   }
   return null;
 }
 
-async function estimateWhatsappSendButton(adbId) {
-  const { width, height } = await getDeviceDisplayMetrics(adbId);
-  const x = Math.max(Math.floor(width * 0.92), width - 120);
-  const y = Math.max(Math.floor(height * 0.78), height - 260);
-  return { x, y };
+async function resolveWhatsappNodeBounds(adbId, resourceIds = [], options = {}) {
+  const { retries = 3, delayMs = 900 } = options;
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    try {
+      const xml = await dumpUiHierarchy(adbId);
+      const bounds = extractBoundsForResourceIds(xml, resourceIds);
+      if (bounds) return bounds;
+    } catch (err) {
+      console.warn(
+        `⚠️ Gagal dump UI WhatsApp (${adbId}, percobaan ${attempt}/${retries}):`,
+        err?.message || err
+      );
+    }
+    if (attempt < retries) await sleep(delayMs);
+  }
+  return null;
 }
 
-function openAndroidDeviceDisplay(uid) {
+async function waitForWhatsappForeground(adbId, whatsappPackage, timeoutMs = 10000) {
+  const manager = ensureAndroidManagerReady();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const output = await manager.runAdbCommand(
+        [
+          "-s",
+          adbId,
+          "shell",
+          "dumpsys",
+          "window",
+          "|",
+          "grep",
+          "-e",
+          "mCurrentFocus",
+          "-e",
+          "mFocusedApp",
+        ],
+        { timeout: 8000, silent: true }
+      );
+      if (String(output || "").includes(whatsappPackage)) {
+        return true;
+      }
+    } catch (err) {
+      // grep tanpa hasil mengembalikan exit code != 0 — bukan error fatal
+    }
+    await sleep(700);
+  }
+  return false;
+}
+
+// Tap kolom input pesan supaya fokus keyboard benar-benar di compose box.
+// Tanpa ini, `input text` dan keyevent jatuh ke elemen lain (terlihat seperti
+// klik tombol acak di WhatsApp).
+async function tapWhatsappInputField(adbId) {
+  const bounds = await resolveWhatsappNodeBounds(adbId, WHATSAPP_ENTRY_FIELD_IDS, {
+    retries: 4,
+    delayMs: 900,
+  });
+  if (!bounds) return null;
+  await tapAtPoint(adbId, bounds.x, bounds.y);
+  await sleep(500);
+  return bounds;
+}
+
+function parseLoopbackAdbEndpoint(adbId = "") {
+  const match = String(adbId || "")
+    .trim()
+    .toLowerCase()
+    .match(/^(127\.0\.0\.1|localhost):(\d+)$/);
+  if (!match) return null;
+  return {
+    host: match[1],
+    port: Number.parseInt(match[2], 10),
+  };
+}
+
+function buildAdbTargetCandidates(adbId = "") {
+  const trimmed = String(adbId || "").trim();
+  if (!trimmed) return [];
+  const candidates = [trimmed];
+  const loopback = parseLoopbackAdbEndpoint(trimmed);
+  if (loopback && Number.isFinite(loopback.port)) {
+    if (loopback.host !== "127.0.0.1") {
+      candidates.push(`127.0.0.1:${loopback.port}`);
+    }
+    if (loopback.host !== "localhost") {
+      candidates.push(`localhost:${loopback.port}`);
+    }
+    if (loopback.port >= 5555) {
+      const emulatorPort = loopback.port - 1;
+      if (emulatorPort >= 5554) {
+        candidates.push(`emulator-${emulatorPort}`);
+      }
+    }
+  }
+  return [...new Set(candidates)];
+}
+
+async function resolveAdbTarget(adbId) {
+  const trimmed = String(adbId || "").trim();
+  if (!trimmed) {
+    throw new Error("ADB ID tidak valid.");
+  }
+
+  const candidates = buildAdbTargetCandidates(trimmed);
+  const liveCandidates = candidates.filter((candidate) => {
+    const session = scrcpySessions.get(candidate);
+    return session && !session.killed;
+  });
+  if (liveCandidates.length) {
+    return { adbId: liveCandidates[0], requestedAdbId: trimmed, matchedBy: "session" };
+  }
+
+  const manager = ensureAndroidManagerReady();
+  const devices = await manager.listConnectedDevices();
+  const onlineDevices = devices.filter((device) => device?.status === "device");
+  const exact = onlineDevices.find((device) =>
+    candidates.some(
+      (candidate) => candidate.toLowerCase() === String(device.adbId || "").toLowerCase()
+    )
+  );
+  if (exact) {
+    return {
+      adbId: exact.adbId,
+      requestedAdbId: trimmed,
+      matchedBy: exact.adbId.toLowerCase() === trimmed.toLowerCase() ? "exact" : "alias",
+      device: exact,
+    };
+  }
+
+  const fallback = devices.find((device) =>
+    candidates.some(
+      (candidate) => candidate.toLowerCase() === String(device.adbId || "").toLowerCase()
+    )
+  );
+  if (fallback) {
+    return {
+      adbId: fallback.adbId,
+      requestedAdbId: trimmed,
+      matchedBy: "offline",
+      device: fallback,
+    };
+  }
+
+  return { adbId: trimmed, requestedAdbId: trimmed, matchedBy: "raw" };
+}
+
+async function openAndroidDeviceDisplay(uid) {
   if (!uid) {
     throw new Error("UID tidak valid.");
   }
-  const record = findAndroidRemoteDevice(uid);
-  if (!record) {
-    throw new Error("Device Android tidak ditemukan.");
-  }
+  const record = await resolveAndroidDeviceRecord(uid, { requireAdb: true });
   const adbId = record.adbId;
-  if (!adbId) {
-    throw new Error("Device tidak memiliki ADB ID.");
-  }
-  const existing = scrcpySessions.get(adbId);
+  const resolvedTarget = await resolveAdbTarget(adbId);
+  const targetAdbId = resolvedTarget.adbId || adbId;
+  const existing =
+    scrcpySessions.get(targetAdbId) || scrcpySessions.get(adbId);
   if (existing && !existing.killed) {
     // Focus existing control window
-    const controlWin = scrcpyWindows.get(adbId);
+    const controlWin =
+      scrcpyWindows.get(targetAdbId) || scrcpyWindows.get(adbId);
     if (controlWin && !controlWin.isDestroyed()) {
       controlWin.focus();
     }
     return { message: "Tampilan perangkat sudah berjalan." };
   }
   const deviceName = record.name || "Android Device";
-  const service = record.service || "android-full-remote";
-  return launchScrcpyForDevice(adbId, uid, deviceName, {
+  const service = record.service || "android-general";
+  return launchScrcpyForDevice(targetAdbId, uid, deviceName, {
     service: service,
-    whatsappBaseUrl: record.whatsappBaseUrl || "",
-    whatsappCallbackUrl: record.whatsappCallbackUrl || "",
+    displayMode: record.displayMode || "readonly",
+    whatsappBaseUrl: resolveAutomationPendingEndpoint(record.whatsappBaseUrl),
+    whatsappCallbackUrl: resolveAutomationCallbackUrl(
+      record.whatsappBaseUrl,
+      record.whatsappCallbackUrl
+    ),
   });
+}
+
+async function closeAndroidDeviceDisplay(uid) {
+  if (!uid) {
+    throw new Error("UID tidak valid.");
+  }
+  const record = await resolveAndroidDeviceRecord(uid, { requireAdb: true });
+  const resolvedTarget = await resolveAdbTarget(record.adbId);
+  const targetAdbId = resolvedTarget?.adbId || record.adbId;
+  const candidateIds = [
+    targetAdbId,
+    record.adbId,
+    ...buildAdbTargetCandidates(record.adbId),
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  const uniqueIds = [...new Set(candidateIds)];
+
+  let closed = false;
+  uniqueIds.forEach((adbId) => {
+    scrcpyRestartMeta.delete(adbId);
+    const existingWindow = scrcpyWindows.get(adbId);
+    if (existingWindow && !existingWindow.isDestroyed()) {
+      closed = true;
+      existingWindow.close();
+      return;
+    }
+    const proc = scrcpySessions.get(adbId);
+    if (proc && !proc.killed) {
+      closed = true;
+      proc.kill();
+      scrcpySessions.delete(adbId);
+    }
+  });
+
+  return {
+    message: closed
+      ? "Tampilan perangkat ditutup."
+      : "Tampilan perangkat belum berjalan.",
+    closed,
+  };
 }
 
 const scrcpyWindows = new Map();
@@ -4737,6 +5217,7 @@ function createScrcpyWindow(
 ) {
   const {
     service = "android-full-remote",
+    displayMode = "readonly",
     whatsappBaseUrl = "",
     whatsappCallbackUrl = "",
   } = options || {};
@@ -4772,6 +5253,7 @@ function createScrcpyWindow(
     adbId: adbId,
     deviceName: deviceName,
     service,
+    displayMode: sanitizeAndroidDisplayMode(displayMode),
   });
   if (whatsappBaseUrl) {
     queryParams.set("whatsappBaseUrl", whatsappBaseUrl);
@@ -4988,19 +5470,53 @@ function launchScrcpyForDevice(
     try {
       createScrcpyWindow(meta.uid, adbId, meta.deviceName, meta.options || meta);
 
-      const windowTitle = `${meta.deviceName} (${adbId})`;
+      const serviceId = sanitizeRemoteServiceId(
+        meta.options?.service || meta.service || ""
+      );
+      const isNativeDisplay =
+        sanitizeAndroidDisplayMode(
+          meta.options?.displayMode || meta.displayMode || ""
+        ) === "native";
+      const isWhatsappAutomation =
+        serviceId === "android-whatsapp" && !isNativeDisplay;
+      const windowTitle = `${meta.deviceName} (${adbId})${
+        isWhatsappAutomation ? " — Read-Only" : ""
+      }`;
+      const scrcpyArgs = ["-s", adbId, "--window-title", windowTitle];
+      if (isWhatsappAutomation) {
+        // Mode WhatsApp automation: layar hanya bisa dilihat (read-only),
+        // user tidak bisa klik/buka aplikasi lain sehingga pengiriman
+        // pesan pending tidak terganggu. Catatan: --stay-awake tidak boleh
+        // dipakai bersama --no-control (scrcpy exit code 1); layar dijaga
+        // tetap bangun oleh siklus automation via ADB.
+        scrcpyArgs.push("--no-control");
+        console.log(
+          `🔒 Read-only mode aktif untuk ${adbId} (WhatsApp automation)`
+        );
+      } else {
+        scrcpyArgs.push("--stay-awake");
+      }
       // On Windows, use shell if path contains spaces or special chars
       const needsShell = process.platform === "win32" && /[\s()]/.test(scrcpyBin);
       console.log(`🚀 Launching scrcpy from: ${scrcpyBin} (shell=${needsShell})`);
-      const proc = spawn(scrcpyBin, [
-        "-s",
-        adbId,
-        "--window-title",
-        windowTitle,
-        "--stay-awake",
-      ], {
+      // scrcpy butuh adb — arahkan ke adb milik SDK internal StarBox,
+      // karena adb biasanya tidak ada di PATH sistem (scrcpy exit diam-diam
+      // dengan "Command not found: adb" tanpa env ini)
+      let scrcpyEnv = { ...process.env };
+      try {
+        const manager = ensureAndroidManagerReady();
+        scrcpyEnv = manager.getProcessEnv();
+        scrcpyEnv.ADB = manager.getADBBinary();
+      } catch (err) {
+        console.warn(
+          "⚠️ Tidak bisa menyiapkan env adb untuk scrcpy:",
+          err?.message || err
+        );
+      }
+      const proc = spawn(scrcpyBin, scrcpyArgs, {
         shell: needsShell,
         windowsHide: true,
+        env: scrcpyEnv,
       });
 
       // Capture output for debugging
@@ -5042,10 +5558,6 @@ function launchScrcpyForDevice(
         const restarted = attemptRestart(`exit code ${code} signal ${signal || "none"}`);
         if (!restarted) {
           cleanup();
-          const win = scrcpyWindows.get(adbId);
-          if (win && !win.isDestroyed()) {
-            win.close();
-          }
           scrcpyRestartMeta.delete(adbId);
         }
       });
@@ -5089,10 +5601,7 @@ async function performAndroidRemoteAction(
   action = "default",
   payload = {}
 ) {
-  const record = findAndroidRemoteDevice(uid);
-  if (!record) {
-    throw new Error("Device Android tidak ditemukan.");
-  }
+  const record = await resolveAndroidDeviceRecord(uid, { requireAdb: true });
   const token = beginAndroidRemoteAction(uid);
   const service = sanitizeRemoteServiceId(record.service);
   const normalizedAction = action || "default";
@@ -5192,6 +5701,18 @@ function sanitizePendingUrl(url = "") {
     .replace(/\/+$/, "");
 }
 
+function extractUrlRoot(url = "") {
+  const sanitized = sanitizePendingUrl(url);
+  if (!sanitized) return "";
+  try {
+    const parsed = new URL(sanitized);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    const match = sanitized.match(/^([a-z]+:\/\/[^/]+)/i);
+    return match ? match[1].replace(/\/+$/, "") : sanitized;
+  }
+}
+
 function hasCustomPathInUrl(url = "") {
   if (!url) return false;
   try {
@@ -5239,9 +5760,16 @@ function buildUrlWithDefaultPath(baseUrl = "", defaultPath = "") {
 function resolveAutomationCallbackUrl(pendingUrl = "", callbackUrl = "") {
   const override = sanitizePendingUrl(callbackUrl);
   if (override) {
-    return buildUrlWithDefaultPath(override, "/updatestatusmessage");
+    return buildUrlWithDefaultPath(override, "/schedule/updatestatusmessage");
   }
-  return buildUrlWithDefaultPath(pendingUrl, "/updatestatusmessage");
+  return buildUrlWithDefaultPath(
+    extractUrlRoot(pendingUrl),
+    "/schedule/updatestatusmessage"
+  );
+}
+
+function resolveAutomationPendingEndpoint(baseUrl = "") {
+  return buildUrlWithDefaultPath(baseUrl, "/schedule/getpendingmessage");
 }
 
 function sanitizeCustomUrl(url = "") {
@@ -5461,8 +5989,41 @@ async function ensureDeviceWindow(uid, serviceHint, options = {}) {
 }
 
 async function ensureMonitorWindow(uid, parentWindow) {
+  const monitorConfig = getDeviceConfig(uid) || {};
+
+  // Monitor WA Auto Sender khusus device di menu Web Emulator. Untuk device
+  // Android (emulator maupun ADB remote), monitor automation-nya adalah
+  // window Android Remote Control (scrcpy + sidebar pending) — jangan buka
+  // monitor web agar tidak dobel.
+  const isAndroidDevice =
+    (monitorConfig.service || "").toLowerCase() === "android" ||
+    !!findAndroidRemoteDevice(uid);
+  if (isAndroidDevice) {
+    // Mode native: window QEMU sudah tampil sendiri, tidak perlu buka mirror
+    const isNativeDisplay =
+      sanitizeAndroidDisplayMode(monitorConfig.androidDisplayMode) === "native";
+    if (!isNativeDisplay) {
+      try {
+        await openAndroidDeviceDisplay(uid);
+      } catch (err) {
+        console.warn(
+          `⚠️ Gagal membuka Android Remote Control untuk ${uid}:`,
+          err?.message || err
+        );
+      }
+    }
+    return null;
+  }
+
+  const monitorDeviceName = String(
+    monitorConfig.name || parentWindow?.__deviceName || uid || "Device"
+  ).trim();
+  const monitorWindowTitle = withBrandTitle(
+    monitorDeviceName ? `${monitorDeviceName} Monitor` : "WA Auto Sender Monitor"
+  );
   let monitor = monitorWindows[uid];
   if (monitor && !monitor.isDestroyed()) {
+    monitor.setTitle(monitorWindowTitle);
     if (!monitor.isVisible()) {
       monitor.show();
     }
@@ -5474,7 +6035,7 @@ async function ensureMonitorWindow(uid, parentWindow) {
   const monitorOptions = {
     width: metrics.width,
     height: metrics.height,
-    title: withBrandTitle("WA Auto Sender Monitor"),
+    title: monitorWindowTitle,
     frame: true,
     resizable: true,
     minimizable: true,
@@ -5501,6 +6062,12 @@ async function ensureMonitorWindow(uid, parentWindow) {
   }
 
   monitor = new BrowserWindow(monitorOptions);
+  monitor.webContents.on("page-title-updated", (event) => {
+    event.preventDefault();
+    if (!monitor.isDestroyed()) {
+      monitor.setTitle(monitorWindowTitle);
+    }
+  });
 
   monitor.__expandedWidth = metrics.baseWidth;
   monitor.__expandedHeight = metrics.baseHeight;
@@ -5608,11 +6175,13 @@ async function sendAutomationMonitorPayload(
   if (!uid) return;
 
   const config = getDeviceConfig(uid) || {};
-  if (!config.autoSender) return;
+  const isAndroidWhatsappAutomation =
+    sanitizeRemoteServiceId(config.androidAutomationService || "") ===
+      "android-whatsapp" && !!sanitizePendingUrl(config.whatsappBaseUrl || "");
+  if (!config.autoSender && !isAndroidWhatsappAutomation) return;
 
   const autoOpen = Boolean(payload?.autoOpenMonitor);
   const parentWindow = preferredWindow || deviceWindows[uid];
-  if (!parentWindow || parentWindow.isDestroyed()) return;
 
   let monitor = monitorWindows[uid];
   if (!monitor || monitor.isDestroyed()) {
@@ -5670,6 +6239,8 @@ async function sendAutomationMonitorPayload(
     "deviceName" in remaining ? remaining.deviceName : undefined;
   const pendingUrlOverride =
     "pendingUrl" in remaining ? remaining.pendingUrl : undefined;
+  const callbackUrlOverride =
+    "callbackUrl" in remaining ? remaining.callbackUrl : undefined;
   const inputGuardEnabled =
     "inputGuardEnabled" in remaining
       ? remaining.inputGuardEnabled
@@ -5685,16 +6256,47 @@ async function sendAutomationMonitorPayload(
   delete remaining.service;
   delete remaining.deviceName;
   delete remaining.pendingUrl;
+  delete remaining.callbackUrl;
+
+  const monitorTitleName = String(
+    deviceNameOverride || config.name || uid || "Device"
+  ).trim();
+  const monitorTitle = withBrandTitle(
+    monitorTitleName ? `${monitorTitleName} Monitor` : "WA Auto Sender Monitor"
+  );
+  if (monitor && !monitor.isDestroyed()) {
+    monitor.setTitle(monitorTitle);
+  }
+
+  const resolvedPendingUrl = resolveAutomationPendingEndpoint(
+    typeof pendingUrlOverride === "string"
+      ? pendingUrlOverride
+      : isAndroidWhatsappAutomation
+      ? config.whatsappBaseUrl || ""
+      : config.pendingUrl || parentWindow?.__pendingUrl || ""
+  );
+  const resolvedCallbackUrl = resolveAutomationCallbackUrl(
+    typeof pendingUrlOverride === "string"
+      ? pendingUrlOverride
+      : isAndroidWhatsappAutomation
+      ? config.whatsappBaseUrl || ""
+      : config.pendingUrl || parentWindow?.__pendingUrl || "",
+    typeof callbackUrlOverride === "string"
+      ? callbackUrlOverride
+      : isAndroidWhatsappAutomation
+      ? config.whatsappCallbackUrl || ""
+      : config.callbackUrl || ""
+  );
 
   monitor.webContents.send("automation-update", {
     uid,
-    service: serviceOverride || config.service || "",
+    service:
+      serviceOverride ||
+      (isAndroidWhatsappAutomation ? "android-whatsapp" : config.service || ""),
     deviceName: deviceNameOverride || config.name || uid,
-    pendingUrl:
-      typeof pendingUrlOverride === "string"
-        ? pendingUrlOverride
-        : config.pendingUrl || parentWindow.__pendingUrl || "",
-    autoSenderEnabled: !!config.autoSender,
+    pendingUrl: resolvedPendingUrl,
+    callbackUrl: resolvedCallbackUrl,
+    autoSenderEnabled: !!config.autoSender || isAndroidWhatsappAutomation,
     inputGuardEnabled,
     queue: sanitizedQueue,
     counts: normalizedCounts,
@@ -5708,7 +6310,10 @@ async function sendAutomationMonitorPayload(
 
 async function sendWhatsappMessages(uid, queue = [], options = {}) {
   const config = getDeviceConfig(uid) || {};
-  if (!config.autoSender) {
+  const isAndroidWhatsappAutomation =
+    sanitizeRemoteServiceId(config.androidAutomationService || "") ===
+      "android-whatsapp" && !!sanitizePendingUrl(config.whatsappBaseUrl || "");
+  if (!config.autoSender && !isAndroidWhatsappAutomation) {
     console.warn(`⚠️ Auto sender tidak aktif untuk UID ${uid}`);
     return [];
   }
@@ -6008,6 +6613,18 @@ function updateDeviceStatus(uid, status) {
       data.devices[index].status = status;
       fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
       console.log(`🔄 Device ${uid} status updated to ${status}`);
+      BrowserWindow.getAllWindows().forEach((win) => {
+        try {
+          if (!win.isDestroyed()) {
+            win.webContents.send("device-status-updated", uid, status);
+          }
+        } catch (sendErr) {
+          console.warn(
+            `⚠️ Gagal broadcast status device ${uid}:`,
+            sendErr?.message || sendErr
+          );
+        }
+      });
     } else {
       console.warn(`⚠️ Device ${uid} tidak ditemukan di devices.json!`);
     }
@@ -6871,7 +7488,7 @@ function getUAForMode(mode) {
 }
 
 function createDeviceWindow(uid, service, options = {}) {
-  const { autoShow = true } = options;
+  const { autoShow = true, autoStart = false } = options;
   const serviceKey = (service || "").toLowerCase();
   const selected = services[serviceKey] || services.other;
 
@@ -7151,11 +7768,20 @@ function createDeviceWindow(uid, service, options = {}) {
     }
   } else if (selected.isLocalFile) {
     // For local HTML files like android-emulator.html
-    const fileUrl = `${selected.url}?uid=${encodeURIComponent(uid)}`;
+    const queryParams = new URLSearchParams({
+      uid,
+    });
+    if (serviceKey === "android" && deviceName) {
+      queryParams.set("deviceName", deviceName);
+    }
+    if (serviceKey === "android" && autoStart) {
+      queryParams.set("autoStart", "1");
+    }
+    const fileUrl = `${selected.url}?${queryParams.toString()}`;
     win.loadFile(fileUrl.split("?")[0]).then(() => {
       // Navigate to include query params
       const fullPath = path.join(__dirname, selected.url);
-      win.loadURL(`file://${fullPath}?uid=${encodeURIComponent(uid)}`);
+      win.loadURL(`file://${fullPath}?${queryParams.toString()}`);
     });
   } else {
     // For web URLs
@@ -7722,6 +8348,266 @@ ipcMain.handle("os-vm-delete", async (_event, id) => {
   }
 });
 
+// ── QEMU optimization helpers ─────────────────────────────────────────────
+// Arsitektur guest dari nama binary (qemu-system-x86_64 / qemu-system-aarch64 / ...)
+function getQemuBinArch(qemuBin) {
+  const base = path.basename(String(qemuBin || "")).toLowerCase();
+  if (base.includes("aarch64")) return "aarch64";
+  if (base.includes("i386")) return "i386";
+  if (base.includes("arm")) return "arm";
+  return "x86_64";
+}
+
+// Deteksi akselerator hardware terbaik yang tersedia untuk binary QEMU ini.
+// HVF (macOS) / KVM (Linux) / WHPX (Windows) hanya bisa dipakai jika arsitektur
+// guest = arsitektur host; selain itu jatuh ke TCG (emulasi software).
+const qemuAccelCache = new Map();
+function detectQemuAccel(qemuBin) {
+  if (qemuAccelCache.has(qemuBin)) return qemuAccelCache.get(qemuBin);
+  let available = "";
+  try {
+    const r = spawnSync(qemuBin, ["-accel", "help"], { timeout: 5000 });
+    if (!r.error && r.stdout) available = r.stdout.toString().toLowerCase();
+  } catch (_) {}
+  const hostArch = process.arch === "arm64" ? "aarch64" : process.arch === "x64" ? "x86_64" : process.arch;
+  const archMatch = getQemuBinArch(qemuBin) === hostArch;
+  let accel = "tcg";
+  if (archMatch) {
+    if (process.platform === "linux" && available.includes("kvm")) {
+      try {
+        fs.accessSync("/dev/kvm", fs.constants.R_OK | fs.constants.W_OK);
+        accel = "kvm";
+      } catch (_) {}
+    } else if (process.platform === "darwin" && available.includes("hvf")) {
+      accel = "hvf";
+    } else if (process.platform === "win32" && available.includes("whpx")) {
+      accel = "whpx";
+    }
+  }
+  qemuAccelCache.set(qemuBin, accel);
+  console.log(`⚡ QEMU accel untuk ${path.basename(qemuBin)}: ${accel}${archMatch ? "" : " (arch guest ≠ host)"}`);
+  return accel;
+}
+
+// qemu-img yang satu paket dengan binary QEMU (penting di Windows: tidak ada di PATH)
+function findQemuImg(qemuBin) {
+  const name = process.platform === "win32" ? "qemu-img.exe" : "qemu-img";
+  try {
+    const sibling = path.join(path.dirname(qemuBin), name);
+    if (fs.existsSync(sibling)) return sibling;
+  } catch (_) {}
+  return name;
+}
+
+// Firmware UEFI (edk2) untuk mesin aarch64 "virt" — wajib agar bisa boot ISO
+function findEdk2Firmware(qemuBin) {
+  const dirs = [
+    path.join(path.dirname(qemuBin || ""), "..", "share", "qemu"),
+    path.join(path.dirname(qemuBin || ""), "share"),
+    "/opt/homebrew/share/qemu",
+    "/usr/local/share/qemu",
+    "/usr/share/qemu",
+  ];
+  for (const dir of dirs) {
+    try {
+      const p = path.join(dir, "edk2-aarch64-code.fd");
+      if (fs.existsSync(p)) return p;
+    } catch (_) {}
+  }
+  return null;
+}
+
+// Lokasi disk qcow2 VM (mengikuti logika pembuatan otomatis di doStartVm)
+function resolveVmDiskPath(vm) {
+  if (vm.diskPath) return vm.diskPath;
+  const vmDir = path.join(userDataPath || app.getPath("userData"), "vm");
+  return path.join(vmDir, `${vm.id}.qcow2`);
+}
+
+// Rakit argumen QEMU yang dioptimalkan:
+// - Akselerasi hardware (HVF/KVM/WHPX) dengan fallback TCG
+// - Mesin modern q35 (x86) / virt+UEFI (aarch64)
+// - Disk virtio + writeback cache + discard (Linux), SATA/AHCI (Windows/other)
+// - Jaringan virtio-net / e1000 sesuai networkMode
+// - virtio-balloon (RAM idle dikembalikan ke host) + usb-tablet (mouse VNC akurat)
+function buildQemuArgs(vm, diskPath, displayNumber, qemuBin, qmpPort) {
+  const binArch = getQemuBinArch(qemuBin);
+  const accel = detectQemuAccel(qemuBin);
+  const hwAccel = accel !== "tcg";
+  const isArm = binArch === "aarch64" || binArch === "arm";
+  const guest = (vm.osType || "linux").toLowerCase();
+
+  const args = ["-m", String(vm.memoryMb || 1024), "-smp", String(vm.cpu || 1)];
+
+  const safeName = String(vm.name || "vm").replace(/[^\w .-]/g, "").slice(0, 40) || "vm";
+  args.push("-name", safeName);
+
+  // Mesin + akselerator (accel=X:tcg → coba hardware dulu, fallback TCG)
+  if (isArm) {
+    args.push("-machine", `virt,accel=${accel}${hwAccel ? ":tcg" : ""}`);
+    const fw = findEdk2Firmware(qemuBin);
+    if (fw) args.push("-bios", fw);
+  } else {
+    let machine = `q35,accel=${accel}${hwAccel ? ":tcg" : ""}`;
+    if (accel === "whpx") machine += ",kernel-irqchip=off";
+    args.push("-machine", machine);
+  }
+
+  // CPU model: host passthrough saat pakai akselerasi hardware
+  if (hwAccel) {
+    if (guest === "windows" && accel === "kvm") {
+      // Hyper-V enlightenments → Windows guest jauh lebih responsif di KVM
+      args.push("-cpu", "host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time");
+    } else {
+      args.push("-cpu", "host");
+    }
+  } else {
+    args.push("-cpu", "max");
+  }
+
+  // Disk: virtio untuk Linux (tercepat), SATA/IDE untuk Windows & OS lain
+  // (installer Windows tidak punya driver virtio bawaan)
+  if (diskPath) {
+    const diskIf = guest === "linux" ? "virtio" : "ide";
+    args.push("-drive", `file=${diskPath},format=qcow2,if=${diskIf},cache=writeback,discard=unmap`);
+  }
+
+  // CD-ROM installer
+  if (vm.isoPath) {
+    if (isArm) {
+      // mesin virt tidak punya bus IDE — pakai USB CD-ROM
+      args.push("-drive", `file=${vm.isoPath},media=cdrom,if=none,id=cd0,readonly=on`);
+      args.push("-device", "usb-storage,drive=cd0");
+    } else {
+      args.push("-cdrom", vm.isoPath);
+      if (vm.bootOrder) args.push("-boot", `order=${vm.bootOrder},menu=on`);
+    }
+  }
+
+  // Jaringan sesuai networkMode (sebelumnya disimpan tapi tidak pernah dipakai)
+  const netDevice = guest === "linux" ? "virtio-net-pci" : "e1000";
+  const macSuffix = vm.macAddress ? `,mac=${vm.macAddress}` : "";
+  const mode = (vm.networkMode || "nat").toLowerCase();
+  if (mode === "none") {
+    args.push("-nic", "none");
+  } else if (mode === "bridge" && process.platform === "darwin") {
+    args.push("-netdev", `vmnet-bridged,id=net0,ifname=${vm.bridgeInterface || "en0"}`);
+    args.push("-device", `${netDevice},netdev=net0${macSuffix}`);
+  } else if (mode === "bridge" && process.platform === "linux") {
+    args.push("-netdev", `bridge,id=net0,br=${vm.bridgeInterface || "br0"}`);
+    args.push("-device", `${netDevice},netdev=net0${macSuffix}`);
+  } else {
+    // NAT (user-mode) — juga fallback bridge di Windows
+    args.push("-netdev", "user,id=net0");
+    args.push("-device", `${netDevice},netdev=net0${macSuffix}`);
+  }
+
+  // Balloon: guest bisa mengembalikan RAM yang tidak terpakai ke host
+  args.push("-device", "virtio-balloon-pci");
+
+  // USB tablet → posisi mouse absolut, kursor VNC tidak meleset
+  args.push("-device", "qemu-xhci,id=xhci");
+  args.push("-device", "usb-tablet");
+  if (isArm) args.push("-device", "usb-kbd");
+
+  // Display
+  if (isArm) {
+    args.push("-device", "virtio-gpu-pci");
+  } else {
+    args.push("-vga", guest === "linux" ? "virtio" : "std");
+  }
+
+  // Jam hardware Windows memakai waktu lokal
+  if (guest === "windows") args.push("-rtc", "base=localtime");
+
+  // VNC display
+  args.push("-vnc", `127.0.0.1:${displayNumber},password=off`);
+
+  // QMP monitor untuk graceful shutdown / pause / snapshot live
+  if (qmpPort) args.push("-qmp", `tcp:127.0.0.1:${qmpPort},server=on,wait=off`);
+
+  return { args, accel };
+}
+
+// Client QMP minimal: handshake capabilities lalu satu perintah
+function qmpCommand(port, execute, cmdArgs = {}, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const socket = nodeNet.createConnection({ host: "127.0.0.1", port });
+    let buffer = "";
+    let stage = 0; // 0=tunggu greeting, 1=tunggu ack capabilities, 2=tunggu hasil
+    let settled = false;
+    const timer = setTimeout(() => finish(new Error("QMP timeout")), timeoutMs);
+    function finish(err, result) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { socket.destroy(); } catch (_) {}
+      err ? reject(err) : resolve(result);
+    }
+    socket.on("error", (err) => finish(err));
+    socket.on("data", (chunk) => {
+      buffer += chunk.toString();
+      let idx;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!line) continue;
+        let msg;
+        try { msg = JSON.parse(line); } catch (_) { continue; }
+        if (msg.event) continue; // abaikan event async
+        if (stage === 0 && msg.QMP) {
+          stage = 1;
+          socket.write(JSON.stringify({ execute: "qmp_capabilities" }) + "\n");
+        } else if (stage === 1) {
+          if (msg.error) return finish(new Error(msg.error.desc || "QMP capabilities gagal"));
+          stage = 2;
+          socket.write(JSON.stringify({ execute, arguments: cmdArgs }) + "\n");
+        } else if (stage === 2) {
+          if (msg.error) return finish(new Error(msg.error.desc || `QMP ${execute} gagal`));
+          return finish(null, msg.return);
+        }
+      }
+    });
+  });
+}
+
+// Stop VM: coba ACPI shutdown (guest shutdown bersih) → SIGTERM → SIGKILL
+async function doStopVm(id, { graceful = true, gracefulTimeoutMs = 6000 } = {}) {
+  const proc = vmProcesses.get(id);
+  if (proc) {
+    const waitExit = (ms) =>
+      new Promise((resolve) => {
+        if (proc.exitCode !== null) return resolve(true);
+        const onExit = () => { clearTimeout(t); resolve(true); };
+        const t = setTimeout(() => {
+          proc.removeListener("exit", onExit);
+          resolve(false);
+        }, ms);
+        proc.once("exit", onExit);
+      });
+    let exited = proc.exitCode !== null;
+    const qmpPort = vmQmpPorts.get(id);
+    if (!exited && graceful && qmpPort) {
+      try {
+        await qmpCommand(qmpPort, "system_powerdown");
+        console.log(`🔌 VM ${id}: ACPI powerdown dikirim, menunggu guest shutdown...`);
+        exited = await waitExit(gracefulTimeoutMs);
+      } catch (_) {}
+    }
+    if (!exited) {
+      try { proc.kill("SIGTERM"); } catch (_) {}
+      exited = await waitExit(1500);
+    }
+    if (!exited) {
+      try { proc.kill("SIGKILL"); } catch (_) {}
+    }
+    vmProcesses.delete(id);
+  }
+  vmQmpPorts.delete(id);
+  stopVncProxy(id);
+  return virtualOSStorage?.stop(id);
+}
+
 async function doStartVm(id) {
     const vm = virtualOSStorage?.get(id);
     if (!vm) throw new Error("VM tidak ditemukan.");
@@ -7742,27 +8628,32 @@ async function doStartVm(id) {
       );
     }
 
+    // Resolve QEMU binary — use vm setting, findQemuBin(), or fallback name
+    const _qemuFallback = process.platform === 'win32' ? 'qemu-system-x86_64.exe' : 'qemu-system-x86_64';
+    const qemuBin = vm.qemuBinary || findQemuBin() || _qemuFallback;
+
     // Check if disk file exists (if specified)
-    let diskPath = vm.diskPath;
-    if (!diskPath) {
-      const vmDir = path.join(userDataPath || app.getPath("userData"), "vm");
-      fs.mkdirSync(vmDir, { recursive: true });
-      diskPath = path.join(vmDir, `${id || Date.now()}.qcow2`);
+    const diskPath = resolveVmDiskPath({ ...vm, id });
+    if (!vm.diskPath) {
+      fs.mkdirSync(path.dirname(diskPath), { recursive: true });
     }
     if (!fs.existsSync(diskPath)) {
       const sizeGb = Math.max(5, Math.min(2048, vm.storageGb || 20));
-      const imgResult = spawnSync("qemu-img", [
+      // lazy_refcounts + writeback cache = tulis disk jauh lebih cepat, file tetap thin
+      const imgResult = spawnSync(findQemuImg(qemuBin), [
         "create",
         "-f",
         "qcow2",
+        "-o",
+        "lazy_refcounts=on",
         diskPath,
         `${sizeGb}G`,
       ]);
-      if (imgResult.error) {
-        console.warn("⚠️ qemu-img create error:", imgResult.error?.message || imgResult.error);
-      } else {
-        console.log("✅ Disk image created:", diskPath);
+      if (imgResult.error || imgResult.status !== 0) {
+        const detail = imgResult.error?.message || imgResult.stderr?.toString().trim() || "qemu-img gagal";
+        throw new Error(`Gagal membuat disk virtual (${diskPath}).\n\nDetail: ${detail}`);
       }
+      console.log("✅ Disk image created:", diskPath);
     }
 
     if (vmProcesses.has(id)) {
@@ -7804,10 +8695,6 @@ async function doStartVm(id) {
       } catch (_) {}
     }
 
-    // Resolve QEMU binary — use vm setting, findQemuBin(), or fallback name
-    const _qemuFallback = process.platform === 'win32' ? 'qemu-system-x86_64.exe' : 'qemu-system-x86_64';
-    const qemuBin = vm.qemuBinary || findQemuBin() || _qemuFallback;
-
     // Check if QEMU is installed
     try {
       const checkQemu = spawnSync(qemuBin, ["--version"]);
@@ -7826,26 +8713,6 @@ async function doStartVm(id) {
       throw new Error(`Gagal memeriksa QEMU: ${err.message}`);
     }
 
-    const args = [
-      "-m",
-      String(vm.memoryMb || 1024),
-      "-smp",
-      String(vm.cpu || 1),
-    ];
-
-    if (diskPath) {
-      args.push("-drive", `file=${diskPath},format=qcow2,if=ide`);
-    }
-    if (vm.isoPath) {
-      args.push("-cdrom", vm.isoPath);
-      if (vm.bootOrder) {
-        args.push("-boot", vm.bootOrder);
-      }
-    }
-    if (vm.osType === "windows") {
-      args.push("-machine", "type=pc,accel=tcg");
-    }
-
     // Find available VNC port
     const requestedPort = vm.vncPort || 5901;
     const availablePort = await findAvailableVncPort(requestedPort);
@@ -7857,14 +8724,17 @@ async function doStartVm(id) {
       virtualOSStorage?.upsert({ id, vncPort: availablePort });
     }
 
-    // VNC with no password authentication for easier connection
-    args.push("-vnc", `127.0.0.1:${displayNumber},password=off`);
-
-    if (process.platform === "linux" && vm.enableKvm !== false) {
-      args.push("-enable-kvm");
+    // Port QMP monitor (graceful shutdown / pause / snapshot live)
+    let qmpPort = null;
+    try {
+      qmpPort = await findAvailableVncPort(availablePort + 100, 50);
+    } catch (_) {
+      console.warn("⚠️ Tidak menemukan port QMP bebas — VM jalan tanpa monitor.");
     }
 
-    console.log(`🚀 Starting QEMU for VM ${id}:`, qemuBin, args.join(" "));
+    const { args, accel } = buildQemuArgs(vm, diskPath, displayNumber, qemuBin, qmpPort);
+
+    console.log(`🚀 Starting QEMU for VM ${id} (accel=${accel}):`, qemuBin, args.join(" "));
 
     const child = spawn(qemuBin, args, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -7885,6 +8755,7 @@ async function doStartVm(id) {
     child.on("error", (err) => {
       console.error(`❌ QEMU spawn error for VM ${id}:`, err);
       vmProcesses.delete(id);
+      vmQmpPorts.delete(id);
       stopVncProxy(id);
       virtualOSStorage?.stop(id);
     });
@@ -7892,11 +8763,13 @@ async function doStartVm(id) {
     child.on("exit", (code, signal) => {
       console.log(`⚠️ QEMU exited for VM ${id}. Code: ${code}, Signal: ${signal}`);
       vmProcesses.delete(id);
+      vmQmpPorts.delete(id);
       stopVncProxy(id);
       virtualOSStorage?.stop(id);
     });
 
     vmProcesses.set(id, child);
+    if (qmpPort) vmQmpPorts.set(id, qmpPort);
 
     // Wait briefly and confirm process is still alive
     await new Promise((r) => setTimeout(r, 600));
@@ -7916,10 +8789,11 @@ async function doStartVm(id) {
     // Wait for VNC to be ready and create proxy
     const wsPort = await ensureVncProxy(id, "127.0.0.1", availablePort);
 
+    virtualOSStorage?.patchRuntime(id, { accelUsed: accel });
     const updated = virtualOSStorage?.start(id);
-    console.log(`✅ VM ${id} started. PID: ${child.pid}, VNC WS: ${wsPort}`);
+    console.log(`✅ VM ${id} started. PID: ${child.pid}, VNC WS: ${wsPort}, accel: ${accel}`);
 
-    return { success: true, vm: updated, pid: child.pid, wsPort };
+    return { success: true, vm: updated, pid: child.pid, wsPort, accel };
 }
 
 ipcMain.handle("os-vm-start", async (_event, id) => {
@@ -7933,20 +8807,8 @@ ipcMain.handle("os-vm-start", async (_event, id) => {
 
 ipcMain.handle("os-vm-stop", async (_event, id) => {
   try {
-    const proc = vmProcesses.get(id);
-    if (proc) {
-      // Try graceful SIGTERM first, then force SIGKILL
-      try { proc.kill("SIGTERM"); } catch (_) {}
-      await new Promise((r) => setTimeout(r, 800));
-      try {
-        if (!proc.killed && proc.exitCode === null) {
-          proc.kill("SIGKILL");
-        }
-      } catch (_) {}
-      vmProcesses.delete(id);
-    }
-    stopVncProxy(id);
-    const vm = virtualOSStorage?.stop(id);
+    // ACPI shutdown via QMP dulu (guest shutdown bersih) → SIGTERM → SIGKILL
+    const vm = await doStopVm(id);
     return { success: true, vm };
   } catch (err) {
     return { success: false, message: err?.message || "Gagal menghentikan VM." };
@@ -7955,17 +8817,18 @@ ipcMain.handle("os-vm-stop", async (_event, id) => {
 
 ipcMain.handle("os-vm-restart", async (_event, id) => {
   try {
-    // Stop first (reuse stop logic)
+    // Coba reset via QMP dulu (reboot instan tanpa proses baru)
     const proc = vmProcesses.get(id);
-    if (proc) {
-      try { proc.kill("SIGTERM"); } catch (_) {}
-      await new Promise((r) => setTimeout(r, 800));
-      try { if (!proc.killed && proc.exitCode === null) proc.kill("SIGKILL"); } catch (_) {}
-      vmProcesses.delete(id);
+    const qmpPort = vmQmpPorts.get(id);
+    if (proc && proc.exitCode === null && qmpPort) {
+      try {
+        await qmpCommand(qmpPort, "system_reset");
+        return { success: true, vm: virtualOSStorage?.get(id), message: "VM direset." };
+      } catch (_) {
+        // QMP gagal → fallback stop + start
+      }
     }
-    stopVncProxy(id);
-    virtualOSStorage?.stop(id);
-    // Start again using shared function
+    await doStopVm(id);
     return await doStartVm(id);
   } catch (err) {
     return { success: false, message: err?.message || "Gagal restart VM." };
@@ -7979,6 +8842,7 @@ ipcMain.handle("os-vm-force-stop", async (_event, id) => {
       try { proc.kill("SIGKILL"); } catch (_) {}
       vmProcesses.delete(id);
     }
+    vmQmpPorts.delete(id);
     stopVncProxy(id);
     virtualOSStorage?.stop(id);
     // Also kill by lsof on disk file (macOS/Linux)
@@ -8004,7 +8868,15 @@ ipcMain.handle("os-vm-pause", async (_event, id) => {
   try {
     const proc = vmProcesses.get(id);
     if (!proc) return { success: false, message: "VM tidak ditemukan / tidak berjalan." };
-    process.kill(proc.pid, "SIGSTOP");
+    // Pause via QMP (jalan juga di Windows); fallback SIGSTOP di macOS/Linux
+    const qmpPort = vmQmpPorts.get(id);
+    if (qmpPort) {
+      await qmpCommand(qmpPort, "stop");
+    } else if (process.platform !== "win32") {
+      process.kill(proc.pid, "SIGSTOP");
+    } else {
+      return { success: false, message: "QMP tidak tersedia untuk pause di Windows." };
+    }
     return { success: true };
   } catch (err) {
     return { success: false, message: err?.message };
@@ -8015,7 +8887,14 @@ ipcMain.handle("os-vm-resume", async (_event, id) => {
   try {
     const proc = vmProcesses.get(id);
     if (!proc) return { success: false, message: "VM tidak ditemukan / tidak berjalan." };
-    process.kill(proc.pid, "SIGCONT");
+    const qmpPort = vmQmpPorts.get(id);
+    if (qmpPort) {
+      await qmpCommand(qmpPort, "cont");
+    } else if (process.platform !== "win32") {
+      process.kill(proc.pid, "SIGCONT");
+    } else {
+      return { success: false, message: "QMP tidak tersedia untuk resume di Windows." };
+    }
     return { success: true };
   } catch (err) {
     return { success: false, message: err?.message };
@@ -8029,6 +8908,7 @@ ipcMain.handle("os-vm-kill-all-qemu", async () => {
     for (const [vmId, proc] of vmProcesses.entries()) {
       try { proc.kill("SIGKILL"); } catch (_) {}
       vmProcesses.delete(vmId);
+      vmQmpPorts.delete(vmId);
       stopVncProxy(vmId);
       virtualOSStorage?.stop(vmId);
       killed.push(vmId);
@@ -8046,12 +8926,104 @@ ipcMain.handle("os-vm-kill-all-qemu", async () => {
   }
 });
 
+// Snapshot NYATA di dalam file qcow2 (bukan hanya metadata):
+// - VM berjalan → savevm via QMP (menyimpan disk + RAM, bisa di-restore persis)
+// - VM mati    → qemu-img snapshot -c (disk saja)
 ipcMain.handle("os-vm-snapshot", async (_event, id, name) => {
   try {
-    const result = virtualOSStorage?.snapshot(id, name);
+    const vm = virtualOSStorage?.get(id);
+    if (!vm) throw new Error("VM tidak ditemukan.");
+    const diskPath = resolveVmDiskPath(vm);
+    if (!fs.existsSync(diskPath)) {
+      throw new Error("Disk VM belum ada. Jalankan VM minimal satu kali sebelum membuat snapshot.");
+    }
+    const tag = `sb_${Date.now()}`;
+    const proc = vmProcesses.get(id);
+    const running = !!(proc && proc.exitCode === null);
+    if (running) {
+      const qmpPort = vmQmpPorts.get(id);
+      if (!qmpPort) throw new Error("Monitor QMP tidak tersedia. Stop VM lalu buat snapshot lagi.");
+      await qmpCommand(qmpPort, "human-monitor-command", { "command-line": `savevm ${tag}` }, 180000);
+    } else {
+      const qemuImg = findQemuImg(vm.qemuBinary || findQemuBin() || "qemu-system-x86_64");
+      const r = spawnSync(qemuImg, ["snapshot", "-c", tag, diskPath], { timeout: 180000 });
+      if (r.error || r.status !== 0) {
+        const detail = r.error?.message || r.stderr?.toString().trim() || "qemu-img snapshot gagal";
+        throw new Error(`Gagal membuat snapshot disk.\n\nDetail: ${detail}`);
+      }
+    }
+    const result = virtualOSStorage?.snapshot(id, name, { tag, live: running });
     return { success: true, vm: result?.vm, snapshot: result?.snapshot };
   } catch (err) {
     return { success: false, message: err?.message || "Gagal membuat snapshot." };
+  }
+});
+
+ipcMain.handle("os-vm-snapshot-restore", async (_event, id, snapshotId) => {
+  try {
+    const vm = virtualOSStorage?.get(id);
+    if (!vm) throw new Error("VM tidak ditemukan.");
+    const snap = virtualOSStorage?.getSnapshot(id, snapshotId);
+    if (!snap) throw new Error("Snapshot tidak ditemukan.");
+    if (!snap.tag) {
+      throw new Error("Snapshot ini dibuat versi StarBox lama dan tidak berisi data disk — tidak bisa di-restore.");
+    }
+    const proc = vmProcesses.get(id);
+    const running = !!(proc && proc.exitCode === null);
+    if (running) {
+      if (!snap.live) {
+        throw new Error("Snapshot ini dibuat saat VM mati (disk saja). Stop VM terlebih dahulu untuk me-restore.");
+      }
+      const qmpPort = vmQmpPorts.get(id);
+      if (!qmpPort) throw new Error("Monitor QMP tidak tersedia. Stop VM lalu restore lagi.");
+      await qmpCommand(qmpPort, "human-monitor-command", { "command-line": `loadvm ${snap.tag}` }, 180000);
+    } else {
+      const diskPath = resolveVmDiskPath(vm);
+      if (!fs.existsSync(diskPath)) throw new Error("Disk VM tidak ditemukan.");
+      const qemuImg = findQemuImg(vm.qemuBinary || findQemuBin() || "qemu-system-x86_64");
+      const r = spawnSync(qemuImg, ["snapshot", "-a", snap.tag, diskPath], { timeout: 180000 });
+      if (r.error || r.status !== 0) {
+        const detail = r.error?.message || r.stderr?.toString().trim() || "qemu-img snapshot gagal";
+        throw new Error(`Gagal restore snapshot.\n\nDetail: ${detail}`);
+      }
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: err?.message || "Gagal restore snapshot." };
+  }
+});
+
+ipcMain.handle("os-vm-snapshot-delete", async (_event, id, snapshotId) => {
+  try {
+    const vm = virtualOSStorage?.get(id);
+    if (!vm) throw new Error("VM tidak ditemukan.");
+    const snap = virtualOSStorage?.getSnapshot(id, snapshotId);
+    if (!snap) throw new Error("Snapshot tidak ditemukan.");
+    if (snap.tag) {
+      const proc = vmProcesses.get(id);
+      const running = !!(proc && proc.exitCode === null);
+      const diskPath = resolveVmDiskPath(vm);
+      if (running) {
+        const qmpPort = vmQmpPorts.get(id);
+        if (qmpPort) {
+          try {
+            await qmpCommand(qmpPort, "human-monitor-command", { "command-line": `delvm ${snap.tag}` }, 60000);
+          } catch (e) {
+            console.warn(`⚠️ delvm gagal untuk ${snap.tag}:`, e?.message);
+          }
+        }
+      } else if (fs.existsSync(diskPath)) {
+        const qemuImg = findQemuImg(vm.qemuBinary || findQemuBin() || "qemu-system-x86_64");
+        const r = spawnSync(qemuImg, ["snapshot", "-d", snap.tag, diskPath], { timeout: 60000 });
+        if (r.error || (r.status !== 0 && !r.stderr?.toString().includes("Can't find"))) {
+          console.warn("⚠️ qemu-img snapshot -d gagal:", r.stderr?.toString().trim());
+        }
+      }
+    }
+    virtualOSStorage?.removeSnapshot(id, snapshotId);
+    return { success: true, vm: virtualOSStorage?.get(id) };
+  } catch (err) {
+    return { success: false, message: err?.message || "Gagal menghapus snapshot." };
   }
 });
 
@@ -8447,16 +9419,6 @@ ipcMain.handle("add-device", (event, payload = {}) => {
   ).length;
   const serviceLabel = services[serviceKey]?.name || service || "layanan ini";
 
-  if (serviceKey === "android") {
-    if (!authSession?.isLoggedIn || !authSession?.allowsAndroidEmulator) {
-      return {
-        success: false,
-        message:
-          "❌ Layanan Android Emulator tidak tersedia untuk paket Anda. Silakan upgrade paket.",
-      };
-    }
-  }
-
   if (serviceKey === "other") {
     if (!authSession?.isLoggedIn || !authSession?.allowsPrivateService) {
       return {
@@ -8531,8 +9493,23 @@ ipcMain.handle("add-device", (event, payload = {}) => {
       : "",
   };
   if (serviceKey === "android") {
-    newDevice.avdName = generateAvdName(newDevice.uid);
+    newDevice.avdName = generateAvdName(newDevice.uid, newDevice.name);
     newDevice.androidSpec = normalizedAndroidSpec;
+    newDevice.androidAutomationService = sanitizeRemoteServiceId(
+      payload.androidAutomationService || "android-general"
+    );
+    newDevice.whatsappBaseUrl = sanitizePendingUrl(
+      payload.whatsappBaseUrl || ""
+    );
+    newDevice.whatsappCallbackUrl = sanitizePendingUrl(
+      payload.whatsappCallbackUrl || ""
+    );
+    newDevice.whatsappVariant = sanitizeWhatsappVariant(
+      payload.whatsappVariant || "consumer"
+    );
+    newDevice.androidDisplayMode = sanitizeAndroidDisplayMode(
+      payload.androidDisplayMode
+    );
   }
 
   devices.push(newDevice);
@@ -8680,6 +9657,28 @@ ipcMain.handle("edit-device", (event, payload = {}) => {
         device.androidSpec = normalizeAndroidSpecInput(
           payload.androidSpec || device.androidSpec
         );
+        device.androidAutomationService = sanitizeRemoteServiceId(
+          payload.androidAutomationService ||
+            device.androidAutomationService ||
+            "android-general"
+        );
+        device.whatsappBaseUrl = sanitizePendingUrl(
+          payload.whatsappBaseUrl !== undefined
+            ? payload.whatsappBaseUrl
+            : device.whatsappBaseUrl || ""
+        );
+        device.whatsappCallbackUrl = sanitizePendingUrl(
+          payload.whatsappCallbackUrl !== undefined
+            ? payload.whatsappCallbackUrl
+            : device.whatsappCallbackUrl || ""
+        );
+        device.whatsappVariant = sanitizeWhatsappVariant(
+          payload.whatsappVariant || device.whatsappVariant || "consumer"
+        );
+        device.androidDisplayMode = sanitizeAndroidDisplayMode(
+          payload.androidDisplayMode || device.androidDisplayMode
+        );
+        syncAndroidAvdIdentity(device);
       } else if (device.customUrl) {
         device.customUrl = "";
       }
@@ -9176,6 +10175,13 @@ function startDevice(uid, service, options = {}) {
   const serviceKey = (deviceConfig.service || service || "").toLowerCase();
   const useChromeNative =
     !!deviceConfig.useChromeNative && serviceKey !== "android";
+  const autoStartInBackground =
+    serviceKey === "android" && options.autoStart === true;
+  const shouldAutoOpenAndroidMonitor =
+    serviceKey === "android" &&
+    sanitizeRemoteServiceId(deviceConfig.androidAutomationService || "") ===
+      "android-whatsapp" &&
+    !!sanitizePendingUrl(deviceConfig.whatsappBaseUrl || "");
 
   if (useChromeNative) {
     console.log(`🚀 Menjalankan device ${uid} menggunakan Chrome native.`);
@@ -9189,6 +10195,30 @@ function startDevice(uid, service, options = {}) {
       updateDeviceStatus(uid, "stopped");
       throw err;
     }
+  }
+
+  if (autoStartInBackground) {
+    console.log(
+      `🚀 Menjalankan Android emulator ${uid} di background tanpa jendela status.`
+    );
+    updateDeviceStatus(uid, "starting");
+    startAndroidEmulatorDevice(uid, options, () => {})
+      .then(() => {
+        console.log(`✅ Android emulator ${uid} berhasil dijalankan di background.`);
+        if (shouldAutoOpenAndroidMonitor) {
+          ensureMonitorWindow(uid).catch((err) => {
+            console.warn(
+              `⚠️ Gagal membuka monitor autorun Android ${uid}:`,
+              err?.message || err
+            );
+          });
+        }
+      })
+      .catch((err) => {
+        console.error(`❌ Gagal autorun Android emulator ${uid}:`, err);
+        updateDeviceStatus(uid, "stopped");
+      });
+    return;
   }
 
   // Tentukan apakah device harus dibuka di hub atau window baru
@@ -9239,7 +10269,7 @@ function startDevice(uid, service, options = {}) {
   updateDeviceStatus(uid, "starting");
 
   try {
-    createDeviceWindow(uid, service);
+    createDeviceWindow(uid, service, options);
   } catch (err) {
     console.error(`❌ Gagal membuat jendela untuk device ${uid}:`, err);
     updateDeviceStatus(uid, "stopped");
@@ -9408,8 +10438,203 @@ ipcMain.on("automation-monitor-update", async (event, uid, payload = {}) => {
   }
 });
 
+// Fetch pending messages dari whatsappBaseUrl (dipakai IPC handler dan
+// siklus automation Android yang berjalan di main process)
+async function fetchAndroidPendingMessagesList(uid) {
+  const device = await resolveAndroidDeviceRecord(uid);
+  const requestUrl = resolveAutomationPendingEndpoint(device.whatsappBaseUrl);
+  if (!requestUrl) {
+    throw new Error("whatsappBaseUrl belum dikonfigurasi.");
+  }
+
+  const url = new URL(requestUrl);
+  const postData = JSON.stringify({ uid });
+
+  const response = await new Promise((resolve, reject) => {
+    const options = {
+      hostname: url.hostname,
+      port: url.port || (url.protocol === "https:" ? 443 : 80),
+      path: url.pathname + url.search,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(postData),
+      },
+    };
+
+    const protocol = url.protocol === "https:" ? https : require("http");
+    const req = protocol.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => (data += chunk));
+      res.on("end", () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch {
+          resolve({ data: [] });
+        }
+      });
+    });
+
+    req.setTimeout(15000, () => {
+      req.destroy(new Error("Timeout fetch pending messages"));
+    });
+    req.on("error", (err) => reject(err));
+    req.write(postData);
+    req.end();
+  });
+
+  return Array.isArray(response)
+    ? response
+    : Array.isArray(response?.data)
+    ? response.data
+    : [];
+}
+
+// Siklus fetch + kirim pesan pending untuk Android WhatsApp automation.
+// Device Android emulator TIDAK punya device window (QEMU jalan di
+// background), jadi fetch/kirim harus dikerjakan di main process — bukan
+// di-broadcast ke renderer seperti device web.
+const androidPendingCycleBusy = new Set();
+const ANDROID_AUTOMATION_MESSAGE_DELAY_MS = 30000; // ~2 pesan/menit
+
+async function runAndroidWhatsappPendingCycle(uid) {
+  if (androidPendingCycleBusy.has(uid)) {
+    console.log(
+      `⏸️ Skip fetch pending Android ${uid} — siklus sebelumnya masih berjalan`
+    );
+    return;
+  }
+  if (hasMessagesInProgress()) {
+    console.log(
+      `⏸️ Skip fetch pending Android ${uid} — masih ada pesan sedang dikirim`
+    );
+    return;
+  }
+
+  androidPendingCycleBusy.add(uid);
+  try {
+    const config = getDeviceConfig(uid) || {};
+    let record;
+    try {
+      record = await resolveAndroidDeviceRecord(uid, { requireAdb: true });
+    } catch (err) {
+      console.warn(
+        `⚠️ Emulator ${uid} belum siap untuk automation:`,
+        err?.message || err
+      );
+      sendAutomationMonitorPayload(uid, {
+        queue: [],
+        error: err?.message || "Emulator belum aktif.",
+      }).catch(() => {});
+      return;
+    }
+
+    const rawMessages = await fetchAndroidPendingMessagesList(uid);
+    const queueState = rawMessages
+      .map((item, index) => ({
+        id: String(item?.id ?? item?.messageId ?? index),
+        phone: String(item?.phone || "").replace(/[^\d]/g, ""),
+        message: String(item?.message || ""),
+        status: (item?.status || "pending").toLowerCase(),
+        priority: normalizeAutomationPriority(item?.priority),
+      }))
+      .filter((item) => item.phone && item.message);
+
+    const pushUpdate = (activeId = null, typing = false, extra = {}) => {
+      sendAutomationMonitorPayload(uid, {
+        queue: queueState,
+        activeId: activeId != null ? String(activeId) : null,
+        typing: Boolean(typing),
+        lastFetch: new Date().toISOString(),
+        ...extra,
+      }).catch(() => {});
+    };
+
+    console.log(
+      `📥 [Android:${uid}] Fetch pending: ${queueState.length} pesan siap dikirim`
+    );
+    pushUpdate(null, false);
+
+    if (!queueState.length) return;
+
+    const callbackUrl = resolveAutomationCallbackUrl(
+      config.whatsappBaseUrl || "",
+      config.whatsappCallbackUrl || ""
+    );
+    const whatsappVariant = sanitizeWhatsappVariant(
+      config.whatsappVariant || "consumer"
+    );
+
+    for (let i = 0; i < queueState.length; i += 1) {
+      const entry = queueState[i];
+      if (entry.status !== "pending") continue;
+      if (entry.id && isMessageInCache(entry.id)) {
+        console.log(
+          `⏭️ [Android:${uid}] Pesan ${entry.id} sudah ada di cache, skip`
+        );
+        continue;
+      }
+
+      entry.status = "sending";
+      pushUpdate(entry.id, true);
+
+      try {
+        await sendSingleWhatsappMessage(record.adbId, entry.phone, entry.message, {
+          typingSpeed: "instant",
+          callbackUrl,
+          messageId: entry.id,
+          whatsappVariant,
+        });
+      } catch (err) {
+        console.error(
+          `❌ [Android:${uid}] Gagal mengirim pesan ${entry.id}:`,
+          err?.message || err
+        );
+      }
+
+      // Status final ada di message cache (diisi oleh alur pengiriman ADB)
+      const cacheStatus = WHATSAPP_MESSAGE_CACHE.get(entry.id)?.status;
+      entry.status = cacheStatus === "sent" ? "done" : "failed";
+      pushUpdate(null, false);
+
+      if (i < queueState.length - 1) {
+        await sleep(ANDROID_AUTOMATION_MESSAGE_DELAY_MS);
+      }
+    }
+  } catch (err) {
+    console.error(
+      `❌ [Android:${uid}] Siklus pending automation gagal:`,
+      err?.message || err
+    );
+    sendAutomationMonitorPayload(uid, {
+      queue: [],
+      error: err?.message || "Gagal memuat pesan pending.",
+    }).catch(() => {});
+  } finally {
+    androidPendingCycleBusy.delete(uid);
+  }
+}
+
 ipcMain.on("monitor-trigger-fetch-pending", (_event, uid) => {
   if (!uid) return;
+
+  // Android WhatsApp automation: tidak ada device window — fetch & kirim
+  // langsung dari main process via ADB
+  const monitorConfig = getDeviceConfig(uid) || {};
+  const isAndroidWhatsappAutomation =
+    sanitizeRemoteServiceId(monitorConfig.androidAutomationService || "") ===
+      "android-whatsapp" &&
+    !!sanitizePendingUrl(monitorConfig.whatsappBaseUrl || "");
+  if (isAndroidWhatsappAutomation) {
+    console.log(`⏰ Monitor meminta fetch pending Android untuk UID ${uid}`);
+    runAndroidWhatsappPendingCycle(uid).catch((err) => {
+      console.error(
+        `❌ Gagal menjalankan siklus pending Android ${uid}:`,
+        err?.message || err
+      );
+    });
+    return;
+  }
 
   // Cek apakah device sedang running (window exists dan tidak destroyed)
   const deviceWindow = deviceWindows[uid];
@@ -10187,10 +11412,7 @@ ipcMain.handle(
   "android-remote-send-whatsapp-message",
   async (_event, uid, payload = {}) => {
     try {
-      const record = findAndroidRemoteDevice(uid);
-      if (!record || !record.adbId) {
-        throw new Error("Device tidak ditemukan.");
-      }
+      const record = await resolveAndroidDeviceRecord(uid, { requireAdb: true });
       const phone = String(payload.phone || payload.phoneNumber || "")
         .replace(/[^\d]/g, "")
         .trim();
@@ -10228,53 +11450,7 @@ ipcMain.handle(
 // Fetch pending WhatsApp messages from baseUrl
 ipcMain.handle("android-whatsapp-fetch-messages", async (_event, uid) => {
   try {
-    const device = findAndroidRemoteDevice(uid);
-    if (!device) {
-      return { success: false, message: "Device not found" };
-    }
-
-    if (!device.whatsappBaseUrl) {
-      return { success: false, message: "baseUrl not configured" };
-    }
-
-    const url = new URL(device.whatsappBaseUrl);
-    const postData = JSON.stringify({ uid });
-
-    const response = await new Promise((resolve, reject) => {
-      const options = {
-        hostname: url.hostname,
-        port: url.port || (url.protocol === "https:" ? 443 : 80),
-        path: url.pathname + url.search,
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(postData),
-        },
-      };
-
-      const protocol = url.protocol === "https:" ? https : require("http");
-      const req = protocol.request(options, (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            resolve(JSON.parse(data));
-          } catch {
-            resolve({ data: [] });
-          }
-        });
-      });
-
-      req.on("error", (err) => reject(err));
-      req.write(postData);
-      req.end();
-    });
-
-    const messages = Array.isArray(response)
-      ? response
-      : Array.isArray(response?.data)
-      ? response.data
-      : [];
+    const messages = await fetchAndroidPendingMessagesList(uid);
     return { success: true, messages };
   } catch (err) {
     console.error("❌ Failed to fetch WhatsApp messages:", err);
@@ -10290,16 +11466,17 @@ ipcMain.handle(
   "android-whatsapp-post-status",
   async (_event, uid, messageId, status) => {
     try {
-      const device = findAndroidRemoteDevice(uid);
-      if (!device) {
-        return { success: false, message: "Device not found" };
-      }
+      const device = await resolveAndroidDeviceRecord(uid);
 
-      if (!device.whatsappCallbackUrl) {
+      const callbackUrl = resolveAutomationCallbackUrl(
+        device.whatsappBaseUrl,
+        device.whatsappCallbackUrl
+      );
+      if (!callbackUrl) {
         return { success: false, message: "callbackUrl not configured" };
       }
 
-      const url = new URL(device.whatsappCallbackUrl);
+      const url = new URL(callbackUrl);
       const postData = JSON.stringify({ id: messageId, status });
 
       await new Promise((resolve, reject) => {
@@ -10685,12 +11862,24 @@ ipcMain.handle("get-system-info", () => {
 
 ipcMain.handle("android-remote-open-display", async (_event, uid) => {
   try {
-    const result = openAndroidDeviceDisplay(uid);
+    const result = await openAndroidDeviceDisplay(uid);
     return { success: true, ...result };
   } catch (err) {
     return {
       success: false,
       message: err?.message || "Gagal membuka tampilan perangkat.",
+      };
+  }
+});
+
+ipcMain.handle("android-remote-close-display", async (_event, uid) => {
+  try {
+    const result = await closeAndroidDeviceDisplay(uid);
+    return { success: true, ...result };
+  } catch (err) {
+    return {
+      success: false,
+      message: err?.message || "Gagal menutup tampilan perangkat.",
     };
   }
 });
@@ -10768,12 +11957,25 @@ ipcMain.handle("scrcpy-install", async (event) => {
 // Android Remote Control IPC Handlers
 // ============================================
 
+// Guard: device dengan mode WhatsApp automation bersifat read-only —
+// navigasi (Back/Home/Recent/Rotate) diblokir agar user tidak bisa
+// berpindah aplikasi dan mengganggu pengiriman pesan pending.
+async function assertAndroidRemoteNavAllowed(uid) {
+  const record = await resolveAndroidDeviceRecord(uid, { requireAdb: true });
+  if (
+    sanitizeRemoteServiceId(record.service) === "android-whatsapp" &&
+    record.displayMode !== "native"
+  ) {
+    throw new Error(
+      "Mode read-only: navigasi dinonaktifkan selama WhatsApp automation berjalan."
+    );
+  }
+  return record;
+}
+
 ipcMain.handle("android-remote-wake", async (_event, uid) => {
   try {
-    const record = findAndroidRemoteDevice(uid);
-    if (!record || !record.adbId) {
-      throw new Error("Device tidak ditemukan.");
-    }
+    const record = await resolveAndroidDeviceRecord(uid, { requireAdb: true });
     await ensureDeviceScreenAwake(record.adbId);
     return { success: true, message: "Layar dibangunkan." };
   } catch (err) {
@@ -10786,10 +11988,7 @@ ipcMain.handle("android-remote-wake", async (_event, uid) => {
 
 ipcMain.handle("android-remote-unlock", async (_event, uid) => {
   try {
-    const record = findAndroidRemoteDevice(uid);
-    if (!record || !record.adbId) {
-      throw new Error("Device tidak ditemukan.");
-    }
+    const record = await resolveAndroidDeviceRecord(uid, { requireAdb: true });
     const adbId = record.adbId;
     await ensureDeviceScreenAwake(adbId);
     await sendAndroidKeyevent(adbId, 82); // MENU key to unlock
@@ -10801,10 +12000,7 @@ ipcMain.handle("android-remote-unlock", async (_event, uid) => {
 
 ipcMain.handle("android-remote-press-back", async (_event, uid) => {
   try {
-    const record = findAndroidRemoteDevice(uid);
-    if (!record || !record.adbId) {
-      throw new Error("Device tidak ditemukan.");
-    }
+    const record = await assertAndroidRemoteNavAllowed(uid);
     await sendAndroidKeyevent(record.adbId, 4); // BACK
     return { success: true, message: "Tombol Back ditekan." };
   } catch (err) {
@@ -10814,10 +12010,7 @@ ipcMain.handle("android-remote-press-back", async (_event, uid) => {
 
 ipcMain.handle("android-remote-press-home", async (_event, uid) => {
   try {
-    const record = findAndroidRemoteDevice(uid);
-    if (!record || !record.adbId) {
-      throw new Error("Device tidak ditemukan.");
-    }
+    const record = await assertAndroidRemoteNavAllowed(uid);
     await sendAndroidKeyevent(record.adbId, 3); // HOME
     return { success: true, message: "Tombol Home ditekan." };
   } catch (err) {
@@ -10827,10 +12020,7 @@ ipcMain.handle("android-remote-press-home", async (_event, uid) => {
 
 ipcMain.handle("android-remote-press-recent", async (_event, uid) => {
   try {
-    const record = findAndroidRemoteDevice(uid);
-    if (!record || !record.adbId) {
-      throw new Error("Device tidak ditemukan.");
-    }
+    const record = await assertAndroidRemoteNavAllowed(uid);
     await sendAndroidKeyevent(record.adbId, 187); // RECENT APPS
     return { success: true, message: "Recent Apps ditampilkan." };
   } catch (err) {
@@ -10843,10 +12033,7 @@ ipcMain.handle("android-remote-press-recent", async (_event, uid) => {
 
 ipcMain.handle("android-remote-rotate", async (_event, uid) => {
   try {
-    const record = findAndroidRemoteDevice(uid);
-    if (!record || !record.adbId) {
-      throw new Error("Device tidak ditemukan.");
-    }
+    const record = await assertAndroidRemoteNavAllowed(uid);
     const manager = ensureAndroidManagerReady();
     // Toggle auto-rotate and then rotate
     await manager.runAdbCommand(
@@ -10874,10 +12061,7 @@ ipcMain.handle("android-remote-rotate", async (_event, uid) => {
 
 ipcMain.handle("android-remote-start-recording", async (_event, uid) => {
   try {
-    const record = findAndroidRemoteDevice(uid);
-    if (!record || !record.adbId) {
-      throw new Error("Device tidak ditemukan.");
-    }
+    const record = await resolveAndroidDeviceRecord(uid, { requireAdb: true });
     const adbId = record.adbId;
 
     // Check if already recording
@@ -10910,10 +12094,7 @@ ipcMain.handle("android-remote-start-recording", async (_event, uid) => {
 
 ipcMain.handle("android-remote-stop-recording", async (event, uid) => {
   try {
-    const record = findAndroidRemoteDevice(uid);
-    if (!record || !record.adbId) {
-      throw new Error("Device tidak ditemukan.");
-    }
+    const record = await resolveAndroidDeviceRecord(uid, { requireAdb: true });
     const adbId = record.adbId;
 
     const recording = scrcpyRecordings.get(adbId);
@@ -10998,10 +12179,7 @@ ipcMain.handle("android-remote-stop-recording", async (event, uid) => {
 
 ipcMain.handle("android-remote-volume-up", async (_event, uid) => {
   try {
-    const record = findAndroidRemoteDevice(uid);
-    if (!record || !record.adbId) {
-      throw new Error("Device tidak ditemukan.");
-    }
+    const record = await resolveAndroidDeviceRecord(uid, { requireAdb: true });
     await sendAndroidKeyevent(record.adbId, 24); // VOLUME_UP
     return { success: true, message: "Volume dinaikkan." };
   } catch (err) {
@@ -11014,10 +12192,7 @@ ipcMain.handle("android-remote-volume-up", async (_event, uid) => {
 
 ipcMain.handle("android-remote-volume-down", async (_event, uid) => {
   try {
-    const record = findAndroidRemoteDevice(uid);
-    if (!record || !record.adbId) {
-      throw new Error("Device tidak ditemukan.");
-    }
+    const record = await resolveAndroidDeviceRecord(uid, { requireAdb: true });
     await sendAndroidKeyevent(record.adbId, 25); // VOLUME_DOWN
     return { success: true, message: "Volume diturunkan." };
   } catch (err) {
@@ -11080,36 +12255,241 @@ ipcMain.handle("android-fix-issues", async (event, uid) => {
   }
 });
 
-ipcMain.handle("android-start", async (event, uid, options = {}) => {
+// Buka aplikasi WhatsApp (consumer/business) di device via launcher intent
+async function launchWhatsappApp(adbId, variant = "consumer") {
+  if (!adbId) return;
   const manager = ensureAndroidManagerReady();
-  const sender = event.sender;
-  const progressCallback = (payload = {}) =>
-    sendAndroidProgress(sender, "android-start-progress", uid, payload);
+  const pkg = resolveWhatsappPackageName(variant);
+  await manager.runAdbCommand(
+    [
+      "-s",
+      adbId,
+      "shell",
+      "monkey",
+      "-p",
+      pkg,
+      "-c",
+      "android.intent.category.LAUNCHER",
+      "1",
+    ],
+    { timeout: 15000, silent: true }
+  );
+}
+
+// Loop automation WhatsApp Android di main process — TIDAK bergantung pada
+// window monitor/remote yang terbuka, supaya pengiriman pesan pending tetap
+// berjalan selama emulator hidup.
+const androidAutomationLoops = new Map();
+const ANDROID_AUTOMATION_LOOP_INTERVAL_MS = 60000;
+const ANDROID_AUTOMATION_FIRST_RUN_DELAY_MS = 15000;
+
+function startAndroidWhatsappAutomationLoop(uid) {
+  if (!uid || androidAutomationLoops.has(uid)) return;
   const config = getDeviceConfig(uid) || {};
+  const isAndroidWhatsappAutomation =
+    sanitizeRemoteServiceId(config.androidAutomationService || "") ===
+      "android-whatsapp" &&
+    !!sanitizePendingUrl(config.whatsappBaseUrl || "");
+  if (!isAndroidWhatsappAutomation) return;
+
+  console.log(
+    `🔁 [Android:${uid}] Automation loop dimulai (interval ${
+      ANDROID_AUTOMATION_LOOP_INTERVAL_MS / 1000
+    }s)`
+  );
+  const runCycle = () => {
+    runAndroidWhatsappPendingCycle(uid).catch((err) => {
+      console.error(
+        `❌ [Android:${uid}] Siklus automation loop gagal:`,
+        err?.message || err
+      );
+    });
+  };
+  const firstRun = setTimeout(async () => {
+    // Buka WhatsApp otomatis (biasa/Business sesuai pengaturan device)
+    // supaya emulator langsung siap menerima automation
+    try {
+      const record = await resolveAndroidDeviceRecord(uid, { requireAdb: true });
+      await ensureDeviceScreenAwake(record.adbId);
+      await launchWhatsappApp(record.adbId, record.whatsappVariant);
+      console.log(
+        `📱 [Android:${uid}] WhatsApp (${record.whatsappVariant}) dibuka otomatis.`
+      );
+    } catch (err) {
+      console.warn(
+        `⚠️ [Android:${uid}] Gagal membuka WhatsApp otomatis:`,
+        err?.message || err
+      );
+    }
+    runCycle();
+  }, ANDROID_AUTOMATION_FIRST_RUN_DELAY_MS);
+  const timer = setInterval(runCycle, ANDROID_AUTOMATION_LOOP_INTERVAL_MS);
+  androidAutomationLoops.set(uid, { timer, firstRun });
+}
+
+function stopAndroidWhatsappAutomationLoop(uid) {
+  const loop = androidAutomationLoops.get(uid);
+  if (!loop) return;
+  clearTimeout(loop.firstRun);
+  clearInterval(loop.timer);
+  androidAutomationLoops.delete(uid);
+  console.log(`⏹️ [Android:${uid}] Automation loop dihentikan.`);
+}
+
+async function startAndroidEmulatorDevice(
+  uid,
+  options = {},
+  progressCallback = () => {}
+) {
+  const manager = ensureAndroidManagerReady();
+  const safeProgressCallback =
+    typeof progressCallback === "function" ? progressCallback : () => {};
+  const config = getDeviceConfig(uid) || {};
+  if (config && (config.service || "").toLowerCase() === "android") {
+    const avdIdentityChanged = syncAndroidAvdIdentity(config);
+    if (avdIdentityChanged && fs.existsSync(DB_PATH)) {
+      try {
+        const raw = fs.readFileSync(DB_PATH, "utf8");
+        const data = JSON.parse(raw);
+        const index = Array.isArray(data.devices)
+          ? data.devices.findIndex((d) => d.uid === uid || d.token === uid)
+          : -1;
+        if (index !== -1) {
+          data.devices[index].avdName = config.avdName;
+          fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+        }
+      } catch (err) {
+        console.warn(
+          "⚠️ Gagal menyimpan perubahan nama AVD:",
+          err?.message || err
+        );
+      }
+    }
+  }
   const avdName =
-    (config.avdName && config.avdName.trim()) || generateAvdName(uid);
+    (config.avdName && config.avdName.trim()) ||
+    generateAvdName(uid, config.name || "");
   const spec = normalizeAndroidSpecInput(config.androidSpec);
+  // Mode WhatsApp automation dengan tampilan "readonly": boot headless
+  // (tanpa window QEMU) supaya user tidak bisa mengontrol emulator langsung —
+  // tampilan hanya lewat mirror scrcpy yang read-only. Mode "native": window
+  // QEMU asli tampil penuh (mandiri, tanpa scrcpy).
+  const isWhatsappAutomationDevice =
+    sanitizeRemoteServiceId(config.androidAutomationService || "") ===
+    "android-whatsapp";
+  const isNativeDisplay =
+    sanitizeAndroidDisplayMode(config.androidDisplayMode) === "native";
+  const useHeadlessBoot = isWhatsappAutomationDevice && !isNativeDisplay;
+  if (isWhatsappAutomationDevice) {
+    console.log(
+      useHeadlessBoot
+        ? `🔒 [Android:${uid}] Boot headless (WhatsApp automation, tampilan via remote read-only).`
+        : `🖥️ [Android:${uid}] Boot native penuh (WhatsApp automation, window QEMU tampil langsung).`
+    );
+  }
   try {
     const result = await manager.startEmulator(avdName, {
       ...(options || {}),
-      progressCallback,
+      headless: useHeadlessBoot || options?.headless === true,
+      progressCallback: (payload = {}) => {
+        if (payload.phase === "exit") {
+          updateDeviceStatus(uid, "stopped");
+          stopAndroidWhatsappAutomationLoop(uid);
+        }
+        safeProgressCallback(payload);
+      },
       spec,
     });
+    if (result?.success) {
+      updateDeviceStatus(uid, "running");
+      startAndroidWhatsappAutomationLoop(uid);
+    }
     return result;
   } catch (err) {
-    progressCallback({
+    if (err?.message === "Emulator is already running") {
+      updateDeviceStatus(uid, "running");
+      startAndroidWhatsappAutomationLoop(uid);
+      safeProgressCallback({
+        phase: "boot-complete",
+        message: "Emulator sudah berjalan.",
+      });
+      return { success: true, alreadyRunning: true, port: 5554 };
+    }
+    updateDeviceStatus(uid, "stopped");
+    safeProgressCallback({
       phase: "error",
       message: err?.message || "Gagal memulai emulator",
     });
+    throw err;
+  }
+}
+
+async function getAndroidEmulatorRuntimeStatus(uid) {
+  const manager = ensureAndroidManagerReady();
+  const config = getDeviceConfig(uid) || {};
+  const storedStatus = String(config.status || "").toLowerCase();
+  const processRunning = !!(
+    manager.emulatorProcess && manager.emulatorProcess.exitCode === null
+  );
+  const adbDevices = await manager.listConnectedDevices();
+  const adbEmulator = Array.isArray(adbDevices)
+    ? adbDevices.find((device) =>
+        String(device?.adbId || "").toLowerCase().startsWith("emulator-")
+      )
+    : null;
+  const running =
+    processRunning || !!adbEmulator || ["running", "active", "starting"].includes(storedStatus);
+
+  if (uid) {
+    updateDeviceStatus(uid, running ? "running" : "stopped");
+  }
+
+  return {
+    success: true,
+    installed: manager.isInstalled(),
+    running,
+    port: adbEmulator?.adbId
+      ? String(adbEmulator.adbId).split("-")[1] || "5554"
+      : processRunning
+      ? "5554"
+      : null,
+    adbId: adbEmulator?.adbId || null,
+  };
+}
+
+ipcMain.handle("android-start", async (event, uid, options = {}) => {
+  const sender = event.sender;
+  try {
+    return await startAndroidEmulatorDevice(uid, options, (payload = {}) => {
+      sendAndroidProgress(sender, "android-start-progress", uid, payload);
+    });
+  } catch (err) {
     console.error("❌ android-start gagal:", err);
     throw err;
   }
 });
 
-ipcMain.handle("android-stop", async () => {
+ipcMain.handle("android-get-status", async (_event, uid) => {
+  try {
+    return await getAndroidEmulatorRuntimeStatus(uid);
+  } catch (err) {
+    return {
+      success: false,
+      installed: false,
+      running: false,
+      message: err?.message || "Gagal membaca status emulator.",
+    };
+  }
+});
+
+ipcMain.handle("android-stop", async (_event, uid) => {
   try {
     const manager = ensureAndroidManagerReady();
-    return await manager.stopEmulator();
+    const result = await manager.stopEmulator();
+    if (uid) {
+      updateDeviceStatus(uid, "stopped");
+    }
+    return result;
   } catch (err) {
     console.error("❌ android-stop gagal:", err);
     throw err;
@@ -12302,7 +13682,7 @@ app.whenReady().then(async () => {
 
     limitedDevices.forEach((device) => {
       console.log(`🚀 Auto-running ${device.name} (${device.uid})...`);
-      startDevice(device.uid, device.service);
+      startDevice(device.uid, device.service, { autoStart: true });
       updateDeviceStatus(device.uid, "active"); // ✅ langsung ubah status di memori/backend
     });
 
@@ -12761,9 +14141,13 @@ const REMOX_DB_PATH = path.join(app.getPath("userData"), "remox-connections.json
 function loadRemoxConnections() {
   try {
     if (fs.existsSync(REMOX_DB_PATH)) {
-      return JSON.parse(fs.readFileSync(REMOX_DB_PATH, "utf8")).connections || [];
+      const parsed = JSON.parse(fs.readFileSync(REMOX_DB_PATH, "utf8"));
+      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed?.connections)) return parsed.connections;
     }
-  } catch {}
+  } catch (err) {
+    console.warn("[Remox] Gagal membaca remox-connections.json:", err?.message || err);
+  }
   return [];
 }
 
@@ -13043,6 +14427,245 @@ ipcMain.handle("remox:launch-rdp", async (_, { host, port, username, password, d
     return { success: true };
   } catch (err) {
     return { success: false, error: err?.message || String(err) };
+  }
+});
+
+// ── System Cleaner (halaman Resource Monitor) ──────────────────────────────
+
+const CLEANER_PARTITION_CACHE_SUBDIRS = [
+  "Cache",
+  "Code Cache",
+  "GPUCache",
+  "DawnCache",
+  "Shared Dictionary",
+  path.join("Service Worker", "CacheStorage"),
+];
+
+// Hitung (dryRun) atau hapus isi target secara best-effort.
+// Symlink tidak diikuti; socket/fifo/device dilewati; file terkunci diabaikan.
+// Folder root target tidak pernah di-rmdir (hanya isinya).
+async function cleanerWalk(target, options = {}) {
+  const { olderThanMs = 0, dryRun = true, skipEntry = null, depth = 0 } = options;
+  const result = { bytes: 0, files: 0 };
+  let st;
+  try {
+    st = await fs.promises.lstat(target);
+  } catch (_) {
+    return result;
+  }
+
+  if (st.isSymbolicLink() || st.isFile()) {
+    if (olderThanMs && Date.now() - st.mtimeMs < olderThanMs) return result;
+    result.bytes += st.size;
+    result.files += 1;
+    if (!dryRun) {
+      try {
+        await fs.promises.unlink(target);
+      } catch (_) {
+        result.bytes -= st.size;
+        result.files -= 1;
+      }
+    }
+    return result;
+  }
+
+  if (!st.isDirectory()) return result;
+
+  let entries = [];
+  try {
+    entries = await fs.promises.readdir(target);
+  } catch (_) {
+    return result;
+  }
+  for (const entry of entries) {
+    if (depth === 0 && typeof skipEntry === "function" && skipEntry(entry)) {
+      continue;
+    }
+    const sub = await cleanerWalk(path.join(target, entry), {
+      olderThanMs,
+      dryRun,
+      skipEntry,
+      depth: depth + 1,
+    });
+    result.bytes += sub.bytes;
+    result.files += sub.files;
+  }
+  if (!dryRun && depth > 0) {
+    try {
+      await fs.promises.rmdir(target);
+    } catch (_) {}
+  }
+  return result;
+}
+
+// AVD milik device yang sudah dihapus dari database
+function listOrphanAvdTargets() {
+  const avdRoot = path.join(
+    app.getPath("userData"),
+    "android-emulator",
+    "avd"
+  );
+  const known = new Set(["StarBox_Default"]);
+  try {
+    const data = JSON.parse(fs.readFileSync(DB_PATH, "utf8"));
+    (data.devices || []).forEach((d) => {
+      if (d.avdName) known.add(d.avdName);
+      if (d.uid) known.add(generateAvdName(d.uid));
+    });
+  } catch (_) {}
+  const targets = [];
+  try {
+    fs.readdirSync(avdRoot).forEach((entry) => {
+      const match = entry.match(/^(.+)\.(avd|ini)$/i);
+      if (!match) return;
+      if (!known.has(match[1])) targets.push(path.join(avdRoot, entry));
+    });
+  } catch (_) {}
+  return targets;
+}
+
+function getCleanerCategories() {
+  const userData = app.getPath("userData");
+  const home = os.homedir();
+  const categories = [];
+
+  // 1. Cache StarBox sendiri — cache web session dihapus, tapi Cookies &
+  //    Local Storage TIDAK disentuh sehingga login tetap aman
+  const starboxTargets = [
+    "Cache",
+    "Code Cache",
+    "GPUCache",
+    "DawnCache",
+    "Shared Dictionary",
+  ].map((d) => ({ target: path.join(userData, d) }));
+  starboxTargets.push({ target: path.join(userData, "starbox.log") });
+  try {
+    const partRoot = path.join(userData, "Partitions");
+    fs.readdirSync(partRoot).forEach((p) => {
+      CLEANER_PARTITION_CACHE_SUBDIRS.forEach((sub) => {
+        starboxTargets.push({ target: path.join(partRoot, p, sub) });
+      });
+    });
+  } catch (_) {}
+  categories.push({
+    id: "starbox-cache",
+    label: "Cache StarBox",
+    desc: "Cache web session & log. Login dan data device tetap aman",
+    defaultChecked: true,
+    targets: starboxTargets,
+  });
+
+  // 2. File temp sistem yang sudah lama
+  categories.push({
+    id: "system-temp",
+    label: "File temp sistem",
+    desc: "File sementara berumur lebih dari 3 hari di folder temp",
+    defaultChecked: true,
+    targets: [
+      {
+        target: os.tmpdir(),
+        olderThanMs: 3 * 24 * 60 * 60 * 1000,
+        skipEntry: (name) => /^claude/i.test(name),
+      },
+    ],
+  });
+
+  // 3. Data emulator dari device Android yang sudah dihapus
+  const orphanTargets = listOrphanAvdTargets().map((t) => ({ target: t }));
+  categories.push({
+    id: "orphan-avd",
+    label: "Data emulator yatim",
+    desc: "Data AVD milik device Android yang sudah dihapus dari StarBox",
+    defaultChecked: true,
+    targets: orphanTargets,
+  });
+
+  // 4. Cache aplikasi lain milik user (macOS/Linux, opsional)
+  if (process.platform === "darwin") {
+    categories.push({
+      id: "user-cache",
+      label: "Cache aplikasi lain (macOS)",
+      desc: "~/Library/Caches berumur >7 hari, kecuali cache Apple & StarBox. Aplikasi membangun ulang cache-nya sendiri",
+      defaultChecked: false,
+      targets: [
+        {
+          target: path.join(home, "Library", "Caches"),
+          olderThanMs: 7 * 24 * 60 * 60 * 1000,
+          skipEntry: (name) =>
+            /^com\.apple\./i.test(name) || /starbox/i.test(name),
+        },
+      ],
+    });
+  } else if (process.platform === "linux") {
+    categories.push({
+      id: "user-cache",
+      label: "Cache aplikasi lain (Linux)",
+      desc: "~/.cache berumur >7 hari, kecuali cache StarBox. Aplikasi membangun ulang cache-nya sendiri",
+      defaultChecked: false,
+      targets: [
+        {
+          target: path.join(home, ".cache"),
+          olderThanMs: 7 * 24 * 60 * 60 * 1000,
+          skipEntry: (name) => /starbox/i.test(name),
+        },
+      ],
+    });
+  }
+
+  return categories;
+}
+
+async function runCleanerCategories(categories, dryRun) {
+  const out = [];
+  for (const cat of categories) {
+    let bytes = 0;
+    let files = 0;
+    for (const t of cat.targets) {
+      const r = await cleanerWalk(t.target, {
+        olderThanMs: t.olderThanMs || 0,
+        dryRun,
+        skipEntry: t.skipEntry || null,
+      });
+      bytes += r.bytes;
+      files += r.files;
+    }
+    out.push({
+      id: cat.id,
+      label: cat.label,
+      desc: cat.desc,
+      defaultChecked: cat.defaultChecked,
+      bytes,
+      files,
+    });
+  }
+  return out;
+}
+
+ipcMain.handle("system-clean-scan", async () => {
+  try {
+    const categories = await runCleanerCategories(getCleanerCategories(), true);
+    return { success: true, categories };
+  } catch (err) {
+    console.error("❌ system-clean-scan gagal:", err);
+    return { success: false, error: err.message, categories: [] };
+  }
+});
+
+ipcMain.handle("system-clean-run", async (_event, ids = []) => {
+  try {
+    const wanted = new Set(Array.isArray(ids) ? ids : []);
+    const categories = getCleanerCategories().filter((c) => wanted.has(c.id));
+    const results = await runCleanerCategories(categories, false);
+    // Bersihkan juga cache session Electron yang sedang aktif (best-effort)
+    if (wanted.has("starbox-cache")) {
+      try {
+        await electron.session.defaultSession.clearCache();
+      } catch (_) {}
+    }
+    return { success: true, results };
+  } catch (err) {
+    console.error("❌ system-clean-run gagal:", err);
+    return { success: false, error: err.message, results: [] };
   }
 });
 

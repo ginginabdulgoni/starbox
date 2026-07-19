@@ -12,6 +12,7 @@
       'auth.signin': 'Sign In / Register',
       'nav.theme': 'Theme',
       'nav.theme.select': 'Select StarBox Theme',
+      'nav.donate': 'Donate',
       'nav.sidebar.collapse': 'Collapse / Expand Sidebar',
       'nav.remote.title': 'Remote Control – click to open',
       'nav.remote': 'Remote',
@@ -312,6 +313,14 @@
       // ── Support modal ─────────────────────────────────────
       'support.title': 'Support StarBox',
       'support.subtitle': 'Help us keep growing',
+      'support.badge': 'Support Development',
+      'support.intro': 'If StarBox helps your workflow, consider supporting development. Every contribution keeps the project alive and growing. Thank you! ❤️',
+      'support.intro_professional': 'StarBox is built to simplify real operational work—from device management, automation, and remote access to daily technical workflows. Your support helps keep StarBox stable, actively maintained, and continuously improved with better features, performance, and long-term reliability.',
+      'support.subcopy': 'Every contribution directly supports development time, infrastructure costs, bug fixing, testing, and future product improvements so StarBox can continue growing professionally for everyone.',
+      'support.trakteer.subtitle': 'Local support in Indonesia via Trakteer / QRIS',
+      'support.paypal.subtitle': 'Direct transfer via PayPal — international friendly',
+      'support.bmc.subtitle': 'Support with coffee for development time',
+      'support.open': 'Open',
 
       // ── About modal ───────────────────────────────────────
       'about.title': 'About StarBox',
@@ -473,6 +482,7 @@
       'auth.signin': 'Masuk / Daftar',
       'nav.theme': 'Tema',
       'nav.theme.select': 'Pilih Tema StarBox',
+      'nav.donate': 'Donasi',
       'nav.sidebar.collapse': 'Perkecil / Perlebar Sidebar',
       'nav.remote.title': 'Remote Control – klik untuk buka',
       'nav.remote': 'Remote',
@@ -773,6 +783,14 @@
       // ── Support modal ─────────────────────────────────────
       'support.title': 'Support StarBox',
       'support.subtitle': 'Bantu kami terus berkembang',
+      'support.badge': 'Dukung Pengembangan',
+      'support.intro': 'Kalau StarBox membantu alur kerja Anda, pertimbangkan untuk mendukung pengembangannya. Setiap kontribusi membantu project ini terus hidup dan berkembang. Terima kasih! ❤️',
+      'support.intro_professional': 'StarBox dibangun untuk menyederhanakan pekerjaan operasional nyata—mulai dari manajemen device, otomasi, remote access, hingga alur kerja teknis harian. Dukungan Anda membantu menjaga StarBox tetap stabil, aktif dikembangkan, dan terus ditingkatkan dengan fitur, performa, serta keandalan jangka panjang yang lebih baik.',
+      'support.subcopy': 'Setiap kontribusi secara langsung membantu waktu pengembangan, biaya infrastruktur, perbaikan bug, pengujian, dan peningkatan produk ke depan agar StarBox bisa terus berkembang secara profesional untuk semua pengguna.',
+      'support.trakteer.subtitle': 'Dukungan lokal Indonesia via Trakteer / QRIS',
+      'support.paypal.subtitle': 'Transfer langsung via PayPal — ramah untuk internasional',
+      'support.bmc.subtitle': 'Dukung pengembangan dengan traktir kopi',
+      'support.open': 'Buka',
 
       // ── About modal ───────────────────────────────────────
       'about.title': 'Tentang StarBox',

@@ -216,6 +216,24 @@
         font-weight: 600;
       }
 
+      .readonly-banner {
+        display: none;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        background: rgba(251, 191, 36, 0.15);
+        border: 1px solid rgba(251, 191, 36, 0.4);
+        border-radius: 8px;
+        margin-bottom: 8px;
+        font-size: 11px;
+        line-height: 1.4;
+        color: #fde68a;
+      }
+
+      .readonly-banner.active {
+        display: flex;
+      }
+
       .status-message {
         font-size: 11px;
         color: #3ddc84;
@@ -423,6 +441,14 @@
         </div>
       </div>
 
+      <div class="readonly-banner" id="readonlyBanner">
+        <span>🔒</span>
+        <span
+          >Mode Read-Only — WhatsApp Automation aktif. Layar emulator hanya
+          bisa dilihat agar pengiriman pesan tidak terganggu.</span
+        >
+      </div>
+
       <div id="remoteControlsContainer">
         <div class="recording-indicator" id="recordingIndicator">
           <div class="recording-dot"></div>
@@ -562,8 +588,69 @@
         const adbId = params.get("adbId") || "";
         const serviceKey = (params.get("service") || "").toLowerCase();
         const isWhatsAppRemote = serviceKey === "android-whatsapp";
-        const whatsappBaseUrl = params.get("whatsappBaseUrl") || "";
-        const whatsappCallbackUrl = params.get("whatsappCallbackUrl") || "";
+        const displayMode = (params.get("displayMode") || "readonly").toLowerCase();
+        const isReadonlyRemote = isWhatsAppRemote && displayMode !== "native";
+        const whatsappBaseUrlRaw = params.get("whatsappBaseUrl") || "";
+        const whatsappCallbackUrlRaw = params.get("whatsappCallbackUrl") || "";
+
+          function sanitizePendingUrl(url = "") {
+            return String(url || "").trim().replace(/\/+$/, "");
+          }
+
+          function extractUrlRoot(url = "") {
+            const sanitized = sanitizePendingUrl(url);
+            if (!sanitized) return "";
+            try {
+              const parsed = new URL(sanitized);
+              return `${parsed.protocol}//${parsed.host}`;
+            } catch {
+              const match = sanitized.match(/^([a-z]+:\/\/[^/]+)/i);
+              return match ? match[1].replace(/\/+$/, "") : sanitized;
+            }
+          }
+
+        function hasCustomPathInUrl(url = "") {
+          if (!url) return false;
+          try {
+            const parsed = new URL(url);
+            const path = (parsed.pathname || "").replace(/\/+$/, "");
+            return Boolean(path && path !== "/");
+          } catch {
+            const withoutProtocol = String(url).replace(/^[a-z]+:\/\//i, "");
+            return withoutProtocol.includes("/");
+          }
+        }
+
+        function buildUrlWithDefaultPath(baseUrl = "", defaultPath = "") {
+          const sanitized = sanitizePendingUrl(baseUrl);
+          if (!sanitized) return "";
+          const normalizedPath = defaultPath.startsWith("/")
+            ? defaultPath
+            : `/${defaultPath}`;
+          if (hasCustomPathInUrl(sanitized)) {
+            return sanitized;
+          }
+          try {
+            const parsed = new URL(sanitized);
+            if (!parsed.pathname || parsed.pathname === "/") {
+              parsed.pathname = normalizedPath;
+            }
+            parsed.search = "";
+            parsed.hash = "";
+            return parsed.toString().replace(/\/+$/, "");
+          } catch {
+            return `${sanitized}${normalizedPath}`;
+          }
+        }
+
+        const whatsappBaseUrl = buildUrlWithDefaultPath(
+          whatsappBaseUrlRaw,
+          "/schedule/getpendingmessage"
+        );
+          const whatsappCallbackUrl = buildUrlWithDefaultPath(
+            whatsappCallbackUrlRaw || extractUrlRoot(whatsappBaseUrlRaw),
+            "/schedule/updatestatusmessage"
+          );
 
         // Update device name
         document.getElementById("deviceName").textContent = deviceName;
@@ -601,6 +688,24 @@
         const messageTimerEl = document.getElementById("messageTimer");
         const nextRefreshCountdown = document.getElementById("nextRefreshCountdown");
         const nextMessageCountdown = document.getElementById("nextMessageCountdown");
+
+        // Mode read-only saat WhatsApp automation: sembunyikan tombol yang
+        // bisa dipakai berpindah aplikasi (Back/Home/Recent/Rotate) supaya
+        // pengiriman pesan pending tidak terganggu. Layar scrcpy juga
+        // diluncurkan dengan --no-control dari main process. Mode "native"
+        // (kontrol penuh) tetap menampilkan semua tombol.
+        if (isReadonlyRemote) {
+          const banner = document.getElementById("readonlyBanner");
+          if (banner) banner.classList.add("active");
+          ["btnBack", "btnHome", "btnRecent", "btnRotate"].forEach((id) => {
+            const btn = document.getElementById(id);
+            if (btn) btn.style.display = "none";
+          });
+          // Sembunyikan group navigasi yang jadi kosong
+          const backBtn = document.getElementById("btnBack");
+          const navGroup = backBtn ? backBtn.closest(".control-group") : null;
+          if (navGroup) navGroup.style.display = "none";
+        }
 
         let isRecording = false;
         let pendingMessagesCache = [];
