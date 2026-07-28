@@ -1,6 +1,6 @@
 {
   "name": "starbox",
-  "version": "2.1.260701",
+  "version": "2.1.260724",
   "description": "StarBox - Emulator ringan multi-layanan",
   "main": "electron-main.js",
   "author": "Gingin Abdul Goni",
