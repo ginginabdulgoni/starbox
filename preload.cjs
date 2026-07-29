@@ -75,6 +75,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  location: {
+    get: () => ipcRenderer.invoke('get-user-location'),
+    save: (payload) => ipcRenderer.invoke('save-user-location', payload),
+    setVisibility: (visible) => ipcRenderer.invoke('set-location-visibility', visible),
+  },
+
+  community: {
+    getMapPoints: () => ipcRenderer.invoke('get-community-map-points'),
+  },
+
   android: {
     checkInstallation: () => ipcRenderer.invoke('android-check-installation'),
     getStatus: (uid) => ipcRenderer.invoke('android-get-status', uid),
@@ -83,6 +93,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     stop: (uid) => ipcRenderer.invoke('android-stop', uid),
     fixIssues: (uid) => ipcRenderer.invoke('android-fix-issues', uid),
     killAdb: () => ipcRenderer.invoke('android-kill-adb'),
+    accelStatus: () => ipcRenderer.invoke('android-accel-status'),
+    enableAcceleration: () => ipcRenderer.invoke('android-enable-acceleration'),
     onDownloadProgress: (callback) => {
       if (typeof callback !== 'function') return;
       ipcRenderer.on('android-download-progress', (_event, data) => callback(data));

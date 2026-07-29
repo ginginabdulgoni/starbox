@@ -2428,6 +2428,9 @@ function canAddDeviceForService(service) {
   return { allowed: true };
 }
 
+const FREE_UNLIMITED_SLOGAN =
+  "Gratis selamanya • Tanpa biaya bulanan • Tanpa iklan";
+
 function updateDeviceQuotaBanner() {
   const quotaEl = document.getElementById("accountQuotaSummary");
   const packageEl = document.getElementById("accountPackageSummary");
@@ -2436,17 +2439,13 @@ function updateDeviceQuotaBanner() {
   if (quotaEl) {
     if (authState.isLoggedIn) {
       if (authState.isUnlimited) {
-        quotaEl.textContent = `Unlimited per layanan • Total device saat ini ${used}`;
+        quotaEl.textContent = `Unlimited per layanan • Total device saat ini ${used} • ${FREE_UNLIMITED_SLOGAN}`;
       } else {
         const limit = getServiceLimitValue();
         quotaEl.textContent = `Batas per layanan: ${limit} device • Total device saat ini ${used}`;
       }
     } else {
-      const limit =
-        typeof authState.guestServiceLimit === "number"
-          ? authState.guestServiceLimit
-          : 2;
-      quotaEl.textContent = `Mode tamu • Maks ${limit} device per layanan. Login untuk menambah kuota.`;
+      quotaEl.textContent = `Mode tamu • Unlimited per layanan • Total device saat ini ${used} • ${FREE_UNLIMITED_SLOGAN}`;
     }
   }
 
@@ -4787,9 +4786,18 @@ async function renderDevices(devices) {
   if (!visibleDevices.length) {
     const emptyState = document.createElement("div");
     emptyState.className = "device-empty-state";
-    emptyState.textContent = isSearching
-      ? "Tidak ada device yang cocok dengan pencarian Anda."
-      : "Belum ada device yang dapat ditampilkan untuk konfigurasi saat ini.";
+    if (isSearching) {
+      emptyState.textContent = "Tidak ada device yang cocok dengan pencarian Anda.";
+    } else {
+      const mainLine = document.createElement("div");
+      mainLine.textContent =
+        "Belum ada device yang dapat ditampilkan untuk konfigurasi saat ini.";
+      const sloganLine = document.createElement("div");
+      sloganLine.className = "device-empty-state-slogan";
+      sloganLine.textContent = FREE_UNLIMITED_SLOGAN;
+      emptyState.appendChild(mainLine);
+      emptyState.appendChild(sloganLine);
+    }
     fragment.appendChild(emptyState);
   }
 
@@ -7138,10 +7146,6 @@ function updateAddDeviceQuotaHint() {
   const service = serviceSelect.value;
   const label = getServiceLabel(service);
   const count = countDevicesByService(service);
-  const guestLimit =
-    typeof authState.guestServiceLimit === "number"
-      ? authState.guestServiceLimit
-      : 2;
   const quotaCheck = canAddDeviceForService(service);
 
   let message = "";
@@ -7153,11 +7157,11 @@ function updateAddDeviceQuotaHint() {
         const accountLimit =
           typeof authState.deviceQuota === "number"
             ? authState.deviceQuota
-            : guestLimit;
+            : "tanpa batas";
         message = `Kuota akun: ${count}/${accountLimit} device untuk ${label}.`;
       }
     } else {
-      message = `Mode tamu: ${count}/${guestLimit} device untuk ${label}.`;
+      message = `Mode tamu: bebas menambah device ${label} (saat ini ${count}).`;
     }
   } else {
     message = quotaCheck.reason;
@@ -12940,4 +12944,19 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
 
   // Expose untuk manual trigger jika perlu
   window.runStorageCleanup = runCleanup;
+
+  // Hook switchPage — init peta komunitas & cek akselerasi saat halaman dibuka
+  const _origSwitchPageForCommunityMap = window.switchPage;
+  window.switchPage = async function (page, ...args) {
+    const result = _origSwitchPageForCommunityMap
+      ? await _origSwitchPageForCommunityMap(page, ...args)
+      : undefined;
+    if (page === "community-map" && typeof window.initCommunityMapPage === "function") {
+      window.initCommunityMapPage();
+    }
+    if (page === "android-ios" && typeof window.refreshAccelStatus === "function") {
+      window.refreshAccelStatus();
+    }
+    return result;
+  };
 })();

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StarBox v2.1.260724 – MultiService Emulator</title>
+    <title>StarBox v2.1.260729 – MultiService Emulator</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
@@ -14,6 +14,13 @@
     <script src="https://cdn.jsdelivr.net/npm/xterm@4.19.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.5.0/lib/xterm-addon-fit.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
+    <!-- Leaflet for community location map -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.locatecontrol@0.79.0/dist/L.Control.Locate.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/leaflet.locatecontrol@0.79.0/dist/L.Control.Locate.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-fullscreen@1.0.2/dist/leaflet.fullscreen.css" />
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-fullscreen@1.0.2/dist/Leaflet.fullscreen.min.js"></script>
     <link rel="stylesheet" href="style.css" />
     <script src="i18n.js"></script>
     <style>
@@ -259,6 +266,11 @@
           <i class="bi bi-camera-fill"></i>
           <span data-i18n="sidebar.starcapture">StarCapture</span>
         </a>
+        <a href="#" class="sidebar-item" data-page="community-map"
+          data-label="Peta Komunitas" onclick="switchPage('community-map')">
+          <i class="bi bi-geo-alt-fill"></i>
+          <span data-i18n="sidebar.community_map">Peta Komunitas</span>
+        </a>
         <a href="#" class="sidebar-item" data-page="mystarbox" data-pro="true"
           data-label="StarDesk" onclick="switchPage('mystarbox')">
           <i class="bi bi-display-fill"></i>
@@ -503,6 +515,31 @@
 
       <!-- Page: Android / iOS -->
       <div id="page-android-ios" class="page-content">
+        <style>
+          .accel-panel { border-radius: 12px; overflow: hidden; margin: 0 0 14px; border: 1px solid rgba(148,163,184,0.35); background: rgba(148,163,184,0.07); }
+          .accel-panel.ok    { border-color: rgba(16,185,129,0.4);  background: rgba(16,185,129,0.08); }
+          .accel-panel.warn  { border-color: rgba(239,68,68,0.4);   background: rgba(239,68,68,0.08); }
+          .accel-panel.check { border-color: rgba(59,130,246,0.4);  background: rgba(59,130,246,0.07); }
+          .accel-panel-head { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+          .accel-panel-head > i { font-size: 1.4rem; flex-shrink: 0; }
+          .accel-panel.ok   .accel-panel-head > i { color: #10b981; }
+          .accel-panel.warn .accel-panel-head > i { color: #ef4444; }
+          .accel-panel.check .accel-panel-head > i { color: #3b82f6; }
+          .accel-panel-title { font-weight: 700; font-size: 0.9rem; }
+          .accel-panel-sub { font-size: 0.78rem; opacity: 0.8; margin-top: 2px; }
+          .accel-panel-actions { margin-left: auto; display: flex; gap: 8px; flex-shrink: 0; }
+          .accel-btn { font-size: 0.8rem; font-weight: 600; padding: 7px 13px; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+          .accel-btn.ghost { background: rgba(148,163,184,0.15); border: 1px solid rgba(148,163,184,0.4); color: var(--color-text-light); }
+          .accel-btn.primary { background: #8b5cf6; border: 1px solid #8b5cf6; color: #fff; }
+          .accel-panel-steps { padding: 0 14px 14px; font-size: 0.82rem; line-height: 1.6; }
+          .accel-panel-steps ol { margin: 6px 0 0; padding-left: 20px; }
+          .accel-panel-steps li { margin-bottom: 4px; }
+          .accel-panel-steps code { background: rgba(0,0,0,0.25); padding: 1px 6px; border-radius: 4px; font-size: 0.78rem; }
+          @media (max-width: 720px) {
+            .accel-panel-head { flex-wrap: wrap; }
+            .accel-panel-actions { margin-left: 0; width: 100%; }
+          }
+        </style>
         <main class="page-main">
           <div class="toolbar">
             <button onclick="openModalAndroid()">
@@ -532,6 +569,25 @@
             >
               <i class="bi bi-tools"></i> <span data-i18n="toolbar.fix_android">Fix Android</span>
             </button>
+          </div>
+
+          <div id="accelInfoPanel" class="accel-panel" style="display:none;">
+            <div class="accel-panel-head">
+              <i id="accelInfoIcon" class="bi bi-cpu"></i>
+              <div>
+                <div id="accelInfoTitle" class="accel-panel-title">Memeriksa akselerasi hardware...</div>
+                <div id="accelInfoSub" class="accel-panel-sub"></div>
+              </div>
+              <div class="accel-panel-actions">
+                <button type="button" class="accel-btn ghost" onclick="refreshAccelStatus()">
+                  <i class="bi bi-arrow-clockwise"></i> Cek ulang
+                </button>
+                <button type="button" id="accelEnableBtn" class="accel-btn primary" style="display:none;" onclick="tryEnableAcceleration()">
+                  <i class="bi bi-lightning-charge-fill"></i> Coba aktifkan otomatis
+                </button>
+              </div>
+            </div>
+            <div id="accelInfoSteps" class="accel-panel-steps" style="display:none;"></div>
           </div>
 
           <div
@@ -5661,7 +5717,7 @@
             <div id="serviceBrowserGrid" class="service-browser-grid"></div>
           </div>
           <p id="addDeviceQuotaHint" class="quota-hint">
-            Mode tamu: maks 2 device per layanan.
+            Mode tamu: bebas menambah device per layanan.
           </p>
 
           <div
@@ -6139,8 +6195,44 @@
             <button class="ghost" onclick="openPackageFromAccount()" data-i18n="account.check_package">
               Check Package
             </button>
+            <button class="ghost" onclick="openLocationModal()">
+              📍 Atur Lokasi Saya
+            </button>
             <button class="ghost" onclick="closeAccountModal()" data-i18n="account.close">Close</button>
             <button class="danger" onclick="handleLogout()" data-i18n="account.logout">Logout</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="locationModal" class="modal">
+        <div class="modal-content" style="max-width: 560px">
+          <span class="close" onclick="handleLocationModalClose()">&times;</span>
+          <h3>Lokasi Komunitas StarBox</h3>
+          <p id="locationPromptIntro" style="display:none; font-size:0.85rem; background:rgba(139,92,246,0.12); border:1px solid rgba(139,92,246,0.35); padding:10px 12px; border-radius:10px; margin-top:0;">
+            🌍 Bantu tunjukkan sebaran pengguna StarBox dan terhubung dengan pengguna lain di sekitar Anda.
+            Hanya titik lokasi yang dibagikan — akun dan identitas Anda tetap dirahasiakan.
+          </p>
+          <p style="font-size: 0.85rem; opacity: 0.75; margin-top: -8px;">
+            Titik lokasi ini dipakai untuk menampilkan sebaran pengguna StarBox di peta komunitas.
+            Hanya koordinat yang dibagikan — akun dan identitas Anda tetap dirahasiakan.
+          </p>
+
+          <div id="locationPickerMap" style="width:100%; height:320px; border-radius:12px; overflow:hidden; border:1px solid var(--color-border);"></div>
+
+          <p id="locationCoordsHint" style="font-size:0.8rem; opacity:0.7; margin:8px 0 0;">
+            Klik atau seret pin di peta untuk mengatur titik lokasi.
+          </p>
+
+          <label style="display:flex; align-items:center; gap:8px; font-size:0.85rem; margin-top:10px; cursor:pointer;">
+            <input type="checkbox" id="locationVisibleCheckbox" checked />
+            Tampilkan titik saya di Peta Komunitas untuk pengguna StarBox lain
+          </label>
+
+          <div class="account-actions" style="margin-top:14px;">
+            <button class="ghost" onclick="useMyLocation()">🎯 Gunakan Lokasi Saya</button>
+            <button id="locationCancelBtn" class="ghost" onclick="closeLocationModal()">Batal</button>
+            <button id="locationDismissBtn" class="ghost" style="display:none;" onclick="dismissLocationPrompt()">Abaikan</button>
+            <button onclick="saveMyLocation()">Simpan Lokasi</button>
           </div>
         </div>
       </div>
@@ -7172,6 +7264,72 @@
           <div id="scGalleryGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px"></div>
         </div>
       </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- Page: Peta Komunitas StarBox                                 -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div id="page-community-map" class="page-content">
+      <style>
+        #page-community-map { display:none; flex-direction:column; overflow-y:auto; padding:24px; background:var(--color-dark-purple); color:var(--color-text-light); gap:16px; }
+        #page-community-map.active { display:flex; }
+        .cm-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+        .cm-title { font-size:1.1rem; font-weight:700; display:flex; align-items:center; gap:8px; }
+        .cm-subtitle { font-size:0.85rem; opacity:0.7; margin-top:2px; }
+        .cm-stats { font-size:0.85rem; opacity:0.85; }
+        #communityMapContainer { width:100%; height:60vh; min-height:360px; border-radius:14px; overflow:hidden; border:1px solid var(--color-border); }
+
+        .cm-marker { position: relative; width: 28px; height: 28px; }
+        .cm-marker-pulse {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          width: 28px;
+          height: 28px;
+          margin: -14px 0 0 -14px;
+          border-radius: 50%;
+          background: rgba(139, 92, 246, 0.55);
+          animation: cm-pulse 1.8s ease-out infinite;
+        }
+        .cm-marker-icon {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          width: 22px;
+          height: 22px;
+          margin: -11px 0 0 -11px;
+          border-radius: 50%;
+          object-fit: cover;
+          border: 2px solid #8b5cf6;
+          background: #0f172a;
+          box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+        }
+        @keyframes cm-pulse {
+          0% { transform: scale(0.6); opacity: 0.8; }
+          70% { transform: scale(1.9); opacity: 0; }
+          100% { transform: scale(1.9); opacity: 0; }
+        }
+      </style>
+
+      <div class="cm-header">
+        <div>
+          <div class="cm-title"><i class="bi bi-geo-alt-fill"></i> Peta Komunitas StarBox</div>
+          <div class="cm-subtitle">Sebaran pengguna StarBox lain berdasarkan titik lokasi yang mereka bagikan. Identitas tetap dirahasiakan — hanya titik yang ditampilkan.</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span id="communityMapStats" class="cm-stats">Memuat data...</span>
+          <button
+            onclick="openLocationModal()"
+            style="background:#8b5cf6;border:1px solid #8b5cf6;color:#fff;font-size:0.85rem;font-weight:600;padding:8px 16px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;"
+          ><i class="bi bi-pin-map-fill"></i> Update Lokasi Anda</button>
+          <button
+            onclick="loadCommunityMapPoints()"
+            style="background:rgba(148,163,184,0.12);border:1px solid rgba(148,163,184,0.35);color:var(--color-text-light);font-size:0.85rem;font-weight:600;padding:8px 16px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;"
+          ><i class="bi bi-arrow-clockwise"></i> Muat Ulang</button>
+        </div>
+      </div>
+
+      <div id="communityMapContainer"></div>
+    </div>
 
     <!-- ═══════════════════════════════════════════════════════════ -->
     <!-- Page: StarDesk – Remote Control & MyStarBox             -->
@@ -10145,7 +10303,7 @@ adb connect ip:port</code></pre>
 
     <footer class="app-footer">
       <span class="footer-left"
-        >StarBox v2.1.260724 &copy; 2025 Gingin Abdul Goni —
+        >StarBox v2.1.260729 &copy; 2025 Gingin Abdul Goni —
         <a
           href="https://1112-project.com"
           target="_blank"
@@ -10321,6 +10479,444 @@ adb connect ip:port</code></pre>
         }
       }
 
+      // ===================== Lokasi Komunitas (Leaflet) =====================
+      let locationMap = null;
+      let locationMarker = null;
+      let locationLayers = null;
+
+      function buildLocationLayers() {
+        const street = L.tileLayer(
+          "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }
+        );
+
+        const satellite = L.tileLayer(
+          "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+          { maxZoom: 19, attribution: "Tiles &copy; Esri" }
+        );
+
+        const hybridLabels = L.tileLayer(
+          "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+          { maxZoom: 19, attribution: "Tiles &copy; Esri" }
+        );
+
+        const hybrid = L.layerGroup([
+          L.tileLayer(
+            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            { maxZoom: 19 }
+          ),
+          hybridLabels,
+        ]);
+
+        const dark = L.tileLayer(
+          "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+          { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors &copy; CARTO" }
+        );
+
+        return { street, satellite, hybrid, dark };
+      }
+
+      function updateLocationHint(lat, lng) {
+        const hint = document.getElementById("locationCoordsHint");
+        if (hint) {
+          hint.textContent = `Titik terpilih: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        }
+      }
+
+      function ensureLocationMap(centerLat, centerLng) {
+        const lat = typeof centerLat === "number" ? centerLat : -6.2;
+        const lng = typeof centerLng === "number" ? centerLng : 106.8167;
+
+        if (!locationMap) {
+          locationMap = L.map("locationPickerMap").setView([lat, lng], 12);
+          locationLayers = buildLocationLayers();
+          locationLayers.street.addTo(locationMap);
+          L.control
+            .layers(
+              {
+                Jalan: locationLayers.street,
+                Satelit: locationLayers.satellite,
+                Hybrid: locationLayers.hybrid,
+                Gelap: locationLayers.dark,
+              },
+              null,
+              { position: "topright" }
+            )
+            .addTo(locationMap);
+
+          locationMarker = L.marker([lat, lng], { draggable: true }).addTo(locationMap);
+          locationMarker.on("dragend", () => {
+            const pos = locationMarker.getLatLng();
+            updateLocationHint(pos.lat, pos.lng);
+          });
+
+          locationMap.on("click", (e) => {
+            locationMarker.setLatLng(e.latlng);
+            updateLocationHint(e.latlng.lat, e.latlng.lng);
+          });
+        } else {
+          locationMap.setView([lat, lng], locationMap.getZoom());
+          locationMarker.setLatLng([lat, lng]);
+        }
+
+        updateLocationHint(lat, lng);
+      }
+
+      let locationModalAutoPrompt = false;
+      const LOCATION_PROMPT_DISMISS_KEY = "starbox-location-prompt-dismissed-until";
+
+      async function openLocationModal(opts = {}) {
+        const { autoPrompt = false } = opts;
+        const modal = document.getElementById("locationModal");
+        if (!modal) return;
+
+        locationModalAutoPrompt = autoPrompt;
+        const introEl = document.getElementById("locationPromptIntro");
+        const cancelBtn = document.getElementById("locationCancelBtn");
+        const dismissBtn = document.getElementById("locationDismissBtn");
+        if (introEl) introEl.style.display = autoPrompt ? "block" : "none";
+        if (cancelBtn) cancelBtn.style.display = autoPrompt ? "none" : "inline-flex";
+        if (dismissBtn) dismissBtn.style.display = autoPrompt ? "inline-flex" : "none";
+
+        modal.style.display = "flex";
+
+        let existing = null;
+        try {
+          existing = await window.electronAPI?.location?.get?.();
+        } catch (err) {
+          console.warn("Gagal memuat lokasi tersimpan:", err);
+        }
+
+        const visibleCheckbox = document.getElementById("locationVisibleCheckbox");
+        if (visibleCheckbox) {
+          visibleCheckbox.checked = existing?.visible !== false;
+        }
+
+        ensureLocationMap(existing?.latitude, existing?.longitude);
+
+        // Leaflet perlu invalidateSize setelah container terlihat penuh
+        setTimeout(() => {
+          if (locationMap) locationMap.invalidateSize();
+        }, 50);
+      }
+
+      document.addEventListener("change", async (e) => {
+        if (e.target?.id !== "locationVisibleCheckbox") return;
+        try {
+          const existing = await window.electronAPI?.location?.get?.();
+          if (!existing || typeof existing.latitude !== "number") return; // belum ada titik tersimpan
+          await window.electronAPI.location.setVisibility(e.target.checked);
+        } catch (err) {
+          console.warn("Gagal mengubah visibilitas lokasi:", err);
+        }
+      });
+
+      function closeLocationModal() {
+        const modal = document.getElementById("locationModal");
+        if (modal) modal.style.display = "none";
+      }
+
+      function handleLocationModalClose() {
+        if (locationModalAutoPrompt) {
+          dismissLocationPrompt();
+        } else {
+          closeLocationModal();
+        }
+      }
+
+      function dismissLocationPrompt() {
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        try {
+          localStorage.setItem(LOCATION_PROMPT_DISMISS_KEY, String(Date.now() + oneDayMs));
+        } catch (err) {
+          console.warn("Gagal menyimpan status abaikan lokasi:", err);
+        }
+        closeLocationModal();
+      }
+
+      async function maybeShowLocationPrompt() {
+        try {
+          const existing = await window.electronAPI?.location?.get?.();
+          if (existing && typeof existing.latitude === "number") return;
+
+          const dismissedUntil = Number(localStorage.getItem(LOCATION_PROMPT_DISMISS_KEY) || 0);
+          if (dismissedUntil && Date.now() < dismissedUntil) return;
+
+          openLocationModal({ autoPrompt: true });
+        } catch (err) {
+          console.warn("Gagal memeriksa status lokasi:", err);
+        }
+      }
+
+      function useMyLocation() {
+        if (!navigator.geolocation) {
+          Swal.fire("Tidak didukung", "Browser/Electron ini tidak mendukung Geolocation API.", "error");
+          return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const { latitude, longitude, accuracy } = position.coords;
+            ensureLocationMap(latitude, longitude);
+            locationMap.setView([latitude, longitude], 15);
+            locationMarker._lastAccuracy = accuracy;
+          },
+          (error) => {
+            Swal.fire(
+              "Gagal mengambil lokasi",
+              error.message || "Pastikan izin lokasi diaktifkan, atau atur titik secara manual di peta.",
+              "warning"
+            );
+          },
+          { enableHighAccuracy: true, timeout: 10000 }
+        );
+      }
+
+      async function saveMyLocation() {
+        if (!locationMarker) return;
+        const pos = locationMarker.getLatLng();
+
+        try {
+          const visibleCheckbox = document.getElementById("locationVisibleCheckbox");
+          const result = await window.electronAPI.location.save({
+            latitude: pos.lat,
+            longitude: pos.lng,
+            accuracyMeters: locationMarker._lastAccuracy || null,
+            visible: visibleCheckbox ? visibleCheckbox.checked : true,
+          });
+
+          if (result?.success) {
+            Swal.fire("Tersimpan", "Lokasi Anda berhasil disimpan dan dikirim ke server.", "success");
+            closeLocationModal();
+            if (typeof loadCommunityMapPoints === "function" && communityMap) {
+              setTimeout(() => loadCommunityMapPoints(), 1500);
+            }
+          } else {
+            Swal.fire("Gagal", result?.message || "Gagal menyimpan lokasi.", "error");
+          }
+        } catch (err) {
+          Swal.fire("Gagal", err?.message || "Gagal menyimpan lokasi.", "error");
+        }
+      }
+
+      // ===================== Peta Komunitas (lihat lokasi pengguna lain) =====================
+      let communityMap = null;
+      let communityMarkersLayer = null;
+
+      function initCommunityMapPage() {
+        if (communityMap) return;
+
+        communityMap = L.map("communityMapContainer", {
+          fullscreenControl: true,
+          fullscreenControlOptions: { position: "topleft" },
+        }).setView([-2.5, 118], 5);
+
+        const layers = buildLocationLayers();
+        layers.satellite.addTo(communityMap);
+        L.control
+          .layers(
+            {
+              Jalan: layers.street,
+              Satelit: layers.satellite,
+              Hybrid: layers.hybrid,
+              Gelap: layers.dark,
+            },
+            null,
+            { position: "topright" }
+          )
+          .addTo(communityMap);
+
+        L.control
+          .locate({
+            position: "topleft",
+            strings: { title: "Tampilkan lokasi saya" },
+            flyTo: true,
+          })
+          .addTo(communityMap);
+
+        communityMarkersLayer = L.layerGroup().addTo(communityMap);
+
+        loadCommunityMapPoints();
+      }
+
+      async function loadCommunityMapPoints() {
+        const statsEl = document.getElementById("communityMapStats");
+        if (statsEl) statsEl.textContent = "Memuat data...";
+
+        try {
+          const result = await window.electronAPI?.community?.getMapPoints?.();
+
+          if (!result?.success) {
+            if (statsEl) statsEl.textContent = "Gagal memuat data komunitas.";
+            return;
+          }
+
+          if (communityMarkersLayer) {
+            communityMarkersLayer.clearLayers();
+            const icon = L.divIcon({
+              className: "cm-marker",
+              html: '<span class="cm-marker-pulse"></span><img class="cm-marker-icon" src="assets/starbox.png" alt="" />',
+              iconSize: [28, 28],
+              iconAnchor: [14, 14],
+            });
+            result.points.forEach((point) => {
+              L.marker([point.latitude, point.longitude], { icon }).addTo(
+                communityMarkersLayer
+              );
+            });
+          }
+
+          if (statsEl) {
+            statsEl.textContent = `${result.total} pengguna StarBox membagikan lokasi`;
+          }
+        } catch (err) {
+          console.warn("Gagal memuat titik peta komunitas:", err);
+          if (statsEl) statsEl.textContent = "Gagal memuat data komunitas.";
+        }
+      }
+
+      // ===================== Status Akselerasi Hardware (Android) =====================
+      function buildAccelSteps(status) {
+        if (status.isWin) {
+          return `
+            <strong>Cara mengaktifkan akselerasi:</strong>
+            <ol>
+              <li>Restart ke <strong>BIOS/UEFI</strong> → aktifkan <code>Intel VT-x</code> / <code>AMD-V (SVM)</code>, simpan &amp; reboot.</li>
+              <li>Buka <em>Turn Windows features on or off</em> → centang <strong>Windows Hypervisor Platform</strong> (dan <strong>Virtual Machine Platform</strong>).</li>
+              <li>Alternatif: install <em>Android Emulator Hypervisor Driver (AEHD)</em> dari Google.</li>
+              <li><strong>Restart PC</strong>, lalu jalankan emulator lagi.</li>
+            </ol>
+            <div style="margin-top:6px; opacity:0.75;">Tombol "Coba aktifkan otomatis" hanya mengaktifkan fitur Windows-nya (butuh izin admin + restart) — pengaturan BIOS tetap harus manual.</div>
+          `;
+        }
+        if (status.isLinux) {
+          return `
+            <strong>Cara mengaktifkan akselerasi (KVM):</strong>
+            <ol>
+              <li>Aktifkan virtualization (VT-x/AMD-V) di BIOS/UEFI.</li>
+              <li>Install KVM: <code>sudo apt install qemu-kvm</code>.</li>
+              <li>Tambahkan user ke grup kvm: <code>sudo usermod -aG kvm $USER</code>, lalu logout/login.</li>
+            </ol>
+          `;
+        }
+        return `
+          <strong>Akselerasi (HVF) tidak terdeteksi.</strong>
+          <ol>
+            <li>Pastikan macOS versi terbaru dan tutup aplikasi virtualisasi lain (VirtualBox lama, dll).</li>
+            <li>Coba restart aplikasi StarBox.</li>
+          </ol>
+        `;
+      }
+
+      async function refreshAccelStatus() {
+        const panel = document.getElementById("accelInfoPanel");
+        if (!panel || !window.electronAPI?.android?.accelStatus) return;
+
+        const icon = document.getElementById("accelInfoIcon");
+        const title = document.getElementById("accelInfoTitle");
+        const sub = document.getElementById("accelInfoSub");
+        const steps = document.getElementById("accelInfoSteps");
+        const enableBtn = document.getElementById("accelEnableBtn");
+
+        panel.style.display = "block";
+        panel.className = "accel-panel check";
+        icon.className = "bi bi-cpu";
+        title.textContent = "Memeriksa akselerasi hardware...";
+        sub.textContent = "";
+        steps.style.display = "none";
+        enableBtn.style.display = "none";
+
+        try {
+          const status = await window.electronAPI.android.accelStatus();
+          if (!status?.success) {
+            panel.className = "accel-panel warn";
+            icon.className = "bi bi-exclamation-triangle-fill";
+            title.textContent = "Gagal memeriksa akselerasi";
+            sub.textContent = status?.message || "";
+            return;
+          }
+
+          if (status.available) {
+            panel.className = "accel-panel ok";
+            icon.className = "bi bi-check-circle-fill";
+            title.textContent = "Akselerasi hardware aktif";
+            sub.textContent = `Emulator siap dijalankan (boot ±1 menit). ${status.detail || ""}`.trim();
+            steps.style.display = "none";
+            enableBtn.style.display = "none";
+          } else if (!status.definitive) {
+            // accel-check tidak bisa dijalankan (mis. emulator belum diunduh)
+            panel.className = "accel-panel check";
+            icon.className = "bi bi-info-circle-fill";
+            title.textContent = "Status akselerasi belum bisa diperiksa";
+            sub.textContent = "Unduh emulator terlebih dahulu, lalu klik \"Cek ulang\".";
+            steps.style.display = "none";
+            enableBtn.style.display = "none";
+          } else if (status.requiresAcceleration) {
+            panel.className = "accel-panel warn";
+            icon.className = "bi bi-exclamation-triangle-fill";
+            title.textContent = "Akselerasi hardware tidak aktif — emulator tidak bisa berjalan";
+            sub.textContent = "Emulator Android x86_64 wajib akselerasi (WHPX/HAXM/AEHD). Tanpa ini, emulator keluar dengan kode 1.";
+            steps.innerHTML = buildAccelSteps(status);
+            steps.style.display = "block";
+            enableBtn.style.display = status.isWin ? "inline-flex" : "none";
+          } else {
+            panel.className = "accel-panel check";
+            icon.className = "bi bi-info-circle-fill";
+            title.textContent = "Akselerasi tidak terdeteksi — mode software (lambat)";
+            sub.textContent = "Emulator tetap bisa jalan tapi boot bisa >10 menit.";
+            steps.innerHTML = buildAccelSteps(status);
+            steps.style.display = "block";
+            enableBtn.style.display = "none";
+          }
+        } catch (err) {
+          panel.className = "accel-panel warn";
+          icon.className = "bi bi-exclamation-triangle-fill";
+          title.textContent = "Gagal memeriksa akselerasi";
+          sub.textContent = err?.message || "";
+        }
+      }
+      window.refreshAccelStatus = refreshAccelStatus;
+
+      async function tryEnableAcceleration() {
+        const confirm = await Swal.fire({
+          title: "Aktifkan Windows Hypervisor Platform?",
+          html: "StarBox akan menjalankan perintah dengan izin administrator (muncul prompt UAC). Setelah selesai, <strong>PC perlu di-restart</strong>.<br><br>Catatan: ini tidak bisa mengaktifkan virtualization yang dimatikan di BIOS.",
+          icon: "question",
+          showCancelButton: true,
+          confirmButtonText: "Ya, coba aktifkan",
+          cancelButtonText: "Batal",
+          confirmButtonColor: "#8b5cf6",
+        });
+        if (!confirm.isConfirmed) return;
+
+        Swal.fire({
+          title: "Mengaktifkan...",
+          html: "Setujui prompt UAC yang muncul.",
+          allowOutsideClick: false,
+          didOpen: () => Swal.showLoading(),
+        });
+
+        try {
+          const result = await window.electronAPI.android.enableAcceleration();
+          if (result?.success) {
+            await Swal.fire({
+              title: "Berhasil",
+              html: result.message || "Fitur diaktifkan. Silakan restart PC.",
+              icon: "success",
+            });
+          } else {
+            await Swal.fire({
+              title: "Gagal",
+              html: result?.message || "Tidak dapat mengaktifkan akselerasi.",
+              icon: "error",
+            });
+          }
+        } catch (err) {
+          await Swal.fire({ title: "Gagal", html: err?.message || "Terjadi kesalahan.", icon: "error" });
+        }
+      }
+      window.tryEnableAcceleration = tryEnableAcceleration;
+
       // Sync version dots between navbar (hidden) and sidebar (visible)
       function syncVersionDots() {
         const navbarDot = document.getElementById("versionUpdateDot");
@@ -10369,6 +10965,9 @@ adb connect ip:port</code></pre>
 
         // Initial sync of version dots
         syncVersionDots();
+
+        // Tampilkan popup pilih lokasi komunitas jika belum pernah diatur
+        setTimeout(() => maybeShowLocationPrompt(), 1500);
       });
     </script>
 
@@ -10467,7 +11066,7 @@ adb connect ip:port</code></pre>
         if (state.isLoggedIn) {
           return state.deviceQuota ?? Infinity;
         }
-        return 1;
+        return Infinity;
       }
 
       function getAutoReplyLimit() {
@@ -10906,27 +11505,6 @@ adb connect ip:port</code></pre>
         }
 
         try {
-          const session =
-            window.electronAPI?.auth?.getSession &&
-            (await window.electronAPI.auth.getSession());
-          if (!session?.isLoggedIn) {
-            const devicesResult =
-              window.electronAPI.whatsappGateway.getDevices &&
-              (await window.electronAPI.whatsappGateway.getDevices());
-            const existingDevices =
-              devicesResult?.success && Array.isArray(devicesResult.devices)
-                ? devicesResult.devices
-                : [];
-            if (existingDevices.length >= 1) {
-              Swal.fire(
-                "Mode tamu terbatas",
-                "Mode tamu hanya dapat menggunakan satu WhatsApp Gateway. Silakan login untuk menambah device.",
-                "warning"
-              );
-              return;
-            }
-          }
-
           await loadWADevices();
           const currentCount = Object.keys(waDevicesCache).length;
           const limit = getWAGatewayDeviceLimit();

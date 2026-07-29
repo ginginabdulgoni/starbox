@@ -1724,6 +1724,13 @@ footer a {
     font-size: 0.95rem;
   }
 
+  .device-empty-state-slogan {
+    margin-top: 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #8b5cf6;
+  }
+
   .account-modal {
     max-width: 460px;
   }

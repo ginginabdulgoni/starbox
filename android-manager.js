@@ -63,6 +63,22 @@ class AndroidManager {
       // Normalize path to avoid double backslashes on Windows
       const normalizedTempDir = path.normalize(tempDir);
       fs.mkdirSync(normalizedTempDir, { recursive: true });
+
+      // Remove stale crash databases left by a previous crash. Otherwise
+      // crashpad keeps reprocessing them on the next launch and floods the log
+      // with "GetFileAttributes ... cannot find the file" errors that mask the
+      // real failure reason.
+      try {
+        fs.readdirSync(normalizedTempDir).forEach((entry) => {
+          if (/^emu-crash/i.test(entry)) {
+            fs.rmSync(path.join(normalizedTempDir, entry), {
+              recursive: true,
+              force: true,
+            });
+          }
+        });
+      } catch (_) {}
+
       const candidates = [
         path.join(normalizedTempDir, 'emu-crash'),
         path.join(normalizedTempDir, 'emu-crash-33.1.24.db'),
@@ -259,6 +275,27 @@ class AndroidManager {
    * Kill ADB server to fix "device offline" or "busy" errors
    */
   async killAdbServer() {
+    // On Windows, running the bundled adb.exe to "kill-server" re-locks the very
+    // file we may need to overwrite during extraction, and Windows keeps the
+    // handle briefly after the process exits — causing EBUSY on adb.exe. Force
+    // kill every adb.exe with taskkill instead, then wait for the lock to clear.
+    if (this.isWin) {
+      const { execSync } = require('child_process');
+      try {
+        execSync('taskkill /F /IM adb.exe /T', { stdio: 'pipe' });
+        console.log('✅ ADB process force killed on Windows');
+      } catch (winError) {
+        // Exit code 128 / "not found" just means no adb.exe was running.
+        const msg = winError?.message || '';
+        if (!/not found|tidak ditemukan|128/i.test(msg)) {
+          console.warn('⚠️ taskkill adb.exe warning:', msg);
+        }
+      }
+      // Give Windows time to release the file handle on adb.exe.
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      return { success: true };
+    }
+
     try {
       console.log('🔪 Killing ADB server...');
       await this.runAdbCommand(['kill-server'], { timeout: 10000, silent: true });
@@ -266,17 +303,6 @@ class AndroidManager {
       return { success: true };
     } catch (error) {
       console.warn('⚠️ Failed to kill ADB server:', error.message);
-      // Try force kill the adb process on Windows
-      if (this.isWin) {
-        try {
-          const { execSync } = require('child_process');
-          execSync('taskkill /F /IM adb.exe', { stdio: 'pipe' });
-          console.log('✅ ADB process force killed on Windows');
-          return { success: true };
-        } catch (winError) {
-          console.warn('⚠️ Failed to force kill ADB on Windows:', winError.message);
-        }
-      }
       return { success: false, error: error.message };
     }
   }
@@ -409,6 +435,27 @@ class AndroidManager {
       fs.existsSync(platformsDir) &&
       fs.existsSync(systemImage)
     );
+  }
+
+  /**
+   * Whether a single download component is already present on disk. Used to make
+   * (re)installs idempotent — a partial install only fetches what is missing and
+   * never re-extracts over files that may be locked (e.g. a running adb.exe).
+   */
+  componentPresent(name) {
+    this.initializePaths();
+    switch (name) {
+      case 'Emulator':
+        return fs.existsSync(this.getEmulatorBinary());
+      case 'Platform Tools':
+        return fs.existsSync(this.getADBBinary());
+      case 'Platform':
+        return fs.existsSync(path.join(this.sdkPath, 'platforms', 'android-30'));
+      case 'System Image':
+        return fs.existsSync(path.join(this.getSystemImagesDir(), 'system.img'));
+      default:
+        return false;
+    }
   }
 
   /**
@@ -596,8 +643,17 @@ class AndroidManager {
         message: 'Directory preparation complete',
       });
 
-      // Download emulator components based on platform
-      const downloads = await this.getDownloadUrls();
+      // Download emulator components based on platform. Skip anything already on
+      // disk so a partial install only fetches what is missing and never
+      // re-extracts over locked files (e.g. a running adb.exe → EBUSY on Windows).
+      const allDownloads = await this.getDownloadUrls();
+      const downloads = allDownloads.filter((download) => {
+        if (this.componentPresent(download.name)) {
+          console.log(`✓ ${download.name} already installed, skipping download`);
+          return false;
+        }
+        return true;
+      });
       const totalStages = downloads.length + 2; // downloads + extraction + AVD setup
       const stageWeight = totalStages > 0 ? 100 / totalStages : 100;
       let completedStages = 0;
@@ -1058,6 +1114,31 @@ class AndroidManager {
   /**
    * Create default AVD configuration
    */
+  /**
+   * Remove stale AVD lock files/dirs left behind by a crashed emulator. Without
+   * this the next launch fails with "Please use -read-only flag to enable this
+   * feature" because the emulator thinks another instance still owns the AVD.
+   * Safe to call because StarBox only runs one emulator instance at a time.
+   */
+  cleanAvdLocks(avdName = 'StarBox_Default') {
+    try {
+      const avdDir = path.join(this.avdPath, `${this.sanitizeAvdName(avdName)}.avd`);
+      if (!fs.existsSync(avdDir)) return;
+      fs.readdirSync(avdDir).forEach((entry) => {
+        // Locks are usually *.lock (files) or directories like
+        // hardware-qemu.ini.lock / multiinstance.lock / snapshot.lock.
+        if (/\.lock$/i.test(entry)) {
+          try {
+            fs.rmSync(path.join(avdDir, entry), { recursive: true, force: true });
+            console.log(`🧹 Menghapus lock AVD basi: ${entry}`);
+          } catch (_) {}
+        }
+      });
+    } catch (err) {
+      console.warn('⚠️ Gagal membersihkan lock AVD:', err.message);
+    }
+  }
+
   async createDefaultAVD(avdName = 'StarBox_Default', spec = null, statusCallback = null) {
     avdName = this.sanitizeAvdName(avdName);
     const avdDir = path.join(this.avdPath, `${avdName}.avd`);
@@ -1197,14 +1278,36 @@ hw.camera.front=none
         });
       });
     } else {
-      await extractZip(zipPath, {
-        dir: dest,
-        onEntry: (entry) => {
-          if (typeof notify === 'function' && entry?.fileName) {
-            notify(entry.fileName);
-          }
-        },
-      });
+      const attemptExtract = () =>
+        extractZip(zipPath, {
+          dir: dest,
+          onEntry: (entry) => {
+            if (typeof notify === 'function' && entry?.fileName) {
+              notify(entry.fileName);
+            }
+          },
+        });
+
+      try {
+        await attemptExtract();
+      } catch (err) {
+        // A binary in the archive (typically adb.exe) may still be locked by a
+        // running process. Force-kill adb, wait for the lock to clear, retry once.
+        const locked =
+          err &&
+          (err.code === 'EBUSY' ||
+            err.code === 'EPERM' ||
+            /EBUSY|EPERM|locked|being used by another process/i.test(err.message || ''));
+        if (!locked) throw err;
+
+        console.warn('⚠️ Extraction hit a locked file, killing ADB and retrying:', err.message);
+        if (typeof notify === 'function') {
+          notify('File terkunci, menutup ADB lalu mencoba ulang...');
+        }
+        await this.killAdbServer();
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        await attemptExtract();
+      }
     }
 
     return true;
@@ -1347,15 +1450,96 @@ hw.camera.front=none
             statusCode === 0 || /is installed and usable/i.test(output);
           const detail =
             (statusIdx !== -1 && lines[statusIdx + 2]) || output.trim();
-          finish({ available, detail });
+          // A parsed exit is a definitive answer; timeouts/errors are not, so we
+          // never block startup on a check that simply failed to run.
+          finish({ available, detail, definitive: true });
         });
-        proc.on('error', (err) => finish({ available: false, detail: err.message }));
+        proc.on('error', (err) => finish({ available: false, detail: err.message, definitive: false }));
         setTimeout(() => {
           try { proc.kill('SIGKILL'); } catch (_) {}
-          finish({ available: false, detail: 'accel-check timeout' });
+          finish({ available: false, detail: 'accel-check timeout', definitive: false });
         }, timeoutMs);
       } catch (err) {
-        finish({ available: false, detail: err.message });
+        finish({ available: false, detail: err.message, definitive: false });
+      }
+    });
+  }
+
+  /**
+   * Report hardware-acceleration status for the emulator page. Combines the
+   * `-accel-check` result with the guest ABI so the UI can explain whether the
+   * machine can run the x86_64 image at all.
+   */
+  async getAccelerationStatus() {
+    const accel = await this.checkAccelSupport();
+    const guestAbi = this.getGuestAbi();
+    return {
+      available: !!accel.available,
+      definitive: accel.definitive !== false,
+      detail: accel.detail || '',
+      guestAbi,
+      // x86_64 guests have no software fallback; arm64 (Apple Silicon) uses HVF.
+      requiresAcceleration: guestAbi === 'x86_64',
+      platform: this.platform,
+      isWin: this.isWin,
+      isMac: this.isMac,
+      isLinux: this.isLinux,
+    };
+  }
+
+  /**
+   * Best-effort attempt to enable the Windows Hypervisor Platform feature (WHPX)
+   * via an elevated PowerShell call. This CANNOT enable CPU virtualization that
+   * is turned off in BIOS/UEFI — only the Windows optional feature. Requires a
+   * reboot afterwards. Returns { success, rebootRequired, message }.
+   */
+  async enableWindowsAcceleration() {
+    if (!this.isWin) {
+      return { success: false, message: 'Fitur ini hanya tersedia di Windows.' };
+    }
+
+    const { spawn } = require('child_process');
+    // Enable both HypervisorPlatform (WHPX) and VirtualMachinePlatform in one
+    // elevated call. -Verb RunAs triggers the UAC prompt.
+    const inner =
+      'Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform,VirtualMachinePlatform -All -NoRestart';
+    const psCommand =
+      `Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden ` +
+      `-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-Command','${inner}'`;
+
+    return new Promise((resolve) => {
+      let stderr = '';
+      try {
+        const proc = spawn(
+          'powershell.exe',
+          ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psCommand],
+          { windowsHide: true }
+        );
+        proc.stderr.on('data', (d) => {
+          stderr += d.toString();
+        });
+        proc.on('close', (code) => {
+          if (code === 0) {
+            resolve({
+              success: true,
+              rebootRequired: true,
+              message:
+                'Windows Hypervisor Platform berhasil diaktifkan. Restart PC lalu coba jalankan emulator lagi.',
+            });
+          } else {
+            resolve({
+              success: false,
+              message:
+                stderr.trim() ||
+                'Gagal mengaktifkan (izin UAC ditolak atau perlu hak administrator).',
+            });
+          }
+        });
+        proc.on('error', (err) => {
+          resolve({ success: false, message: err.message });
+        });
+      } catch (err) {
+        resolve({ success: false, message: err.message });
       }
     });
   }
@@ -1454,30 +1638,38 @@ hw.camera.front=none
       await this.ensureEmulatorEntitlements();
     }
 
-    // Mac: host GPU ('auto'). Windows & Linux: SwiftShader di host —
-    // aman untuk semua driver GPU dan tetap jalan headless.
-    // Hindari 'guest': render software di dalam guest sangat lambat
-    // dan bisa menyebabkan layar hitam.
-    const gpuMode = this.isMac ? 'auto' : 'swiftshader_indirect';
+    // GPU renderer candidates. A native crash (access violation, exit 0xC0000005)
+    // is almost always the graphics backend, so we retry the next renderer.
+    // GPU-accelerated renderers come FIRST so heavy apps (Play Store / Play
+    // Services) render smoothly like on macOS; software is only a last resort —
+    // software rendering is what makes those apps crash/close on Windows.
+    //   - angle_indirect: ANGLE → Direct3D11, GPU-accelerated, very stable on Windows
+    //   - host: native host OpenGL/GPU driver
+    //   - swiftshader_indirect: software GL, no driver dependency (last resort)
+    const gpuCandidates = this.isMac
+      ? ['auto']
+      : this.isWin
+        ? ['angle_indirect', 'host', 'swiftshader_indirect']
+        : ['host', 'swiftshader_indirect'];
+
     const skinValue = (resolvedSpec.resolution || '720x1280').toLowerCase();
-    const args = [
+    // Base args shared across every GPU attempt; '-gpu <mode>' is prepended per try.
+    const baseArgs = [
       '-avd', avdName,
       '-no-boot-anim',
-      '-gpu', gpuMode,
       '-skin', skinValue,
       '-memory', String(resolvedSpec.memoryMb || 1536),
       '-cores', String(resolvedSpec.cores || 2),
       '-feature', '-Vulkan',
       '-no-snapshot-load',
       '-no-snapshot-save',
-      '-verbose'
+      // 'auto' memakai hypervisor host bila tersedia (Windows: WHPX/AEHD/HAXM,
+      // Linux: KVM) dan otomatis fallback ke mode software bila tidak ada
+      '-accel', 'auto',
+      '-verbose',
     ];
-    // 'auto' memakai hypervisor host bila tersedia (Windows: WHPX/AEHD/HAXM,
-    // Linux: KVM) dan otomatis fallback ke mode software bila tidak ada
-    args.push('-accel', 'auto');
-
     if (headless) {
-      args.push('-no-window');
+      baseArgs.push('-no-window');
     }
 
     // Laporkan status akselerasi supaya pengguna tahu kenapa boot cepat/lambat
@@ -1497,6 +1689,16 @@ hw.camera.front=none
       console.log('⚠️  Akselerasi hardware tidak tersedia — mode emulasi software (lambat).');
       console.log(`   ${accelInfo.detail}`);
       if (hint) console.log(`   ${hint}`);
+
+      // x86_64 guest images have NO software fallback — the emulator will PANIC
+      // and exit with code 1. Fail fast with an actionable message instead of a
+      // cryptic exit code. Only block on a definitive negative accel-check.
+      if (this.getGuestAbi() === 'x86_64' && accelInfo.definitive) {
+        throw new Error(
+          `Akselerasi hardware (WHPX/HAXM/AEHD) tidak aktif, sedangkan emulator Android x86_64 wajib akselerasi untuk bisa berjalan. ${hint} Detail: ${accelInfo.detail || 'accel-check gagal'}`
+        );
+      }
+
       emitProgress({
         phase: 'accel',
         message: `Akselerasi hardware tidak tersedia — emulator berjalan mode software (boot bisa >10 menit). ${hint}`,
@@ -1515,127 +1717,205 @@ hw.camera.front=none
       })
     );
 
-    emitProgress({
-      phase: 'spawn',
-      message: 'Menjalankan proses emulator...',
-      command: emulatorBin,
-      args,
-    });
     console.log(`Platform: ${this.platform}, Arch: ${process.arch}`);
     console.log(`Apple Silicon: ${this.isAppleSilicon}`);
     console.log(`Emulator SDK root: ${this.sdkPath}`);
     console.log(`Emulator AVD home: ${this.avdPath}`);
-    console.log(`Emulator args:`, args.join(' '));
 
-    return new Promise((resolve, reject) => {
-      try {
-        const env = this.getProcessEnv();
-        env.ANDROID_EMULATOR_USE_SYSTEM_LIBS = '1';
-        env.ANDROID_EMULATOR_DISABLE_CRASH_REPORT = '1';
-        env.ANDROID_EMULATOR_DISABLE_METRICS = '1';
+    // A crash with a native exit code (>= 0xC0000000, e.g. 0xC0000005 access
+    // violation) means the emulator process itself crashed — retry a different
+    // GPU renderer rather than surfacing a cryptic code.
+    const isNativeCrash = (code) =>
+      typeof code === 'number' && code >= 0xc0000000;
 
-        // Get temp directory with proper normalization
-        const tempDir = this.getEmulatorTempDir();
+    const attemptStart = (gpuMode) => {
+      // Clear any stale lock left by a previous crash / renderer attempt so this
+      // launch does not fail with "Please use -read-only flag to enable...".
+      this.cleanAvdLocks(avdName);
 
-        // Set environment variables without double backslashes
-        env.ANDROID_EMULATOR_HOME = env.ANDROID_EMULATOR_HOME || tempDir;
-        env.ANDROID_PRODUCT_OUT = env.ANDROID_PRODUCT_OUT || tempDir;
+      const args = ['-gpu', gpuMode, ...baseArgs];
+      emitProgress({
+        phase: 'spawn',
+        message: `Menjalankan proses emulator (GPU: ${gpuMode})...`,
+        command: emulatorBin,
+        args,
+      });
+      console.log('Emulator args:', args.join(' '));
 
-        // Ensure TEMP and TMP are set correctly on Windows
-        if (this.isWin) {
-          const winTemp = os.tmpdir().replace(/[\\/]+$/, '');
-          const normalizedWinTemp = path.normalize(winTemp).replace(/\\\\/g, '\\');
-          env.TEMP = normalizedWinTemp;
-          env.TMP = normalizedWinTemp;
-        }
+      return new Promise((resolve, reject) => {
+        try {
+          const env = this.getProcessEnv();
+          env.ANDROID_EMULATOR_USE_SYSTEM_LIBS = '1';
+          env.ANDROID_EMULATOR_DISABLE_CRASH_REPORT = '1';
+          env.ANDROID_EMULATOR_DISABLE_METRICS = '1';
 
+          // Get temp directory with proper normalization
+          const tempDir = this.getEmulatorTempDir();
 
-        // Log environment for debugging
-        if (this.isWin) {
-          console.log('📂 Windows Environment Paths:');
-          console.log('  TEMP:', env.TEMP);
-          console.log('  TMP:', env.TMP);
-          console.log('  ANDROID_EMULATOR_HOME:', env.ANDROID_EMULATOR_HOME);
-          console.log('  ANDROID_PRODUCT_OUT:', env.ANDROID_PRODUCT_OUT);
-        }
+          // Set environment variables without double backslashes
+          env.ANDROID_EMULATOR_HOME = env.ANDROID_EMULATOR_HOME || tempDir;
+          env.ANDROID_PRODUCT_OUT = env.ANDROID_PRODUCT_OUT || tempDir;
 
-        this.emulatorProcess = spawn(emulatorBin, args, { env });
+          // Ensure TEMP and TMP are set correctly on Windows
+          if (this.isWin) {
+            const winTemp = os.tmpdir().replace(/[\\/]+$/, '');
+            const normalizedWinTemp = path.normalize(winTemp).replace(/\\\\/g, '\\');
+            env.TEMP = normalizedWinTemp;
+            env.TMP = normalizedWinTemp;
+          }
 
-        this.emulatorProcess.stdout.on('data', (data) => {
-          console.log(`Emulator: ${data}`);
-          emitProgress({
-            phase: 'stdout',
-            message: data.toString(),
+          const spawnedAt = Date.now();
+          this.emulatorProcess = spawn(emulatorBin, args, { env });
+
+          // Keep the tail of emulator output so a non-zero exit can report the
+          // actual reason (PANIC/ERROR lines) instead of a generic exit code.
+          // Crashpad / crash-db chatter is pure noise and would otherwise mask
+          // the real error, so it is excluded from the reasoning buffer.
+          const isNoise = (line) =>
+            /filesystem_win\.cc|emu-crash|getfileattributes|crashpad|attachments[\\/]/i.test(
+              line
+            );
+          const outputTail = [];
+          const rememberOutput = (text) => {
+            text
+              .split(/\r?\n/)
+              .map((line) => line.trim())
+              .filter((line) => line && !isNoise(line))
+              .forEach((line) => {
+                outputTail.push(line);
+                if (outputTail.length > 40) outputTail.shift();
+              });
+          };
+          const extractFailureReason = () => {
+            const panic = outputTail.filter((line) => /panic/i.test(line));
+            if (panic.length) return panic.slice(-4).join('\n');
+            const important = outputTail.filter((line) =>
+              /error|fatal|cannot|failed|not found|unable|missing/i.test(line)
+            );
+            const picked = (important.length ? important : outputTail).slice(-6);
+            return picked.join('\n');
+          };
+
+          this.emulatorProcess.stdout.on('data', (data) => {
+            const text = data.toString();
+            rememberOutput(text);
+            console.log(`Emulator: ${text}`);
+            emitProgress({ phase: 'stdout', message: text });
           });
-        });
 
-        this.emulatorProcess.stderr.on('data', (data) => {
-          console.error(`Emulator error: ${data}`);
-          emitProgress({
-            phase: 'stderr',
-            message: data.toString(),
+          this.emulatorProcess.stderr.on('data', (data) => {
+            const text = data.toString();
+            rememberOutput(text);
+            console.error(`Emulator error: ${text}`);
+            emitProgress({ phase: 'stderr', message: text });
           });
-        });
 
-        this.emulatorProcess.on('error', (error) => {
-          console.error('Failed to start emulator:', error);
-          this.emulatorProcess = null;
+          this.emulatorProcess.on('error', (error) => {
+            console.error('Failed to start emulator:', error);
+            this.emulatorProcess = null;
+            emitProgress({ phase: 'error', message: error.message });
+            reject(error);
+          });
+
+          let bootResolved = false;
+          let bootTimer = null;
+
+          this.emulatorProcess.on('exit', (code) => {
+            console.log(`Emulator exited with code ${code}`);
+            this.emulatorProcess = null;
+            emitProgress({
+              phase: 'exit',
+              message: `Emulator selesai dengan kode ${code}`,
+              exitCode: code,
+            });
+            if (!bootResolved && code !== 0 && code !== null) {
+              bootResolved = true;
+              if (bootTimer) clearTimeout(bootTimer);
+              const reason = extractFailureReason();
+              const err = new Error(
+                reason
+                  ? `Emulator (GPU ${gpuMode}) keluar dengan kode ${code}:\n${reason}`
+                  : `Emulator (GPU ${gpuMode}) keluar dengan kode ${code}. Cek log di atas untuk detail kesalahan.`
+              );
+              err.exitCode = code;
+              err.nativeCrash = isNativeCrash(code);
+              // How long the process survived — a death within a few seconds is
+              // a startup/renderer failure worth retrying on the next renderer.
+              err.earlyExit = Date.now() - spawnedAt < 15000;
+              err.gpuMode = gpuMode;
+              reject(err);
+            }
+          });
+
+          // Wait for emulator to boot (15 minutes for software emulation)
+          bootTimer = setTimeout(() => {
+            bootTimer = null;
+            if (bootResolved) return;
+            this.waitForBoot(900000, (payload) => emitProgress(payload))
+              .then(() => {
+                if (!bootResolved) {
+                  bootResolved = true;
+                  resolve({ success: true, port: 5554 });
+                }
+              })
+              .catch((err) => {
+                if (!bootResolved) {
+                  bootResolved = true;
+                  emitProgress({
+                    phase: 'error',
+                    message: err?.message || 'Gagal menunggu emulator boot',
+                  });
+                  reject(err);
+                }
+              });
+          }, 2000);
+        } catch (error) {
           emitProgress({
             phase: 'error',
-            message: error.message,
+            message: error?.message || 'Gagal memulai emulator',
           });
           reject(error);
-        });
+        }
+      });
+    };
 
-        let bootResolved = false;
-        let bootTimer = null;
-
-        this.emulatorProcess.on('exit', (code) => {
-          console.log(`Emulator exited with code ${code}`);
-          this.emulatorProcess = null;
+    // Try each GPU renderer; on a native crash, fall through to the next one.
+    let lastError = null;
+    for (let i = 0; i < gpuCandidates.length; i++) {
+      const mode = gpuCandidates[i];
+      try {
+        return await attemptStart(mode);
+      } catch (err) {
+        lastError = err;
+        const hasNext = i < gpuCandidates.length - 1;
+        // Retry the next renderer when the process died early at startup — a
+        // native crash (access violation) or a quick non-zero exit (code 1) are
+        // both usually the GPU backend failing to initialise. Do NOT retry a
+        // boot timeout (no exitCode) — that would waste 15 minutes per renderer.
+        const rendererFailed =
+          err && typeof err.exitCode === 'number' && err.exitCode !== 0 &&
+          (err.nativeCrash || err.earlyExit);
+        if (rendererFailed && hasNext) {
+          console.warn(`⚠️ Renderer '${mode}' gagal (code ${err.exitCode}); mencoba renderer berikutnya...`);
           emitProgress({
-            phase: 'exit',
-            message: `Emulator selesai dengan kode ${code}`,
-            exitCode: code,
+            phase: 'gpu-retry',
+            message: `Renderer grafis '${mode}' gagal (kode ${err.exitCode}). Mencoba renderer lain...`,
           });
-          if (!bootResolved && code !== 0 && code !== null) {
-            bootResolved = true;
-            if (bootTimer) clearTimeout(bootTimer);
-            reject(new Error(`Emulator keluar dengan kode ${code}. Cek log di atas untuk detail kesalahan.`));
-          }
-        });
-
-        // Wait for emulator to boot (15 minutes for software emulation)
-        bootTimer = setTimeout(() => {
-          bootTimer = null;
-          if (bootResolved) return;
-          this.waitForBoot(900000, (payload) => emitProgress(payload))
-            .then(() => {
-              if (!bootResolved) {
-                bootResolved = true;
-                resolve({ success: true, port: 5554 });
-              }
-            })
-            .catch((err) => {
-              if (!bootResolved) {
-                bootResolved = true;
-                emitProgress({
-                  phase: 'error',
-                  message: err?.message || 'Gagal menunggu emulator boot',
-                });
-                reject(err);
-              }
-            });
-        }, 2000);
-
-      } catch (error) {
-        emitProgress({
-          phase: 'error',
-          message: error?.message || 'Gagal memulai emulator',
-        });
-        reject(error);
+          // Make sure the process is fully gone before the next attempt.
+          try { await this.killAdbServer(); } catch (_) {}
+          await new Promise((resolve) => setTimeout(resolve, 800));
+          continue;
+        }
+        throw err;
       }
-    });
+    }
+    if (lastError && typeof lastError.exitCode === 'number' && lastError.exitCode !== 0) {
+      throw new Error(
+        `${lastError.message}\n\nSemua renderer grafis (${gpuCandidates.join(', ')}) gagal. ` +
+          'Coba: update driver GPU ke versi terbaru, tutup aplikasi berat/antivirus yang memblokir emulator, lalu jalankan lagi.'
+      );
+    }
+    throw lastError || new Error('Gagal memulai emulator.');
   }
 
   /**

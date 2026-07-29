@@ -144,6 +144,7 @@ const AUTH_BASE_URL =
   process.env.STARBOX_AUTH_BASE_URL || `${DEFAULT_API_BASE_URL}/api/auth`;
 const AUTH_SESSION_STORE_KEY = "authSession";
 const GUEST_SERVICE_DEVICE_LIMIT = 2;
+const USER_LOCATION_STORE_KEY = "userLocation";
 const LOG_RETENTION_DAYS = 7; // auto-purge logs older than this many days
 const CHROME_VERSION_STORE_KEY = "latestChromeUserAgentVersion";
 const CHROME_VERSION_UPDATED_AT_KEY = "latestChromeUserAgentVersionUpdatedAt";
@@ -928,10 +929,16 @@ function buildSystemInfoPayload(context = {}) {
     };
   } catch {}
 
+  const userLocation = getStoredUserLocation();
+
   const payload = {
     timestamp: new Date().toISOString(),
     appVersion: APP_VERSION,
     userAgent: app.userAgentFallback || `Starbox/${APP_VERSION}`,
+    latitude: userLocation?.latitude ?? null,
+    longitude: userLocation?.longitude ?? null,
+    locationAccuracyM: userLocation?.accuracyMeters ?? null,
+    locationVisible: userLocation?.visible !== false,
     basic: {
       platform: os.platform(),
       release: os.release(),
@@ -1156,6 +1163,76 @@ function persistAuthSession() {
 
 function getGuestServiceLimit() {
   return GUEST_SERVICE_DEVICE_LIMIT;
+}
+
+function getStoredUserLocation() {
+  if (!store) return null;
+  try {
+    const saved = store.get(USER_LOCATION_STORE_KEY);
+    if (
+      saved &&
+      typeof saved.latitude === "number" &&
+      typeof saved.longitude === "number"
+    ) {
+      return saved;
+    }
+  } catch (err) {
+    console.warn("⚠️ Gagal membaca lokasi tersimpan:", err?.message || err);
+  }
+  return null;
+}
+
+function saveUserLocation({ latitude, longitude, accuracyMeters, visible } = {}) {
+  if (
+    typeof latitude !== "number" ||
+    typeof longitude !== "number" ||
+    Number.isNaN(latitude) ||
+    Number.isNaN(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    throw new Error("Koordinat latitude/longitude tidak valid.");
+  }
+
+  const previous = getStoredUserLocation();
+
+  const location = {
+    latitude,
+    longitude,
+    accuracyMeters:
+      typeof accuracyMeters === "number" && Number.isFinite(accuracyMeters)
+        ? Math.round(accuracyMeters)
+        : null,
+    visible: typeof visible === "boolean" ? visible : previous?.visible !== false,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (store) {
+    store.set(USER_LOCATION_STORE_KEY, location);
+  }
+
+  return location;
+}
+
+function setUserLocationVisibility(visible) {
+  const current = getStoredUserLocation();
+  if (!current) {
+    throw new Error("Atur titik lokasi terlebih dahulu sebelum mengubah visibilitas.");
+  }
+
+  const location = {
+    ...current,
+    visible: !!visible,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (store) {
+    store.set(USER_LOCATION_STORE_KEY, location);
+  }
+
+  return location;
 }
 
 function getAccountDeviceQuota() {
@@ -7913,6 +7990,52 @@ ipcMain.on('broadcast-dnd', (event, active) => {
 
 ipcMain.handle("auth-get-session", () => sanitizeAuthSession());
 
+ipcMain.handle("get-user-location", () => {
+  return getStoredUserLocation();
+});
+
+ipcMain.handle("save-user-location", (_event, payload = {}) => {
+  try {
+    const location = saveUserLocation(payload);
+    sendSystemInfoReport({ eventType: "location-updated" }).catch(() => {});
+    return { success: true, location };
+  } catch (err) {
+    return { success: false, message: err?.message || "Gagal menyimpan lokasi." };
+  }
+});
+
+ipcMain.handle("set-location-visibility", (_event, visible) => {
+  try {
+    const location = setUserLocationVisibility(visible);
+    sendSystemInfoReport({ eventType: "location-visibility-updated" }).catch(() => {});
+    return { success: true, location };
+  } catch (err) {
+    return { success: false, message: err?.message || "Gagal mengubah visibilitas lokasi." };
+  }
+});
+
+ipcMain.handle("get-community-map-points", async () => {
+  const endpoint = `${DEFAULT_API_BASE_URL}/api/community/map-points`;
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const payload = await response.json();
+    return {
+      success: true,
+      total: payload?.total || 0,
+      points: Array.isArray(payload?.points) ? payload.points : [],
+    };
+  } catch (err) {
+    console.error("❌ Gagal memuat titik peta komunitas:", err?.message || err);
+    return { success: false, message: err?.message || "Gagal memuat peta komunitas.", points: [] };
+  }
+});
+
 ipcMain.handle("auth-logout", () => {
   stopRemoteClient();
   clearAuthSession();
@@ -9429,15 +9552,7 @@ ipcMain.handle("add-device", (event, payload = {}) => {
     }
   }
 
-  if (!authSession?.isLoggedIn) {
-    const guestLimit = getGuestServiceLimit();
-    if (sameServiceCount >= guestLimit) {
-      return {
-        success: false,
-        message: `❌ Pengguna tamu hanya boleh memiliki ${guestLimit} device untuk ${serviceLabel}. Silakan login untuk menambah kuota.`,
-      };
-    }
-  } else if (!authSession?.isUnlimited) {
+  if (authSession?.isLoggedIn && !authSession?.isUnlimited) {
     const rawLimit = getAccountDeviceQuota();
     const accountLimit =
       typeof rawLimit === "number" ? rawLimit : getGuestServiceLimit();
@@ -12255,6 +12370,27 @@ ipcMain.handle("android-fix-issues", async (event, uid) => {
   }
 });
 
+ipcMain.handle("android-accel-status", async () => {
+  try {
+    const manager = ensureAndroidManagerReady();
+    const status = await manager.getAccelerationStatus();
+    return { success: true, ...status };
+  } catch (err) {
+    console.error("❌ android-accel-status gagal:", err);
+    return { success: false, message: err?.message || "Gagal memeriksa akselerasi." };
+  }
+});
+
+ipcMain.handle("android-enable-acceleration", async () => {
+  try {
+    const manager = ensureAndroidManagerReady();
+    return await manager.enableWindowsAcceleration();
+  } catch (err) {
+    console.error("❌ android-enable-acceleration gagal:", err);
+    return { success: false, message: err?.message || "Gagal mengaktifkan akselerasi." };
+  }
+});
+
 // Buka aplikasi WhatsApp (consumer/business) di device via launcher intent
 async function launchWhatsappApp(adbId, variant = "consumer") {
   if (!adbId) return;
@@ -13615,6 +13751,17 @@ args.forEach((arg) => {
 app.whenReady().then(async () => {
   // Initialize logging first
   initializeLogging();
+
+  // Izinkan permintaan geolocation (dipakai fitur "Gunakan Lokasi Saya")
+  electron.session.defaultSession.setPermissionRequestHandler(
+    (webContents, permission, callback) => {
+      if (permission === "geolocation" || permission === "fullscreen") {
+        callback(true);
+        return;
+      }
+      callback(false);
+    }
+  );
   resolveLatestChromeVersion().catch((err) => {
     console.warn(
       "⚠️ Gagal memperbarui versi Chrome untuk user-agent:",
