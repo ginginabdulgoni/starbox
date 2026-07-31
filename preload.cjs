@@ -86,8 +86,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   android: {
-    checkInstallation: () => ipcRenderer.invoke('android-check-installation'),
+    checkInstallation: (uid) => ipcRenderer.invoke('android-check-installation', uid),
+    getVersions: () => ipcRenderer.invoke('android-get-versions'),
     getStatus: (uid) => ipcRenderer.invoke('android-get-status', uid),
+    getDeviceInfo: (uid) => ipcRenderer.invoke('android-get-device-info', uid),
     download: (uid) => ipcRenderer.invoke('android-download', uid),
     start: (uid, options = {}) => ipcRenderer.invoke('android-start', uid, options),
     stop: (uid) => ipcRenderer.invoke('android-stop', uid),
@@ -96,16 +98,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     accelStatus: () => ipcRenderer.invoke('android-accel-status'),
     enableAcceleration: () => ipcRenderer.invoke('android-enable-acceleration'),
     onDownloadProgress: (callback) => {
-      if (typeof callback !== 'function') return;
-      ipcRenderer.on('android-download-progress', (_event, data) => callback(data));
+      if (typeof callback !== 'function') return undefined;
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on('android-download-progress', listener);
+      return () => ipcRenderer.removeListener('android-download-progress', listener);
     },
     onStartProgress: (callback) => {
-      if (typeof callback !== 'function') return;
-      ipcRenderer.on('android-start-progress', (_event, data) => callback(data));
+      if (typeof callback !== 'function') return undefined;
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on('android-start-progress', listener);
+      return () => ipcRenderer.removeListener('android-start-progress', listener);
     },
     onFixProgress: (callback) => {
-      if (typeof callback !== 'function') return;
-      ipcRenderer.on('android-fix-progress', (_event, data) => callback(data));
+      if (typeof callback !== 'function') return undefined;
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on('android-fix-progress', listener);
+      return () => ipcRenderer.removeListener('android-fix-progress', listener);
     },
   },
 

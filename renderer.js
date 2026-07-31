@@ -5793,6 +5793,42 @@ function renderDevicesAndroid(devices = []) {
   container.appendChild(fragment);
 }
 
+// Peta API level → nama rilis Android untuk label kartu (dipakai saat emulator
+// belum jalan / belum bisa dibaca via getprop). Rilis live tetap diambil dari
+// getprop saat running.
+const ANDROID_RELEASE_BY_API = {
+  29: "10",
+  30: "11",
+  31: "12",
+  32: "12L",
+  33: "13",
+  34: "14",
+  35: "15",
+};
+
+function androidVersionLabelFromApi(api) {
+  const apiNum = Number.parseInt(api, 10);
+  const release = ANDROID_RELEASE_BY_API[apiNum];
+  if (release) return `Android ${release} (API ${apiNum})`;
+  return Number.isFinite(apiNum) ? `API ${apiNum}` : "Android 11 (API 30)";
+}
+
+// Ambil versi live dari emulator yang berjalan dan perbarui baris versi di kartu.
+async function refreshAndroidEmulatorVersion(uid) {
+  const el = document.getElementById(`emuVersion-${uid}`);
+  if (!el) return;
+  try {
+    const info = await window.electronAPI.android.getDeviceInfo(uid);
+    if (info?.success && info.release) {
+      const api = info.sdk ? ` (API ${info.sdk})` : "";
+      const model = info.model ? ` · ${info.model}` : "";
+      el.innerHTML = `<strong>Versi:</strong> Android ${info.release}${api}${model}`;
+    }
+  } catch (_) {
+    /* biarkan label default (versi terkonfigurasi) */
+  }
+}
+
 function buildAndroidEmulatorCard(device) {
   const spec = device.androidSpec || {};
   const specLabel = spec.id === 'lite' ? '⚡ Lite' : spec.id === 'performance' ? '🚀 Performance' : spec.id === 'custom' ? '🎛️ Custom' : '⚖️ Balanced';
@@ -5821,6 +5857,7 @@ function buildAndroidEmulatorCard(device) {
       <span class="status-badge ${isRunning ? 'active' : 'inactive'}">${isRunning ? 'Running' : 'Stopped'}</span>
     </div>
     <div class="device-body android-remote-body">
+      <p id="emuVersion-${device.uid}"><strong>Versi:</strong> ${androidVersionLabelFromApi(device.androidVersion || 30)}</p>
       <p><strong>Preset:</strong> ${specLabel}</p>
       <p><strong>RAM:</strong> ${spec.memoryMb || 1536} MB &nbsp;·&nbsp; <strong>CPU:</strong> ${spec.cores || 2} Core</p>
       <p><strong>Resolusi:</strong> ${spec.resolution || '720x1280'}</p>
@@ -5897,6 +5934,11 @@ function buildAndroidEmulatorCard(device) {
     deleteAndroidEmulatorCard(device.uid, device.name);
   });
 
+  // Emulator berjalan → baca versi Android live via adb getprop dan perbarui baris.
+  if (isRunning) {
+    refreshAndroidEmulatorVersion(device.uid);
+  }
+
   return card;
 }
 
@@ -5911,11 +5953,12 @@ async function startAndroidEmulatorCard(uid, cardEl) {
   };
 
   try {
-    const check = await window.electronAPI.android.checkInstallation();
+    const check = await window.electronAPI.android.checkInstallation(uid);
     if (!check?.installed) {
       setProgress('Mengunduh Android SDK (~1.5GB)...', 0);
       showToast('📥 Mengunduh Android SDK (~1.5GB)...', 5000, 'info');
-      window.electronAPI.android.onDownloadProgress((data) => {
+      const stopDownloadProgress = window.electronAPI.android.onDownloadProgress((data) => {
+        if (data?.uid && data.uid !== uid) return;
         const pct = Number.isFinite(data.overallProgress)
           ? Math.round(data.overallProgress)
           : data.totalBytes
@@ -5927,10 +5970,14 @@ async function startAndroidEmulatorCard(uid, cardEl) {
         );
       });
       await window.electronAPI.android.download(uid);
+      if (typeof stopDownloadProgress === 'function') {
+        stopDownloadProgress();
+      }
     }
 
     setProgress('Memulai emulator...', 5);
-    window.electronAPI.android.onStartProgress((data) => {
+    const stopStartProgress = window.electronAPI.android.onStartProgress((data) => {
+      if (data?.uid && data.uid !== uid) return;
       if (data.phase === 'exit') {
         setProgress(null, null);
         loadAllDevicesAndroid();
@@ -5941,6 +5988,9 @@ async function startAndroidEmulatorCard(uid, cardEl) {
     });
 
     const result = await window.electronAPI.android.start(uid);
+    if (typeof stopStartProgress === 'function') {
+      stopStartProgress();
+    }
     setProgress(null, null);
 
     if (result?.success) {
@@ -8334,6 +8384,7 @@ window.openModalAndroid = async function () {
   if (emulatorServiceSelect) {
     emulatorServiceSelect.value = "android-general";
   }
+  populateAndroidVersionSelect("addAndroidVersion", 30);
   toggleEmulatorWhatsAppFields();
   bindAndroidWhatsAppUrlSync("addWhatsAppBaseUrl", "addWhatsAppCallbackUrl");
   bindAndroidWhatsAppUrlSync(
@@ -8421,10 +8472,15 @@ async function submitEmulatorDeviceForm() {
             document.getElementById("addEmuWhatsAppCallbackUrl")?.value.trim() || ""
           )
         : "";
+      const androidVersion = Number.parseInt(
+        document.getElementById("addAndroidVersion")?.value,
+        10
+      );
       const result = await window.electronAPI.addDevice({
         name,
         service: 'android',
         androidSpec,
+        androidVersion: Number.isFinite(androidVersion) ? androidVersion : 30,
         androidAutomationService,
         whatsappVariant: isWhatsAppAutomation
           ? document.getElementById("addEmuWhatsAppVariant")?.value || "consumer"
@@ -8745,6 +8801,7 @@ window.openEditAndroidModal = async function (uid) {
       "editAndroidSpecPresetAndroid",
       "editAndroidSpecDescriptionAndroid"
     );
+    populateAndroidVersionSelect("editAndroidVersion", device.androidVersion || 30);
 
     const nameInput = document.getElementById("editDeviceNameAndroid");
     if (nameInput) nameInput.value = device.name || "";
@@ -8858,6 +8915,13 @@ window.saveEditAndroidDevice = async function () {
   const androidDisplayMode = isWhatsAppAutomation
     ? document.getElementById("editEmuDisplayMode")?.value || "readonly"
     : "readonly";
+  const androidVersionParsed = Number.parseInt(
+    document.getElementById("editAndroidVersion")?.value,
+    10
+  );
+  const androidVersion = Number.isFinite(androidVersionParsed)
+    ? androidVersionParsed
+    : 30;
     const whatsappBaseUrl = isWhatsAppAutomation
       ? document.getElementById("editEmuWhatsAppBaseUrl")?.value.trim() || ""
       : "";
@@ -8874,6 +8938,7 @@ window.saveEditAndroidDevice = async function () {
       name,
       autoRun,
       androidSpec,
+      androidVersion,
       androidAutomationService,
       whatsappVariant,
       androidDisplayMode,
@@ -8895,6 +8960,38 @@ window.saveEditAndroidDevice = async function () {
     showToast("Error: " + (err?.message || err), 4000, "error");
   }
 };
+
+// Cache daftar versi Android dari main process (katalog statis).
+let _androidVersionsCache = null;
+async function getAndroidVersionsCached() {
+  if (_androidVersionsCache) return _androidVersionsCache;
+  try {
+    const res = await window.electronAPI.android.getVersions();
+    _androidVersionsCache = res?.versions || [];
+  } catch (_) {
+    _androidVersionsCache = [];
+  }
+  return _androidVersionsCache;
+}
+
+// Helper: isi dropdown versi Android dan pilih API tertentu (default 30).
+async function populateAndroidVersionSelect(selectId, selectedApi = 30) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  const versions = await getAndroidVersionsCached();
+  select.innerHTML = "";
+  const list = versions.length
+    ? versions
+    : [{ api: 30, label: "Android 11 (API 30)" }];
+  list.forEach((v) => {
+    const opt = document.createElement("option");
+    opt.value = String(v.api);
+    opt.textContent = v.label;
+    select.appendChild(opt);
+  });
+  select.value = String(selectedApi || 30);
+  if (!select.value) select.value = "30";
+}
 
 // Helper: Populate Android spec preset dropdown
 function populateAndroidSpecPreset(selectId, descriptionId) {
@@ -8938,23 +9035,46 @@ window.selectAllDevicesAndroid = function (checkbox) {
 };
 
 // Bulk actions for Android
+//
+// Emulator starts are staggered, not fired all at once. Each emulator needs its
+// own console port + a heavy QEMU/boot; launching them in the same tick spikes
+// CPU and makes boots time out. A short gap lets one settle (port reserved, ADB
+// ready) before the next begins — we do NOT wait for full boot, so they still
+// boot in parallel, just offset.
+const ANDROID_BULK_START_STAGGER_MS = 1500;
+
+function androidStartDelay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runAndroidDevicesStaggered(devices) {
+  for (let i = 0; i < devices.length; i++) {
+    const { uid, service } = devices[i];
+    runDevice(uid, service || "android");
+    if (i < devices.length - 1) {
+      await androidStartDelay(ANDROID_BULK_START_STAGGER_MS);
+    }
+  }
+}
+
 window.runAllDevicesAndroid = async function () {
   const data = await window.electronAPI.loadDevices("android");
-  const devices = data.devices || [];
-  devices.forEach((device) => {
-    runDevice(device.uid, device.service);
-  });
+  const devices = (data.devices || []).map((device) => ({
+    uid: device.uid,
+    service: device.service,
+  }));
+  await runAndroidDevicesStaggered(devices);
 };
 
-window.runSelectedDevicesAndroid = function () {
+window.runSelectedDevicesAndroid = async function () {
   const checkboxes = document.querySelectorAll(
     '#device-list-android input[type="checkbox"][data-device-uid]:checked'
   );
-  checkboxes.forEach((cb) => {
-    const uid = cb.getAttribute("data-device-uid");
-    const service = cb.getAttribute("data-device-service") || "android";
-    runDevice(uid, service);
-  });
+  const devices = Array.from(checkboxes).map((cb) => ({
+    uid: cb.getAttribute("data-device-uid"),
+    service: cb.getAttribute("data-device-service") || "android",
+  }));
+  await runAndroidDevicesStaggered(devices);
 };
 
 window.restartSelectedDevicesAndroid = function () {

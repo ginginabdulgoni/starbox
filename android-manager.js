@@ -7,9 +7,102 @@ const { app } = require('electron');
 const extractZip = require('extract-zip');
 const { spawn } = require('child_process');
 
+// Default API level when a device does not specify one (keeps legacy behavior).
+const DEFAULT_ANDROID_API = 30;
+
+// Catalog of supported Android versions and their Google-hosted download files.
+// All from https://dl.google.com/android/repository. System images are the
+// `google_apis_playstore` variant (include the Play Store). Filenames verified
+// against Google's sys-img2 / repository2 manifests.
+//   - `sysimg[abi]` maps host OS → zip. `any` means one OS-independent zip.
+//   - The emulator binary and platform-tools are shared across versions and are
+//     NOT part of this catalog (see getCoreDownloadUrls()).
+const ANDROID_VERSION_CATALOG = {
+  29: {
+    api: 29,
+    release: '10',
+    label: 'Android 10 (API 29)',
+    platform: 'platform-29_r05.zip',
+    sysimg: {
+      'arm64-v8a': { any: 'arm64-v8a-29_r09.zip' },
+      'x86_64': { any: 'x86_64-29_r09.zip' },
+    },
+  },
+  30: {
+    api: 30,
+    release: '11',
+    label: 'Android 11 (API 30)',
+    platform: 'platform-30_r03.zip',
+    sysimg: {
+      'arm64-v8a': {
+        darwin: 'arm64-v8a-30_r10-darwin.zip',
+        linux: 'arm64-v8a-30_r10-linux.zip',
+      },
+      'x86_64': {
+        windows: 'x86_64-30_r10-windows.zip',
+        darwin: 'x86_64-30_r10-darwin.zip',
+        linux: 'x86_64-30_r10-linux.zip',
+      },
+    },
+  },
+  31: {
+    api: 31,
+    release: '12',
+    label: 'Android 12 (API 31)',
+    platform: 'platform-31_r01.zip',
+    sysimg: {
+      'arm64-v8a': {
+        darwin: 'arm64-v8a-31_r09-darwin.zip',
+        linux: 'arm64-v8a-31_r09-linux.zip',
+      },
+      'x86_64': { any: 'x86_64-31_r09.zip' },
+    },
+  },
+  33: {
+    api: 33,
+    release: '13',
+    label: 'Android 13 (API 33)',
+    platform: 'platform-33-ext3_r03.zip',
+    sysimg: {
+      'arm64-v8a': { any: 'arm64-v8a-33_r09.zip' },
+      'x86_64': { any: 'x86_64-33_r09.zip' },
+    },
+  },
+  34: {
+    api: 34,
+    release: '14',
+    label: 'Android 14 (API 34)',
+    platform: 'platform-34-ext7_r03.zip',
+    sysimg: {
+      'arm64-v8a': { any: 'arm64-v8a-34_r14.zip' },
+      'x86_64': { any: 'x86_64-34_r14.zip' },
+    },
+  },
+  35: {
+    api: 35,
+    release: '15',
+    label: 'Android 15 (API 35)',
+    platform: 'platform-35_r02.zip',
+    sysimg: {
+      'arm64-v8a': { any: 'arm64-v8a-35_r09.zip' },
+      'x86_64': { any: 'x86_64-35_r09.zip' },
+    },
+  },
+};
+
 class AndroidManager {
   constructor(userDataPath = null) {
     this.emulatorProcess = null;
+    this.emulatorProcesses = new Map();
+    // Ports reserved by an in-flight startEmulator() before its process is
+    // registered in emulatorProcesses. Prevents concurrent starts from all
+    // grabbing the same console port (e.g. 5554) and colliding.
+    this.reservedPorts = new Set();
+    // Caches the one-time macOS entitlement signing for the whole session.
+    // Re-signing rewrites the shared QEMU/emulator binaries in place; doing that
+    // while another emulator is running invalidates their signature and macOS
+    // SIGKILLs the newly-launched process. Sign once, never again this session.
+    this.entitlementsPromise = null;
     this.adbProcess = null;
     this.userDataPath = userDataPath;
     this.emulatorPath = null;
@@ -17,7 +110,9 @@ class AndroidManager {
     this.sdkPath = null;
     this.downloadProgress = 0;
     this.isDownloading = false;
-    this.activeDownloadPromise = null;
+    // In-flight downloads keyed by API level so different versions can download
+    // independently without one masking another.
+    this.activeDownloadPromises = new Map();
     this.downloadProgressCallbacks = new Set();
 
     // Platform specific paths
@@ -36,6 +131,69 @@ class AndroidManager {
       .replace(/[^a-zA-Z0-9_\-]+/g, '_')
       .slice(0, 32);
     return normalized || 'StarBox_Default';
+  }
+
+  isTrackedProcessRunning(entry = null) {
+    return !!(entry && entry.process && entry.process.exitCode === null);
+  }
+
+  getEmulatorProcessEntry(avdName = null) {
+    if (!avdName) return null;
+    const key = this.sanitizeAvdName(avdName);
+    const entry = this.emulatorProcesses.get(key) || null;
+    return this.isTrackedProcessRunning(entry) ? entry : null;
+  }
+
+  getRunningEmulatorEntries() {
+    return Array.from(this.emulatorProcesses.values()).filter((entry) =>
+      this.isTrackedProcessRunning(entry)
+    );
+  }
+
+  buildEmulatorAdbId(port) {
+    const normalizedPort = Number.parseInt(port, 10);
+    return Number.isFinite(normalizedPort) ? `emulator-${normalizedPort}` : '';
+  }
+
+  async allocateEmulatorPort() {
+    // The async ADB query below runs before the port pick; two concurrent calls
+    // may both await it. That is fine: the pick + reserve section afterwards has
+    // NO await, so once a call resumes it reserves its port atomically before the
+    // next queued call runs — no two callers can pick the same free port, and
+    // firstLaunch is exclusive to a single caller in a concurrent batch.
+    const adbOccupiedPorts = new Set();
+    try {
+      const devices = await this.listConnectedDevices();
+      devices.forEach((device) => {
+        const match = String(device?.adbId || '').match(/^emulator-(\d+)$/i);
+        if (match) {
+          adbOccupiedPorts.add(Number.parseInt(match[1], 10));
+        }
+      });
+    } catch (_) {}
+
+    // ---- atomic critical section (no await beyond this point) ----
+    // firstLaunch (responsible for the one-time ADB reset) is decided here, with
+    // reserved ports counted as active, so only the very first start in a batch
+    // sees nothing else active.
+    const firstLaunch =
+      this.getRunningEmulatorEntries().length === 0 && this.reservedPorts.size === 0;
+
+    const occupiedPorts = new Set(adbOccupiedPorts);
+    this.getRunningEmulatorEntries().forEach((entry) => {
+      const port = Number.parseInt(entry?.port, 10);
+      if (Number.isFinite(port)) occupiedPorts.add(port);
+    });
+    this.reservedPorts.forEach((port) => occupiedPorts.add(port));
+
+    for (let port = 5554; port <= 5680; port += 2) {
+      if (!occupiedPorts.has(port)) {
+        this.reservedPorts.add(port);
+        return { port, firstLaunch };
+      }
+    }
+
+    throw new Error('Tidak ada port emulator yang tersedia.');
   }
 
   getEmulatorTempDir() {
@@ -415,26 +573,93 @@ class AndroidManager {
     return 'google_apis_playstore';
   }
 
-  getSystemImagesDir() {
+  /** Clamp an arbitrary value to a supported API level, defaulting to 30. */
+  normalizeApiLevel(api) {
+    const n = Number.parseInt(api, 10);
+    return Number.isFinite(n) && ANDROID_VERSION_CATALOG[n]
+      ? n
+      : DEFAULT_ANDROID_API;
+  }
+
+  getVersionMeta(api) {
+    return ANDROID_VERSION_CATALOG[this.normalizeApiLevel(api)];
+  }
+
+  /** List of supported versions for UI dropdowns, ascending by API. */
+  getSupportedVersions() {
+    return Object.values(ANDROID_VERSION_CATALOG)
+      .slice()
+      .sort((a, b) => a.api - b.api)
+      .map((v) => ({ api: v.api, release: v.release, label: v.label }));
+  }
+
+  /** Host OS key used to pick the right per-OS system image zip. */
+  getHostOsKey() {
+    if (this.isWin) return 'windows';
+    if (this.isMac) return 'darwin';
+    return 'linux';
+  }
+
+  /** Resolve the system-image zip filename for a version + this host/ABI. */
+  resolveSystemImageFile(api) {
+    const meta = this.getVersionMeta(api);
+    const abi = this.getGuestAbi();
+    const perAbi = meta.sysimg[abi] || {};
+    return perAbi[this.getHostOsKey()] || perAbi.any || null;
+  }
+
+  getSystemImageUrl(api) {
+    const file = this.resolveSystemImageFile(api);
+    return file
+      ? `https://dl.google.com/android/repository/sys-img/${this.getImageTag()}/${file}`
+      : null;
+  }
+
+  getPlatformUrl(api) {
+    const meta = this.getVersionMeta(api);
+    return `https://dl.google.com/android/repository/${meta.platform}`;
+  }
+
+  getSystemImagesDir(api = DEFAULT_ANDROID_API) {
     this.initializePaths();
-    return path.join(this.sdkPath, 'system-images', 'android-30', this.getImageTag(), this.getGuestAbi());
+    const level = this.normalizeApiLevel(api);
+    return path.join(
+      this.sdkPath,
+      'system-images',
+      `android-${level}`,
+      this.getImageTag(),
+      this.getGuestAbi()
+    );
+  }
+
+  getPlatformsDir(api = DEFAULT_ANDROID_API) {
+    this.initializePaths();
+    return path.join(this.sdkPath, 'platforms', `android-${this.normalizeApiLevel(api)}`);
+  }
+
+  /** Shared components (emulator binary + platform-tools) present, version-agnostic. */
+  isCoreInstalled() {
+    this.initializePaths();
+    return (
+      fs.existsSync(this.getEmulatorBinary()) &&
+      fs.existsSync(this.getADBBinary())
+    );
+  }
+
+  /** System image (and platform) for a specific API level present on disk. */
+  isVersionInstalled(api = DEFAULT_ANDROID_API) {
+    this.initializePaths();
+    const level = this.normalizeApiLevel(api);
+    const systemImage = path.join(this.getSystemImagesDir(level), 'system.img');
+    return fs.existsSync(this.getPlatformsDir(level)) && fs.existsSync(systemImage);
   }
 
   /**
-   * Check if emulator is already installed
+   * Check if emulator is installed for the given API level (default 30). Combines
+   * the shared core with that version's system image.
    */
-  isInstalled() {
-    this.initializePaths();
-    const emulatorBin = this.getEmulatorBinary();
-    const adbBin = this.getADBBinary();
-    const platformsDir = path.join(this.sdkPath, 'platforms', 'android-30');
-    const systemImage = path.join(this.getSystemImagesDir(), 'system.img');
-    return (
-      fs.existsSync(emulatorBin) &&
-      fs.existsSync(adbBin) &&
-      fs.existsSync(platformsDir) &&
-      fs.existsSync(systemImage)
-    );
+  isInstalled(api = DEFAULT_ANDROID_API) {
+    return this.isCoreInstalled() && this.isVersionInstalled(api);
   }
 
   /**
@@ -442,17 +667,18 @@ class AndroidManager {
    * (re)installs idempotent — a partial install only fetches what is missing and
    * never re-extracts over files that may be locked (e.g. a running adb.exe).
    */
-  componentPresent(name) {
+  componentPresent(name, api = DEFAULT_ANDROID_API) {
     this.initializePaths();
+    const level = this.normalizeApiLevel(api);
     switch (name) {
       case 'Emulator':
         return fs.existsSync(this.getEmulatorBinary());
       case 'Platform Tools':
         return fs.existsSync(this.getADBBinary());
       case 'Platform':
-        return fs.existsSync(path.join(this.sdkPath, 'platforms', 'android-30'));
+        return fs.existsSync(this.getPlatformsDir(level));
       case 'System Image':
-        return fs.existsSync(path.join(this.getSystemImagesDir(), 'system.img'));
+        return fs.existsSync(path.join(this.getSystemImagesDir(level), 'system.img'));
       default:
         return false;
     }
@@ -461,9 +687,10 @@ class AndroidManager {
   /**
    * Fix missing platforms directory for existing installations
    */
-  async fixMissingPlatforms(progressCallback) {
+  async fixMissingPlatforms(progressCallback, api = DEFAULT_ANDROID_API) {
     this.initializePaths();
-    const platformsDir = path.join(this.sdkPath, 'platforms', 'android-30');
+    const level = this.normalizeApiLevel(api);
+    const platformsDir = this.getPlatformsDir(level);
 
     if (fs.existsSync(platformsDir)) {
       return { success: true, message: 'Platforms directory already exists' };
@@ -489,11 +716,10 @@ class AndroidManager {
         message: 'Downloading missing platform package...',
       });
 
-      const baseUrl = 'https://dl.google.com/android/repository';
-      const platformZip = path.join(this.sdkPath, 'platform.zip');
+      const platformZip = path.join(this.sdkPath, `platform-${level}.zip`);
 
       await this.downloadFile(
-        `${baseUrl}/platform-30_r03.zip`,
+        this.getPlatformUrl(level),
         platformZip,
         (stats = {}) => {
           const componentProgress = typeof stats.percent === 'number'
@@ -571,21 +797,26 @@ class AndroidManager {
   /**
    * Download and setup Android emulator
    */
-  async downloadAndSetup(progressCallback) {
+  async downloadAndSetup(progressCallback, api = DEFAULT_ANDROID_API) {
     this.initializePaths();
+    const level = this.normalizeApiLevel(api);
 
     if (typeof progressCallback === 'function') {
       this.downloadProgressCallbacks.add(progressCallback);
     }
 
-    if (!this.activeDownloadPromise) {
-      this.activeDownloadPromise = this._downloadAndSetup().finally(() => {
-        this.activeDownloadPromise = null;
+    // One active download per API level — downloading Android 14 must not be
+    // short-circuited by an in-flight Android 11 download (or vice versa).
+    let active = this.activeDownloadPromises.get(level);
+    if (!active) {
+      active = this._downloadAndSetup(level).finally(() => {
+        this.activeDownloadPromises.delete(level);
       });
+      this.activeDownloadPromises.set(level, active);
     }
 
     try {
-      return await this.activeDownloadPromise;
+      return await active;
     } finally {
       if (typeof progressCallback === 'function') {
         this.downloadProgressCallbacks.delete(progressCallback);
@@ -593,7 +824,8 @@ class AndroidManager {
     }
   }
 
-  async _downloadAndSetup() {
+  async _downloadAndSetup(api = DEFAULT_ANDROID_API) {
+    const level = this.normalizeApiLevel(api);
     this.isDownloading = true;
     this.downloadProgress = 0;
 
@@ -646,9 +878,9 @@ class AndroidManager {
       // Download emulator components based on platform. Skip anything already on
       // disk so a partial install only fetches what is missing and never
       // re-extracts over locked files (e.g. a running adb.exe → EBUSY on Windows).
-      const allDownloads = await this.getDownloadUrls();
+      const allDownloads = await this.getDownloadUrls(level);
       const downloads = allDownloads.filter((download) => {
-        if (this.componentPresent(download.name)) {
+        if (this.componentPresent(download.name, level)) {
           console.log(`✓ ${download.name} already installed, skipping download`);
           return false;
         }
@@ -731,7 +963,7 @@ class AndroidManager {
           ),
           message,
         });
-      });
+      }, level);
 
       completedStages += 1;
       this.downloadProgress = Math.min(
@@ -745,7 +977,7 @@ class AndroidManager {
         overallProgress: this.downloadProgress,
         message: 'Extraction complete',
       });
-      this.ensureSystemImageLayout();
+      this.ensureSystemImageLayout(level);
 
       const setupBase = completedStages * stageWeight;
       emitProgress({
@@ -765,7 +997,7 @@ class AndroidManager {
           ),
           message,
         });
-      });
+      }, level);
 
       completedStages += 1;
       this.downloadProgress = Math.min(
@@ -819,88 +1051,58 @@ class AndroidManager {
   }
 
   /**
-   * Get download URLs based on platform
+   * Shared components (emulator binary + platform-tools). Version-agnostic — one
+   * copy serves every installed Android version.
    */
-  async getDownloadUrls() {
-    // Using lightweight Android x86 approach
-    // These are placeholder URLs - you'll need to host or use actual Android SDK URLs
+  getCoreDownloadUrls() {
     const baseUrl = 'https://dl.google.com/android/repository';
+    const emulatorArch = this.isAppleSilicon ? 'aarch64' : 'x64';
+    const osTag = this.isMac ? 'darwin' : this.isWin ? 'windows' : 'linux';
+    const emulatorFile = this.isMac
+      ? `emulator-darwin_${emulatorArch}-11237101.zip`
+      : this.isWin
+        ? 'emulator-windows_x64-11237101.zip'
+        : 'emulator-linux_x64-11237101.zip';
+    return [
+      {
+        name: 'Emulator',
+        url: `${baseUrl}/${emulatorFile}`,
+        dest: path.join(this.sdkPath, 'emulator.zip'),
+      },
+      {
+        name: 'Platform Tools',
+        url: `${baseUrl}/platform-tools-latest-${osTag}.zip`,
+        dest: path.join(this.sdkPath, 'platform-tools.zip'),
+      },
+    ];
+  }
 
-    const urls = [];
-
-    if (this.isMac) {
-      // Apple Silicon needs the native arm64 emulator + arm64-v8a system image.
-      // Running the x86_64 stack under Rosetta has no hypervisor acceleration
-      // and results in a black screen / never finishing boot.
-      const emulatorArch = this.isAppleSilicon ? 'aarch64' : 'x64';
-      const systemImageFile = this.isAppleSilicon
-        ? 'arm64-v8a-30_r10-darwin.zip'
-        : 'x86_64-30_r10-darwin.zip';
-      urls.push({
-        name: 'Emulator',
-        url: `${baseUrl}/emulator-darwin_${emulatorArch}-11237101.zip`,
-        dest: path.join(this.sdkPath, 'emulator.zip')
-      });
-      urls.push({
-        name: 'Platform Tools',
-        url: `${baseUrl}/platform-tools-latest-darwin.zip`,
-        dest: path.join(this.sdkPath, 'platform-tools.zip')
-      });
-      urls.push({
-        name: 'Platform',
-        url: `${baseUrl}/platform-30_r03.zip`,
-        dest: path.join(this.sdkPath, 'platform.zip')
-      });
-      urls.push({
-        name: 'System Image',
-        url: `${baseUrl}/sys-img/google_apis_playstore/${systemImageFile}`,
-        dest: path.join(this.sdkPath, 'system-image.zip')
-      });
-    } else if (this.isWin) {
-      urls.push({
-        name: 'Emulator',
-        url: `${baseUrl}/emulator-windows_x64-11237101.zip`,
-        dest: path.join(this.sdkPath, 'emulator.zip')
-      });
-      urls.push({
-        name: 'Platform Tools',
-        url: `${baseUrl}/platform-tools-latest-windows.zip`,
-        dest: path.join(this.sdkPath, 'platform-tools.zip')
-      });
-      urls.push({
-        name: 'Platform',
-        url: `${baseUrl}/platform-30_r03.zip`,
-        dest: path.join(this.sdkPath, 'platform.zip')
-      });
-      urls.push({
-        name: 'System Image',
-        url: `${baseUrl}/sys-img/google_apis_playstore/x86_64-30_r10-windows.zip`,
-        dest: path.join(this.sdkPath, 'system-image.zip')
-      });
-    } else {
-      urls.push({
-        name: 'Emulator',
-        url: `${baseUrl}/emulator-linux_x64-11237101.zip`,
-        dest: path.join(this.sdkPath, 'emulator.zip')
-      });
-      urls.push({
-        name: 'Platform Tools',
-        url: `${baseUrl}/platform-tools-latest-linux.zip`,
-        dest: path.join(this.sdkPath, 'platform-tools.zip')
-      });
-      urls.push({
-        name: 'Platform',
-        url: `${baseUrl}/platform-30_r03.zip`,
-        dest: path.join(this.sdkPath, 'platform.zip')
-      });
-      urls.push({
-        name: 'System Image',
-        url: `${baseUrl}/sys-img/google_apis_playstore/x86_64-30_r10-linux.zip`,
-        dest: path.join(this.sdkPath, 'system-image.zip')
-      });
+  /**
+   * Full download list for an API level: shared core + that version's platform
+   * package and system image. Destinations are suffixed per API so multiple
+   * versions can be downloaded/extracted without clobbering each other.
+   */
+  async getDownloadUrls(api = DEFAULT_ANDROID_API) {
+    const level = this.normalizeApiLevel(api);
+    const systemImageUrl = this.getSystemImageUrl(level);
+    if (!systemImageUrl) {
+      throw new Error(
+        `Tidak ada system image untuk API ${level} pada arsitektur ${this.getGuestAbi()} / ${this.getHostOsKey()}.`
+      );
     }
-
-    return urls;
+    return [
+      ...this.getCoreDownloadUrls(),
+      {
+        name: 'Platform',
+        url: this.getPlatformUrl(level),
+        dest: path.join(this.sdkPath, `platform-${level}.zip`),
+      },
+      {
+        name: 'System Image',
+        url: systemImageUrl,
+        dest: path.join(this.sdkPath, `system-image-${level}.zip`),
+      },
+    ];
   }
 
   /**
@@ -1008,7 +1210,8 @@ class AndroidManager {
   /**
    * Extract downloaded files
    */
-  async extractAndSetup(statusCallback = null) {
+  async extractAndSetup(statusCallback = null, api = DEFAULT_ANDROID_API) {
+    const level = this.normalizeApiLevel(api);
     console.log('Extracting emulator files...');
 
     const notify = (component, message) => {
@@ -1046,11 +1249,11 @@ class AndroidManager {
       }
 
       // Extract platform
-      const platformZip = path.join(this.sdkPath, 'platform.zip');
+      const platformZip = path.join(this.sdkPath, `platform-${level}.zip`);
       if (fs.existsSync(platformZip)) {
         console.log('Extracting platform...');
         notify('Platform', 'Extracting platform package...');
-        const platformsPath = path.join(this.sdkPath, 'platforms', 'android-30');
+        const platformsPath = this.getPlatformsDir(level);
         if (!fs.existsSync(platformsPath)) {
           fs.mkdirSync(platformsPath, { recursive: true });
         }
@@ -1062,11 +1265,11 @@ class AndroidManager {
       }
 
       // Extract system image
-      const systemImageZip = path.join(this.sdkPath, 'system-image.zip');
+      const systemImageZip = path.join(this.sdkPath, `system-image-${level}.zip`);
       if (fs.existsSync(systemImageZip)) {
         console.log('Extracting system image...');
         notify('System Image', 'Extracting system image...');
-        const systemImagesPath = this.getSystemImagesDir();
+        const systemImagesPath = this.getSystemImagesDir(level);
         if (!fs.existsSync(systemImagesPath)) {
           fs.mkdirSync(systemImagesPath, { recursive: true });
         }
@@ -1118,7 +1321,7 @@ class AndroidManager {
    * Remove stale AVD lock files/dirs left behind by a crashed emulator. Without
    * this the next launch fails with "Please use -read-only flag to enable this
    * feature" because the emulator thinks another instance still owns the AVD.
-   * Safe to call because StarBox only runs one emulator instance at a time.
+   * Safe to call because each emulator has its own AVD lock files.
    */
   cleanAvdLocks(avdName = 'StarBox_Default') {
     try {
@@ -1139,8 +1342,9 @@ class AndroidManager {
     }
   }
 
-  async createDefaultAVD(avdName = 'StarBox_Default', spec = null, statusCallback = null) {
+  async createDefaultAVD(avdName = 'StarBox_Default', spec = null, statusCallback = null, api = DEFAULT_ANDROID_API) {
     avdName = this.sanitizeAvdName(avdName);
+    const level = this.normalizeApiLevel(api);
     const avdDir = path.join(this.avdPath, `${avdName}.avd`);
     const avdIni = path.join(this.avdPath, `${avdName}.ini`);
     const resolvedSpec = this.normalizeSpec(spec);
@@ -1169,7 +1373,7 @@ class AndroidManager {
 avd.ini.encoding=UTF-8
 path=${avdDir}
 path.rel=avd/${avdName}.avd
-target=android-30
+target=android-${level}
     `.trim();
 
     fs.writeFileSync(avdIni, configIni);
@@ -1199,7 +1403,7 @@ hw.lcd.width=${width}
 hw.lcd.density=${resolvedSpec.density}
 hw.ramSize=${resolvedSpec.memoryMb}
 hw.sdCard=yes
-image.sysdir.1=system-images/android-30/${this.getImageTag()}/${this.getGuestAbi()}/
+image.sysdir.1=system-images/android-${level}/${this.getImageTag()}/${this.getGuestAbi()}/
 skin.name=${resolvedSpec.resolution}
 tag.display=Google Play
 tag.id=${this.getImageTag()}
@@ -1222,9 +1426,9 @@ hw.camera.front=none
     notify('AVD device configuration generated');
   }
 
-  ensureSystemImageLayout() {
+  ensureSystemImageLayout(api = DEFAULT_ANDROID_API) {
     try {
-      const systemImagesPath = this.getSystemImagesDir();
+      const systemImagesPath = this.getSystemImagesDir(this.normalizeApiLevel(api));
       const nested = path.join(systemImagesPath, this.getGuestAbi());
       if (fs.existsSync(nested) && fs.lstatSync(nested).isDirectory()) {
         fs.readdirSync(nested).forEach((entry) => {
@@ -1418,6 +1622,34 @@ hw.camera.front=none
   }
 
   /**
+   * Sign the emulator/QEMU binaries at most once per session, and NEVER while
+   * another emulator is already running. ensureEmulatorEntitlements() rewrites
+   * those shared binaries in place; doing so under a live emulator invalidates
+   * their code signature and macOS SIGKILLs the process that is starting up —
+   * which is exactly what broke launching a 2nd emulator. The cached promise is
+   * assigned synchronously so concurrent first-launches share a single signing
+   * pass instead of racing to rewrite the same files.
+   */
+  ensureEmulatorEntitlementsOnce() {
+    if (!this.isMac) return Promise.resolve({ hasHvf: false });
+    if (this.entitlementsPromise) return this.entitlementsPromise;
+
+    // An emulator is already running → its binaries are signed and in use.
+    // Treat entitlements as satisfied and leave the files untouched.
+    if (this.getRunningEmulatorEntries().length > 0) {
+      this.entitlementsPromise = Promise.resolve({ hasHvf: true });
+      return this.entitlementsPromise;
+    }
+
+    this.entitlementsPromise = this.ensureEmulatorEntitlements();
+    // If signing throws, clear the cache so a later start can retry.
+    this.entitlementsPromise.catch(() => {
+      this.entitlementsPromise = null;
+    });
+    return this.entitlementsPromise;
+  }
+
+  /**
    * Check hardware acceleration support via `emulator -accel-check`
    * (Windows: WHPX/AEHD/HAXM, macOS: HVF, Linux: KVM)
    */
@@ -1551,7 +1783,7 @@ hw.camera.front=none
     avdName = this.sanitizeAvdName(avdName);
     this.initializePaths();
 
-    if (this.emulatorProcess) {
+    if (this.getEmulatorProcessEntry(avdName)) {
       throw new Error('Emulator is already running');
     }
 
@@ -1559,9 +1791,19 @@ hw.camera.front=none
       headless = false,
       progressCallback = null,
       spec: requestedSpec = null,
+      apiLevel: requestedApiLevel = DEFAULT_ANDROID_API,
     } = options || {};
 
+    const apiLevel = this.normalizeApiLevel(requestedApiLevel);
     const resolvedSpec = this.normalizeSpec(requestedSpec);
+    const { port: emulatorPort, firstLaunch } = await this.allocateEmulatorPort();
+    const targetAdbId = this.buildEmulatorAdbId(emulatorPort);
+
+    // The port stays reserved for the whole start (including GPU retries) so a
+    // concurrent device cannot grab it. Released once this call settles: on
+    // success a live tracked entry keeps the port occupied via
+    // getRunningEmulatorEntries(); on failure the port is freed for reuse.
+    try {
 
     // Ensure temp crash directories exist
     this.ensureTempCrashDirectories();
@@ -1579,35 +1821,62 @@ hw.camera.front=none
       }
     };
 
-    // Kill any zombie ADB processes before starting
-    emitProgress({
-      phase: 'prepare-adb',
-      message: 'Membersihkan ADB server...',
-    });
+    // Reset ADB only before the first emulator start. Restarting the shared ADB
+    // server while other emulators are alive (or while sibling starts in the same
+    // batch are already in flight) causes needless disconnect/reconnect churn and
+    // makes concurrent starts kill each other's ADB server. firstLaunch is true
+    // only for the single start that found nothing else active.
+    if (firstLaunch) {
+      emitProgress({
+        phase: 'prepare-adb',
+        message: 'Membersihkan ADB server...',
+      });
 
-    try {
-      await this.killAdbServer();
-      await new Promise(resolve => setTimeout(resolve, 500));
-    } catch (adbError) {
-      console.warn('⚠️ Failed to kill ADB before start:', adbError.message);
-      // Continue anyway
+      try {
+        await this.killAdbServer();
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (adbError) {
+        console.warn('⚠️ Failed to kill ADB before start:', adbError.message);
+        // Continue anyway
+      }
+    }
+
+    // Download-on-demand: the selected Android version may not be installed yet
+    // (e.g. core + Android 11 present, but this device wants Android 14). Fetch
+    // just the missing pieces for this API level before launching.
+    if (!this.isCoreInstalled()) {
+      throw new Error('Emulator not installed. Please download first.');
+    }
+    if (!this.isVersionInstalled(apiLevel)) {
+      const meta = this.getVersionMeta(apiLevel);
+      emitProgress({
+        phase: 'download-version',
+        message: `Mengunduh ${meta.label} (system image)...`,
+      });
+      try {
+        await this.downloadAndSetup(progressCallback, apiLevel);
+      } catch (error) {
+        throw new Error(
+          `Gagal mengunduh ${meta.label}: ${error.message}`
+        );
+      }
     }
 
     // Check for missing platforms directory and fix if needed
-    const platformsDir = path.join(this.sdkPath, 'platforms', 'android-30');
+    const platformsDir = this.getPlatformsDir(apiLevel);
     if (!fs.existsSync(platformsDir)) {
       emitProgress({
         phase: 'fix-platforms',
         message: 'Platform directory missing, downloading required package...',
       });
       try {
-        await this.fixMissingPlatforms(progressCallback);
+        await this.fixMissingPlatforms(progressCallback, apiLevel);
       } catch (error) {
         throw new Error(`Failed to fix missing platforms: ${error.message}`);
       }
     }
 
-    if (!this.isInstalled()) {
+    if (!this.isInstalled(apiLevel)) {
       throw new Error('Emulator not installed. Please download first.');
     }
 
@@ -1631,11 +1900,13 @@ hw.camera.front=none
       ensurePerms(emulatorBin, 'emulator binary');
       ensurePerms(adbBin, 'ADB binary');
     }
-    this.ensureSystemImageLayout();
+    this.ensureSystemImageLayout(apiLevel);
 
-    // Check emulator entitlements on macOS
+    // Check emulator entitlements on macOS — signed once per session and never
+    // while another emulator is running (rewriting in-use binaries triggers a
+    // macOS SIGKILL on the starting emulator, breaking multi-device launch).
     if (this.isMac) {
-      await this.ensureEmulatorEntitlements();
+      await this.ensureEmulatorEntitlementsOnce();
     }
 
     // GPU renderer candidates. A native crash (access violation, exit 0xC0000005)
@@ -1656,6 +1927,7 @@ hw.camera.front=none
     // Base args shared across every GPU attempt; '-gpu <mode>' is prepended per try.
     const baseArgs = [
       '-avd', avdName,
+      '-port', String(emulatorPort),
       '-no-boot-anim',
       '-skin', skinValue,
       '-memory', String(resolvedSpec.memoryMb || 1536),
@@ -1714,7 +1986,8 @@ hw.camera.front=none
       emitProgress({
         phase: 'setup-avd',
         message,
-      })
+      }),
+      apiLevel
     );
 
     console.log(`Platform: ${this.platform}, Arch: ${process.arch}`);
@@ -1765,7 +2038,16 @@ hw.camera.front=none
           }
 
           const spawnedAt = Date.now();
-          this.emulatorProcess = spawn(emulatorBin, args, { env });
+          const processRef = spawn(emulatorBin, args, { env });
+          const trackedEntry = {
+            avdName,
+            port: emulatorPort,
+            adbId: targetAdbId,
+            process: processRef,
+            startedAt: spawnedAt,
+          };
+          this.emulatorProcesses.set(avdName, trackedEntry);
+          this.emulatorProcess = processRef;
 
           // Keep the tail of emulator output so a non-zero exit can report the
           // actual reason (PANIC/ERROR lines) instead of a generic exit code.
@@ -1796,23 +2078,33 @@ hw.camera.front=none
             return picked.join('\n');
           };
 
-          this.emulatorProcess.stdout.on('data', (data) => {
+          processRef.stdout.on('data', (data) => {
             const text = data.toString();
             rememberOutput(text);
             console.log(`Emulator: ${text}`);
             emitProgress({ phase: 'stdout', message: text });
           });
 
-          this.emulatorProcess.stderr.on('data', (data) => {
+          processRef.stderr.on('data', (data) => {
             const text = data.toString();
             rememberOutput(text);
             console.error(`Emulator error: ${text}`);
             emitProgress({ phase: 'stderr', message: text });
           });
 
-          this.emulatorProcess.on('error', (error) => {
+          const clearTrackedEntry = () => {
+            const current = this.emulatorProcesses.get(avdName);
+            if (current && current.process === processRef) {
+              this.emulatorProcesses.delete(avdName);
+            }
+            if (this.emulatorProcess === processRef) {
+              this.emulatorProcess = this.getRunningEmulatorEntries()[0]?.process || null;
+            }
+          };
+
+          processRef.on('error', (error) => {
             console.error('Failed to start emulator:', error);
-            this.emulatorProcess = null;
+            clearTrackedEntry();
             emitProgress({ phase: 'error', message: error.message });
             reject(error);
           });
@@ -1820,15 +2112,33 @@ hw.camera.front=none
           let bootResolved = false;
           let bootTimer = null;
 
-          this.emulatorProcess.on('exit', (code) => {
-            console.log(`Emulator exited with code ${code}`);
-            this.emulatorProcess = null;
+          processRef.on('exit', (code, signal) => {
+            console.log(
+              `Emulator exited with code ${code} signal ${signal || 'none'}`
+            );
+            clearTrackedEntry();
+            const exitMessage =
+              code === null
+                ? `Launcher emulator selesai (signal: ${signal || 'unknown'}). Menunggu ADB target ${targetAdbId}...`
+                : `Emulator selesai dengan kode ${code}${signal ? ` (signal: ${signal})` : ''}`;
+
+            if (!bootResolved && (code === 0 || code === null)) {
+              emitProgress({
+                phase: 'launcher-exit',
+                message: exitMessage,
+                exitCode: code,
+                signal: signal || null,
+              });
+              return;
+            }
+
             emitProgress({
               phase: 'exit',
-              message: `Emulator selesai dengan kode ${code}`,
+              message: exitMessage,
               exitCode: code,
+              signal: signal || null,
             });
-            if (!bootResolved && code !== 0 && code !== null) {
+            if (!bootResolved && code !== null && code !== 0) {
               bootResolved = true;
               if (bootTimer) clearTimeout(bootTimer);
               const reason = extractFailureReason();
@@ -1851,23 +2161,13 @@ hw.camera.front=none
           bootTimer = setTimeout(() => {
             bootTimer = null;
             if (bootResolved) return;
-            this.waitForBoot(900000, (payload) => emitProgress(payload))
-              .then(() => {
-                if (!bootResolved) {
-                  bootResolved = true;
-                  resolve({ success: true, port: 5554 });
-                }
-              })
-              .catch((err) => {
-                if (!bootResolved) {
-                  bootResolved = true;
-                  emitProgress({
-                    phase: 'error',
-                    message: err?.message || 'Gagal menunggu emulator boot',
-                  });
-                  reject(err);
-                }
-              });
+            bootResolved = true;
+            resolve({
+              success: true,
+              port: emulatorPort,
+              adbId: targetAdbId,
+              avdName,
+            });
           }, 2000);
         } catch (error) {
           emitProgress({
@@ -1879,12 +2179,23 @@ hw.camera.front=none
       });
     };
 
+    const waitForTargetBoot = async () => {
+      await this.waitForBoot(targetAdbId, 900000, (payload) => emitProgress(payload));
+      return {
+        success: true,
+        port: emulatorPort,
+        adbId: targetAdbId,
+        avdName,
+      };
+    };
+
     // Try each GPU renderer; on a native crash, fall through to the next one.
     let lastError = null;
     for (let i = 0; i < gpuCandidates.length; i++) {
       const mode = gpuCandidates[i];
       try {
-        return await attemptStart(mode);
+        await attemptStart(mode);
+        return await waitForTargetBoot();
       } catch (err) {
         lastError = err;
         const hasNext = i < gpuCandidates.length - 1;
@@ -1901,8 +2212,9 @@ hw.camera.front=none
             phase: 'gpu-retry',
             message: `Renderer grafis '${mode}' gagal (kode ${err.exitCode}). Mencoba renderer lain...`,
           });
-          // Make sure the process is fully gone before the next attempt.
-          try { await this.killAdbServer(); } catch (_) {}
+          if (!this.getRunningEmulatorEntries().length) {
+            try { await this.killAdbServer(); } catch (_) {}
+          }
           await new Promise((resolve) => setTimeout(resolve, 800));
           continue;
         }
@@ -1916,12 +2228,16 @@ hw.camera.front=none
       );
     }
     throw lastError || new Error('Gagal memulai emulator.');
+
+    } finally {
+      this.reservedPorts.delete(emulatorPort);
+    }
   }
 
   /**
    * Wait for emulator to fully boot
    */
-  async waitForBoot(timeout = 900000, progressCallback = null) {
+  async waitForBoot(targetAdbId, timeout = 900000, progressCallback = null) {
     const startTime = Date.now();
     const emit = (payload = {}) => {
       if (typeof progressCallback === 'function') {
@@ -1929,6 +2245,7 @@ hw.camera.front=none
           progressCallback({
             phase: 'boot-wait',
             elapsedMs: Date.now() - startTime,
+            adbId: targetAdbId,
             ...payload,
           });
         } catch (callbackError) {
@@ -1937,32 +2254,32 @@ hw.camera.front=none
       }
     };
 
-    emit({ message: 'Menunggu emulator terdeteksi oleh ADB...' });
+    emit({ message: `Menunggu emulator ${targetAdbId} terdeteksi oleh ADB...` });
     try {
-      await this.runAdbCommand(['wait-for-device'], {
+      await this.runAdbCommand(['-s', targetAdbId, 'wait-for-device'], {
         timeout: Math.max(30000, Math.min(timeout, 180000)),
         silent: true,
       });
-      emit({ message: 'ADB tersambung. Mengecek status boot...' });
+      emit({ message: `ADB ${targetAdbId} tersambung. Mengecek status boot...` });
     } catch (err) {
-      emit({ message: `ADB belum siap: ${err.message}` });
+      emit({ message: `ADB ${targetAdbId} belum siap: ${err.message}` });
     }
 
     const pollDelay = 4000;
 
     while (Date.now() - startTime < timeout) {
-      const status = await this.getBootProperties();
+      const status = await this.getBootProperties(targetAdbId);
       if (status.bootCompleted) {
         emit({
           phase: 'boot-complete',
-          message: 'Emulator berhasil boot.',
+          message: `Emulator ${targetAdbId} berhasil boot.`,
           details: status,
         });
         return true;
       }
 
       emit({
-        message: `Menunggu boot... sys.boot_completed=${status.sys || '0'} dev.bootcomplete=${status.dev || '0'} bootanim=${status.bootAnim || 'unknown'}`,
+        message: `Menunggu boot ${targetAdbId}... sys.boot_completed=${status.sys || '0'} dev.bootcomplete=${status.dev || '0'} bootanim=${status.bootAnim || 'unknown'}`,
       });
 
       await new Promise((resolve) => setTimeout(resolve, pollDelay));
@@ -1970,16 +2287,16 @@ hw.camera.front=none
 
     emit({
       phase: 'boot-timeout',
-      message: 'Waktu tunggu boot emulator habis.',
+      message: `Waktu tunggu boot emulator ${targetAdbId} habis.`,
     });
-    throw new Error('Emulator boot timeout');
+    throw new Error(`Emulator boot timeout (${targetAdbId})`);
   }
 
-  async getBootProperties() {
+  async getBootProperties(targetAdbId) {
     const safeGet = async (prop) => {
       try {
         return (
-          await this.runAdbCommand(['shell', 'getprop', prop], {
+          await this.runAdbCommand(['-s', targetAdbId, 'shell', 'getprop', prop], {
             timeout: 5000,
             silent: true,
           })
@@ -2004,33 +2321,83 @@ hw.camera.front=none
   }
 
   /**
+   * Read the OS version info from a booted emulator via `adb getprop`.
+   * Returns e.g. { release: '11', sdk: '30', model: 'sdk_gphone_arm64' }.
+   */
+  async getEmulatorVersionInfo(targetAdbId) {
+    if (!targetAdbId) return null;
+    const safeGet = async (prop) => {
+      try {
+        return (
+          await this.runAdbCommand(['-s', targetAdbId, 'shell', 'getprop', prop], {
+            timeout: 5000,
+            silent: true,
+          })
+        ).trim();
+      } catch {
+        return '';
+      }
+    };
+
+    const release = await safeGet('ro.build.version.release');
+    const sdk = await safeGet('ro.build.version.sdk');
+    const model = await safeGet('ro.product.model');
+    const securityPatch = await safeGet('ro.build.version.security_patch');
+
+    return { release, sdk, model, securityPatch };
+  }
+
+  /**
    * Stop emulator
    */
-  async stopEmulator() {
-    if (!this.emulatorProcess) {
-      return { success: true, message: 'Emulator not running' };
-    }
+  async stopEmulator(avdName = null, targetAdbId = null) {
+    const trackedEntry =
+      this.getEmulatorProcessEntry(avdName) ||
+      this.getRunningEmulatorEntries().find(
+        (entry) => targetAdbId && entry.adbId === targetAdbId
+      ) ||
+      (avdName || targetAdbId ? null : this.getRunningEmulatorEntries()[0] || null);
 
     return new Promise((resolve) => {
-      // Kill via ADB first (graceful)
-      const adb = spawn(this.getADBBinary(), ['emu', 'kill']);
+      if (!trackedEntry && !targetAdbId) {
+        resolve({ success: true, message: 'Emulator not running' });
+        return;
+      }
+
+      const clearTrackedEntry = () => {
+        if (!trackedEntry) return;
+        const current = this.emulatorProcesses.get(trackedEntry.avdName);
+        if (current && current.process === trackedEntry.process) {
+          this.emulatorProcesses.delete(trackedEntry.avdName);
+        }
+        if (this.emulatorProcess === trackedEntry.process) {
+          this.emulatorProcess = this.getRunningEmulatorEntries()[0]?.process || null;
+        }
+      };
+
+      const adbArgs = (trackedEntry?.adbId || targetAdbId)
+        ? ['-s', trackedEntry?.adbId || targetAdbId, 'emu', 'kill']
+        : ['emu', 'kill'];
+      const adb = spawn(this.getADBBinary(), adbArgs, {
+        env: this.getProcessEnv(),
+      });
 
       adb.on('close', () => {
         setTimeout(() => {
-          if (this.emulatorProcess) {
-            this.emulatorProcess.kill();
-            this.emulatorProcess = null;
+          if (trackedEntry?.process && trackedEntry.process.exitCode === null) {
+            trackedEntry.process.kill();
           }
+          clearTrackedEntry();
           resolve({ success: true });
         }, 1000);
       });
 
       adb.on('error', () => {
         // Force kill
-        if (this.emulatorProcess) {
-          this.emulatorProcess.kill();
-          this.emulatorProcess = null;
+        if (trackedEntry?.process && trackedEntry.process.exitCode === null) {
+          trackedEntry.process.kill();
         }
+        clearTrackedEntry();
         resolve({ success: true });
       });
     });
@@ -2135,8 +2502,11 @@ hw.camera.front=none
   /**
    * Get emulator status
    */
-  isRunning() {
-    return this.emulatorProcess !== null;
+  isRunning(avdName = null) {
+    if (avdName) {
+      return this.getEmulatorProcessEntry(avdName) !== null;
+    }
+    return this.getRunningEmulatorEntries().length > 0;
   }
 
   /**

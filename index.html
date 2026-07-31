@@ -6228,11 +6228,15 @@
             Tampilkan titik saya di Peta Komunitas untuk pengguna StarBox lain
           </label>
 
-          <div class="account-actions" style="margin-top:14px;">
-            <button class="ghost" onclick="useMyLocation()">🎯 Gunakan Lokasi Saya</button>
-            <button id="locationCancelBtn" class="ghost" onclick="closeLocationModal()">Batal</button>
-            <button id="locationDismissBtn" class="ghost" style="display:none;" onclick="dismissLocationPrompt()">Abaikan</button>
-            <button onclick="saveMyLocation()">Simpan Lokasi</button>
+          <div class="location-modal-actions">
+            <div class="location-modal-utility-actions">
+              <button class="ghost" onclick="useMyLocation()">🎯 Gunakan Lokasi Saya</button>
+              <button id="locationDismissBtn" class="ghost" style="display:none;" onclick="dismissLocationPrompt()">Abaikan</button>
+            </div>
+            <div class="location-modal-primary-actions">
+              <button id="locationCancelBtn" class="ghost" onclick="closeLocationModal()">Batal</button>
+              <button onclick="saveMyLocation()">Simpan Lokasi</button>
+            </div>
           </div>
         </div>
       </div>
@@ -7041,6 +7045,10 @@
                 style="font-family: monospace; font-size: 12px"
               />
             </div>
+            <label for="addAndroidVersion" style="font-size:12px;font-weight:600;display:block;margin-bottom:8px">Versi Android</label>
+            <select id="addAndroidVersion" style="width:100%;margin-bottom:6px"></select>
+            <p style="font-size:11px;color:#666;margin:0 0 16px">Versi yang belum terunduh akan diunduh otomatis saat pertama dijalankan (~1.2 GB per versi).</p>
+
             <label style="font-size:12px;font-weight:600;display:block;margin-bottom:8px">Spec Preset</label>
             <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
               <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid #30363d;border-radius:8px;cursor:pointer;transition:border-color .15s"
@@ -7977,6 +7985,10 @@ adb connect ip:port</code></pre>
 
           <label for="editDeviceNameAndroid">Nama Device</label>
           <input type="text" id="editDeviceNameAndroid" />
+
+          <label for="editAndroidVersion">Versi Android</label>
+          <select id="editAndroidVersion" style="width:100%"></select>
+          <p class="android-spec-note">Mengubah versi akan mengunduh image baru (~1.2 GB) saat dijalankan. Restart device agar berlaku.</p>
 
           <label for="editAndroidSpecPresetAndroid">Spesifikasi Emulator</label>
           <select id="editAndroidSpecPresetAndroid">

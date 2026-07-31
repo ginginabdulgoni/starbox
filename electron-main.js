@@ -4028,11 +4028,6 @@ async function resolveEmulatorAdbTarget(device = {}) {
       }
     } catch (_) {}
   }
-
-  if (emulatorDevices.length === 1) {
-    return emulatorDevices[0].adbId;
-  }
-
   return null;
 }
 
@@ -9610,6 +9605,9 @@ ipcMain.handle("add-device", (event, payload = {}) => {
   if (serviceKey === "android") {
     newDevice.avdName = generateAvdName(newDevice.uid, newDevice.name);
     newDevice.androidSpec = normalizedAndroidSpec;
+    newDevice.androidVersion = ensureAndroidManagerReady().normalizeApiLevel(
+      payload.androidVersion
+    );
     newDevice.androidAutomationService = sanitizeRemoteServiceId(
       payload.androidAutomationService || "android-general"
     );
@@ -9771,6 +9769,11 @@ ipcMain.handle("edit-device", (event, payload = {}) => {
       } else if (serviceKey === "android") {
         device.androidSpec = normalizeAndroidSpecInput(
           payload.androidSpec || device.androidSpec
+        );
+        device.androidVersion = ensureAndroidManagerReady().normalizeApiLevel(
+          payload.androidVersion !== undefined
+            ? payload.androidVersion
+            : device.androidVersion
         );
         device.androidAutomationService = sanitizeRemoteServiceId(
           payload.androidAutomationService ||
@@ -11016,6 +11019,13 @@ ipcMain.handle("load-devices", (_event, dbType) => {
     }
     if ((device.service || "").toLowerCase() === "android" && !device.avdName) {
       device.avdName = generateAvdName(device.uid || device.token || "");
+      modifiedAny = true;
+    }
+    if (
+      (device.service || "").toLowerCase() === "android" &&
+      !("androidVersion" in device)
+    ) {
+      device.androidVersion = 30; // default Android 11 untuk device lama
       modifiedAny = true;
     }
   });
@@ -12322,26 +12332,45 @@ ipcMain.handle("android-remote-volume-down", async (_event, uid) => {
 // Android Emulator IPC Handlers
 // ============================================
 
-ipcMain.handle("android-check-installation", () => {
+// Daftar versi Android yang didukung (untuk dropdown di UI).
+ipcMain.handle("android-get-versions", () => {
   try {
     const manager = ensureAndroidManagerReady();
-    const installed = manager.isInstalled();
+    return { success: true, versions: manager.getSupportedVersions() };
+  } catch (err) {
+    return { success: false, versions: [], error: err.message };
+  }
+});
+
+ipcMain.handle("android-check-installation", (_event, uid = null) => {
+  try {
+    const manager = ensureAndroidManagerReady();
+    // Cek instalasi untuk versi yang dipilih device (bila uid diberikan),
+    // agar versi yang belum terunduh terdeteksi "belum terpasang".
+    const config = uid ? getDeviceConfig(uid) || {} : {};
+    const apiLevel = manager.normalizeApiLevel(config.androidVersion);
+    const coreInstalled = manager.isCoreInstalled();
+    const installed = manager.isInstalled(apiLevel);
     const downloadSize = manager.getEstimatedDownloadSize();
-    return { success: true, installed, downloadSize };
+    return { success: true, installed, coreInstalled, apiLevel, downloadSize };
   } catch (err) {
     console.error("❌ android-check-installation gagal:", err);
     return { success: false, installed: false, error: err.message };
   }
 });
 
-ipcMain.handle("android-download", async (event, uid) => {
+ipcMain.handle("android-download", async (event, uid, options = {}) => {
   const manager = ensureAndroidManagerReady();
   const sender = event.sender;
+  const config = uid ? getDeviceConfig(uid) || {} : {};
+  const apiLevel = manager.normalizeApiLevel(
+    options?.apiLevel ?? config.androidVersion
+  );
   const relayProgress = (payload = {}) =>
     sendAndroidProgress(sender, "android-download-progress", uid, payload);
   try {
-    await manager.downloadAndSetup(relayProgress);
-    return { success: true };
+    await manager.downloadAndSetup(relayProgress, apiLevel);
+    return { success: true, apiLevel };
   } catch (err) {
     relayProgress({
       phase: "error",
@@ -12506,6 +12535,7 @@ async function startAndroidEmulatorDevice(
     (config.avdName && config.avdName.trim()) ||
     generateAvdName(uid, config.name || "");
   const spec = normalizeAndroidSpecInput(config.androidSpec);
+  const apiLevel = manager.normalizeApiLevel(config.androidVersion);
   // Mode WhatsApp automation dengan tampilan "readonly": boot headless
   // (tanpa window QEMU) supaya user tidak bisa mengontrol emulator langsung —
   // tampilan hanya lewat mirror scrcpy yang read-only. Mode "native": window
@@ -12526,9 +12556,14 @@ async function startAndroidEmulatorDevice(
   try {
     const result = await manager.startEmulator(avdName, {
       ...(options || {}),
+      apiLevel,
       headless: useHeadlessBoot || options?.headless === true,
       progressCallback: (payload = {}) => {
-        if (payload.phase === "exit") {
+        if (
+          payload.phase === "exit" &&
+          payload.exitCode !== null &&
+          payload.exitCode !== 0
+        ) {
           updateDeviceStatus(uid, "stopped");
           stopAndroidWhatsappAutomationLoop(uid);
         }
@@ -12543,13 +12578,19 @@ async function startAndroidEmulatorDevice(
     return result;
   } catch (err) {
     if (err?.message === "Emulator is already running") {
+      const adbId = await resolveEmulatorAdbTarget(config).catch(() => null);
       updateDeviceStatus(uid, "running");
       startAndroidWhatsappAutomationLoop(uid);
       safeProgressCallback({
         phase: "boot-complete",
         message: "Emulator sudah berjalan.",
       });
-      return { success: true, alreadyRunning: true, port: 5554 };
+      return {
+        success: true,
+        alreadyRunning: true,
+        port: adbId ? String(adbId).split("-")[1] || null : null,
+        adbId: adbId || null,
+      };
     }
     updateDeviceStatus(uid, "stopped");
     safeProgressCallback({
@@ -12564,17 +12605,14 @@ async function getAndroidEmulatorRuntimeStatus(uid) {
   const manager = ensureAndroidManagerReady();
   const config = getDeviceConfig(uid) || {};
   const storedStatus = String(config.status || "").toLowerCase();
-  const processRunning = !!(
-    manager.emulatorProcess && manager.emulatorProcess.exitCode === null
-  );
-  const adbDevices = await manager.listConnectedDevices();
-  const adbEmulator = Array.isArray(adbDevices)
-    ? adbDevices.find((device) =>
-        String(device?.adbId || "").toLowerCase().startsWith("emulator-")
-      )
-    : null;
+  const avdName =
+    (config.avdName && config.avdName.trim()) ||
+    generateAvdName(uid, config.name || "");
+  const processEntry = manager.getEmulatorProcessEntry(avdName);
+  const processRunning = !!processEntry;
+  const adbId = await resolveEmulatorAdbTarget(config).catch(() => null);
   const running =
-    processRunning || !!adbEmulator || ["running", "active", "starting"].includes(storedStatus);
+    processRunning || !!adbId || ["running", "active", "starting"].includes(storedStatus);
 
   if (uid) {
     updateDeviceStatus(uid, running ? "running" : "stopped");
@@ -12584,12 +12622,12 @@ async function getAndroidEmulatorRuntimeStatus(uid) {
     success: true,
     installed: manager.isInstalled(),
     running,
-    port: adbEmulator?.adbId
-      ? String(adbEmulator.adbId).split("-")[1] || "5554"
+    port: adbId
+      ? String(adbId).split("-")[1] || null
       : processRunning
-      ? "5554"
+      ? String(processEntry?.port || "") || null
       : null,
-    adbId: adbEmulator?.adbId || null,
+    adbId: adbId || processEntry?.adbId || null,
   };
 }
 
@@ -12618,12 +12656,38 @@ ipcMain.handle("android-get-status", async (_event, uid) => {
   }
 });
 
+// Baca versi Android (release/API/model) dari emulator yang sedang berjalan.
+ipcMain.handle("android-get-device-info", async (_event, uid) => {
+  try {
+    const manager = ensureAndroidManagerReady();
+    const config = getDeviceConfig(uid) || {};
+    const adbId = await resolveEmulatorAdbTarget(config).catch(() => null);
+    if (!adbId) {
+      return { success: false, running: false };
+    }
+    const info = await manager.getEmulatorVersionInfo(adbId);
+    return { success: true, running: true, adbId, ...(info || {}) };
+  } catch (err) {
+    return {
+      success: false,
+      running: false,
+      message: err?.message || "Gagal membaca info versi emulator.",
+    };
+  }
+});
+
 ipcMain.handle("android-stop", async (_event, uid) => {
   try {
     const manager = ensureAndroidManagerReady();
-    const result = await manager.stopEmulator();
+    const config = getDeviceConfig(uid) || {};
+    const avdName =
+      (config.avdName && config.avdName.trim()) ||
+      generateAvdName(uid, config.name || "");
+    const adbId = await resolveEmulatorAdbTarget(config).catch(() => null);
+    const result = await manager.stopEmulator(avdName, adbId);
     if (uid) {
       updateDeviceStatus(uid, "stopped");
+      stopAndroidWhatsappAutomationLoop(uid);
     }
     return result;
   } catch (err) {
