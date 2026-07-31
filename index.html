@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StarBox v2.1.260729 – MultiService Emulator</title>
+    <title>StarBox v2.1.260731 – MultiService Emulator</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
@@ -7286,14 +7286,23 @@
         .cm-stats { font-size:0.85rem; opacity:0.85; }
         #communityMapContainer { width:100%; height:60vh; min-height:360px; border-radius:14px; overflow:hidden; border:1px solid var(--color-border); }
 
-        .cm-marker { position: relative; width: 28px; height: 28px; }
+        .cm-marker-shell {
+          position: relative;
+          width: 28px;
+          height: 28px;
+          display: block;
+          pointer-events: none;
+          transform: translateZ(0);
+          transform-origin: center center;
+          will-change: transform;
+        }
         .cm-marker-pulse {
           position: absolute;
           top: 50%;
           left: 50%;
           width: 28px;
           height: 28px;
-          margin: -14px 0 0 -14px;
+          transform: translate(-50%, -50%);
           border-radius: 50%;
           background: rgba(139, 92, 246, 0.55);
           animation: cm-pulse 1.8s ease-out infinite;
@@ -7304,12 +7313,16 @@
           left: 50%;
           width: 22px;
           height: 22px;
-          margin: -11px 0 0 -11px;
+          transform: translate(-50%, -50%);
           border-radius: 50%;
           object-fit: cover;
           border: 2px solid #8b5cf6;
           background: #0f172a;
           box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+        }
+        .cm-marker-icon.leaflet-div-icon {
+          background: transparent;
+          border: 0;
         }
         @keyframes cm-pulse {
           0% { transform: scale(0.6); opacity: 0.8; }
@@ -10315,7 +10328,7 @@ adb connect ip:port</code></pre>
 
     <footer class="app-footer">
       <span class="footer-left"
-        >StarBox v2.1.260729 &copy; 2025 Gingin Abdul Goni —
+        >StarBox v2.1.260731 &copy; 2025 Gingin Abdul Goni —
         <a
           href="https://1112-project.com"
           target="_blank"
@@ -10721,6 +10734,9 @@ adb connect ip:port</code></pre>
         communityMap = L.map("communityMapContainer", {
           fullscreenControl: true,
           fullscreenControlOptions: { position: "topleft" },
+          zoomAnimation: false,
+          markerZoomAnimation: false,
+          fadeAnimation: false,
         }).setView([-2.5, 118], 5);
 
         const layers = buildLocationLayers();
@@ -10766,8 +10782,8 @@ adb connect ip:port</code></pre>
           if (communityMarkersLayer) {
             communityMarkersLayer.clearLayers();
             const icon = L.divIcon({
-              className: "cm-marker",
-              html: '<span class="cm-marker-pulse"></span><img class="cm-marker-icon" src="assets/starbox.png" alt="" />',
+              className: "cm-marker-icon",
+              html: '<span class="cm-marker-shell"><span class="cm-marker-pulse"></span><img class="cm-marker-icon" src="assets/starbox.png" alt="" /></span>',
               iconSize: [28, 28],
               iconAnchor: [14, 14],
             });
