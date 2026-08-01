@@ -12559,14 +12559,13 @@ async function startAndroidEmulatorDevice(
       apiLevel,
       headless: useHeadlessBoot || options?.headless === true,
       progressCallback: (payload = {}) => {
-        if (
-          payload.phase === "exit" &&
-          payload.exitCode !== null &&
-          payload.exitCode !== 0
-        ) {
-          updateDeviceStatus(uid, "stopped");
-          stopAndroidWhatsappAutomationLoop(uid);
-        }
+        // Do NOT react to a single failed attempt here (was keyed on a
+        // "exit" phase that android-manager.js no longer emits — the retry
+        // loop's per-attempt renderer/lock failures now report as
+        // "attempt-exit"). A retry may still succeed, so eagerly marking the
+        // device "stopped" and killing its WhatsApp automation loop here
+        // would be wrong mid-retry. The final outcome (success or exhausted
+        // retries) is already handled below via the resolved result / catch.
         safeProgressCallback(payload);
       },
       spec,
@@ -13790,6 +13789,19 @@ function startWAScheduleChecker() {
 // Cleanup interval on app quit
 app.on("will-quit", () => {
   if (cctvManager) cctvManager.stopAll();
+
+  // Force-kill any still-running Android emulator so it doesn't linger as an
+  // orphan process holding its AVD lock — otherwise the next start fails with
+  // "Please use -read-only flag to enable this feature.".
+  if (androidManager) {
+    try {
+      androidManager.getRunningEmulatorEntries().forEach((entry) => {
+        androidManager.killProcessTree(entry.process?.pid);
+      });
+    } catch (err) {
+      console.warn("⚠️ Gagal menghentikan emulator Android saat quit:", err?.message);
+    }
+  }
 
   if (waStatusCheckInterval) {
     clearInterval(waStatusCheckInterval);

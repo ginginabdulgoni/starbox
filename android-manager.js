@@ -18,6 +18,16 @@ const DEFAULT_ANDROID_API = 30;
 //   - The emulator binary and platform-tools are shared across versions and are
 //     NOT part of this catalog (see getCoreDownloadUrls()).
 const ANDROID_VERSION_CATALOG = {
+  28: {
+    api: 28,
+    release: '9',
+    label: 'Android 9 (API 28) — Ringan',
+    platform: 'platform-28_r06.zip',
+    sysimg: {
+      'arm64-v8a': { any: 'arm64-v8a-28_r02.zip' },
+      'x86_64': { any: 'x86_64-28_r08.zip' },
+    },
+  },
   29: {
     api: 29,
     release: '10',
@@ -98,6 +108,9 @@ class AndroidManager {
     // registered in emulatorProcesses. Prevents concurrent starts from all
     // grabbing the same console port (e.g. 5554) and colliding.
     this.reservedPorts = new Set();
+    // Crash captured after the 15s startup window already handed off to
+    // waitForBoot()'s ADB polling — see watchEmulatorAlive().
+    this.lastEmulatorExit = new Map();
     // Caches the one-time macOS entitlement signing for the whole session.
     // Re-signing rewrites the shared QEMU/emulator binaries in place; doing that
     // while another emulator is running invalidates their signature and macOS
@@ -466,6 +479,71 @@ class AndroidManager {
   }
 
   /**
+   * Force-terminate an emulator process by pid, including its process tree.
+   * On Windows, emulator.exe is a launcher that spawns qemu-system-*.exe as a
+   * real child process (unlike macOS/Linux, where the launcher execs into
+   * QEMU in place). Node's ChildProcess#kill() only signals the direct child
+   * handle, so on Windows it kills the launcher but leaves the actual VM
+   * running — which keeps the AVD file-locked and makes the next start fail
+   * with "Please use -read-only flag to enable this feature.". taskkill's
+   * /T (tree) flag is required to actually take down the VM.
+   */
+  killProcessTree(pid) {
+    if (!pid) return;
+    if (this.isWin) {
+      const { execSync } = require('child_process');
+      try {
+        execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'pipe' });
+      } catch (_) {
+        // Already exited — fine.
+      }
+    } else {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch (_) {}
+    }
+  }
+
+  /**
+   * Force-kill every emulator/QEMU process on the system, plus stale AVD
+   * lock files. Used by the manual "Fix Android" action — a deliberate
+   * nuclear option for when an emulator was left orphaned (e.g. the app was
+   * closed or crashed while it was running) and keeps holding an AVD lock
+   * that a normal stop/start cannot clear.
+   */
+  async killOrphanEmulatorProcesses() {
+    if (this.isWin) {
+      const { execSync } = require('child_process');
+      ['emulator.exe', 'qemu-system-x86_64.exe', 'qemu-system-aarch64.exe'].forEach(
+        (image) => {
+          try {
+            execSync(`taskkill /F /IM ${image} /T`, { stdio: 'pipe' });
+          } catch (_) {}
+        }
+      );
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } else {
+      const { execSync } = require('child_process');
+      ['qemu-system', '/emulator/emulator'].forEach((pattern) => {
+        try {
+          execSync(`pkill -9 -f '${pattern}'`, { stdio: 'pipe' });
+        } catch (_) {}
+      });
+    }
+    this.emulatorProcesses.clear();
+    this.emulatorProcess = null;
+
+    try {
+      this.initializePaths();
+      if (fs.existsSync(this.avdPath)) {
+        fs.readdirSync(this.avdPath)
+          .filter((entry) => entry.endsWith('.avd'))
+          .forEach((entry) => this.cleanAvdLocks(entry.replace(/\.avd$/i, '')));
+      }
+    } catch (_) {}
+  }
+
+  /**
    * Restart ADB server
    */
   async restartAdbServer() {
@@ -512,6 +590,15 @@ class AndroidManager {
         message: 'Menghentikan ADB server...',
       });
       await this.killAdbServer();
+
+      // Kill any orphaned emulator/QEMU process left over from a previous
+      // crash or forced app close, and clear the AVD lock files they hold —
+      // otherwise the next start fails with "Please use -read-only flag...".
+      emitProgress({
+        phase: 'fix-emulator',
+        message: 'Menghentikan proses emulator yang tertinggal...',
+      });
+      await this.killOrphanEmulatorProcesses();
 
       // Clean temp crash directories
       emitProgress({
@@ -2018,7 +2105,15 @@ hw.camera.front=none
       return new Promise((resolve, reject) => {
         try {
           const env = this.getProcessEnv();
-          env.ANDROID_EMULATOR_USE_SYSTEM_LIBS = '1';
+          // This switch makes the emulator load shared libraries from the host.
+          // It is a Linux workaround; exporting it on Windows can make the old
+          // 33.x emulator load an incompatible graphics DLL and die with
+          // 0xC0000005 before QEMU starts.
+          if (this.isLinux) {
+            env.ANDROID_EMULATOR_USE_SYSTEM_LIBS = '1';
+          } else {
+            delete env.ANDROID_EMULATOR_USE_SYSTEM_LIBS;
+          }
           env.ANDROID_EMULATOR_DISABLE_CRASH_REPORT = '1';
           env.ANDROID_EMULATOR_DISABLE_METRICS = '1';
 
@@ -2082,14 +2177,18 @@ hw.camera.front=none
             const text = data.toString();
             rememberOutput(text);
             console.log(`Emulator: ${text}`);
-            emitProgress({ phase: 'stdout', message: text });
+            if (!isNoise(text)) {
+              emitProgress({ phase: 'stdout', message: text });
+            }
           });
 
           processRef.stderr.on('data', (data) => {
             const text = data.toString();
             rememberOutput(text);
             console.error(`Emulator error: ${text}`);
-            emitProgress({ phase: 'stderr', message: text });
+            if (!isNoise(text)) {
+              emitProgress({ phase: 'stderr', message: text });
+            }
           });
 
           const clearTrackedEntry = () => {
@@ -2133,14 +2232,15 @@ hw.camera.front=none
             }
 
             emitProgress({
-              phase: 'exit',
+              // A failed attempt is not the final emulator exit when another
+              // renderer remains. Keep the UI in startup state until the retry
+              // loop decides whether this failure is recoverable.
+              phase: 'attempt-exit',
               message: exitMessage,
               exitCode: code,
               signal: signal || null,
             });
-            if (!bootResolved && code !== null && code !== 0) {
-              bootResolved = true;
-              if (bootTimer) clearTimeout(bootTimer);
+            if (code !== null && code !== 0) {
               const reason = extractFailureReason();
               const err = new Error(
                 reason
@@ -2153,11 +2253,32 @@ hw.camera.front=none
               // a startup/renderer failure worth retrying on the next renderer.
               err.earlyExit = Date.now() - spawnedAt < 15000;
               err.gpuMode = gpuMode;
-              reject(err);
+
+              if (!bootResolved) {
+                bootResolved = true;
+                if (bootTimer) clearTimeout(bootTimer);
+                reject(err);
+              } else {
+                // The 15s startup window already resolved and control handed
+                // off to waitForBoot()'s ADB polling — that promise has no
+                // way to know the process just died (black screen then the
+                // window closing itself). Record the crash so the ADB-wait
+                // watcher below can fail fast instead of polling for up to
+                // 15 minutes against a process that no longer exists.
+                this.lastEmulatorExit.set(avdName, err);
+              }
             }
           });
 
-          // Wait for emulator to boot (15 minutes for software emulation)
+          // Do not hand control to waitForBoot too early. On Windows the emulator
+          // can initialise its launcher successfully and then crash a few seconds
+          // later with 0xC0000005 while the graphics backend is being created. If
+          // we resolve after only 2 seconds, that later rejection is ignored and
+          // the caller waits for ADB until the full boot timeout instead of trying
+          // the next GPU renderer.
+          //
+          // Surviving this startup-stability window is enough to let waitForBoot
+          // take over; software rendering may still need several minutes to boot.
           bootTimer = setTimeout(() => {
             bootTimer = null;
             if (bootResolved) return;
@@ -2168,7 +2289,7 @@ hw.camera.front=none
               adbId: targetAdbId,
               avdName,
             });
-          }, 2000);
+          }, 15000);
         } catch (error) {
           emitProgress({
             phase: 'error',
@@ -2180,7 +2301,16 @@ hw.camera.front=none
     };
 
     const waitForTargetBoot = async () => {
-      await this.waitForBoot(targetAdbId, 900000, (payload) => emitProgress(payload));
+      this.lastEmulatorExit.delete(avdName);
+      const watcher = this.watchEmulatorAlive(avdName);
+      try {
+        await Promise.race([
+          this.waitForBoot(targetAdbId, 900000, (payload) => emitProgress(payload)),
+          watcher.promise,
+        ]);
+      } finally {
+        watcher.cancel();
+      }
       return {
         success: true,
         port: emulatorPort,
@@ -2191,6 +2321,7 @@ hw.camera.front=none
 
     // Try each GPU renderer; on a native crash, fall through to the next one.
     let lastError = null;
+    let lockRetryUsed = false;
     for (let i = 0; i < gpuCandidates.length; i++) {
       const mode = gpuCandidates[i];
       try {
@@ -2198,6 +2329,30 @@ hw.camera.front=none
         return await waitForTargetBoot();
       } catch (err) {
         lastError = err;
+
+        // "Please use -read-only flag..." means the AVD is still locked by
+        // another (usually orphaned/zombie) emulator process — switching GPU
+        // renderer never fixes this, so don't burn through gpuCandidates on
+        // it. Force a lock cleanup and retry the SAME renderer exactly once.
+        const isLockError = /read-only flag/i.test(err?.message || '');
+        if (isLockError && !lockRetryUsed) {
+          lockRetryUsed = true;
+          console.warn('⚠️ AVD terkunci oleh proses emulator lama; membersihkan lock dan mencoba lagi...');
+          emitProgress({
+            phase: 'lock-retry',
+            message: 'AVD terkunci oleh proses emulator lama, membersihkan dan mencoba lagi...',
+          });
+          this.cleanAvdLocks(avdName);
+          await new Promise((resolve) => setTimeout(resolve, 800));
+          i -= 1;
+          continue;
+        }
+        if (isLockError) {
+          throw new Error(
+            `${err.message}\n\nAVD ini kemungkinan masih dikunci oleh proses emulator lama yang belum tertutup sempurna (misalnya setelah StarBox ditutup paksa). Klik tombol "Fix Android" untuk membersihkan proses yang tertinggal, lalu coba jalankan lagi.`
+          );
+        }
+
         const hasNext = i < gpuCandidates.length - 1;
         // Retry the next renderer when the process died early at startup — a
         // native crash (access violation) or a quick non-zero exit (code 1) are
@@ -2232,6 +2387,43 @@ hw.camera.front=none
     } finally {
       this.reservedPorts.delete(emulatorPort);
     }
+  }
+
+  /**
+   * Watches whether the tracked emulator process for `avdName` is still
+   * alive, polling every `intervalMs`. Rejects as soon as it disappears
+   * (e.g. a post-startup crash — black screen, window closes itself) so
+   * callers racing this against waitForBoot() fail fast instead of polling
+   * ADB for up to 15 minutes against a process that no longer exists.
+   * Always call cancel() once the race settles to stop the interval.
+   */
+  watchEmulatorAlive(avdName, intervalMs = 2000) {
+    let timer = null;
+    let cancelled = false;
+    const promise = new Promise((_, reject) => {
+      timer = setInterval(() => {
+        if (cancelled) return;
+        if (!this.getEmulatorProcessEntry(avdName)) {
+          cancelled = true;
+          clearInterval(timer);
+          const crash = this.lastEmulatorExit.get(avdName);
+          this.lastEmulatorExit.delete(avdName);
+          reject(
+            crash ||
+              new Error(
+                'Emulator berhenti tanpa alasan yang diketahui (proses tidak lagi berjalan).'
+              )
+          );
+        }
+      }, intervalMs);
+    });
+    return {
+      promise,
+      cancel: () => {
+        cancelled = true;
+        if (timer) clearInterval(timer);
+      },
+    };
   }
 
   /**
@@ -2385,7 +2577,7 @@ hw.camera.front=none
       adb.on('close', () => {
         setTimeout(() => {
           if (trackedEntry?.process && trackedEntry.process.exitCode === null) {
-            trackedEntry.process.kill();
+            this.killProcessTree(trackedEntry.process.pid);
           }
           clearTrackedEntry();
           resolve({ success: true });
@@ -2395,7 +2587,7 @@ hw.camera.front=none
       adb.on('error', () => {
         // Force kill
         if (trackedEntry?.process && trackedEntry.process.exitCode === null) {
-          trackedEntry.process.kill();
+          this.killProcessTree(trackedEntry.process.pid);
         }
         clearTrackedEntry();
         resolve({ success: true });

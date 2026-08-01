@@ -5978,11 +5978,11 @@ async function startAndroidEmulatorCard(uid, cardEl) {
     setProgress('Memulai emulator...', 5);
     const stopStartProgress = window.electronAPI.android.onStartProgress((data) => {
       if (data?.uid && data.uid !== uid) return;
-      if (data.phase === 'exit') {
-        setProgress(null, null);
-        loadAllDevicesAndroid();
-        return;
-      }
+      // Note: an "attempt-exit" here is just one GPU/lock retry dying, not
+      // necessarily the final outcome — a following attempt may still
+      // succeed. Don't reset the progress UI on it; the final resolution of
+      // window.electronAPI.android.start(uid) below (success or catch)
+      // already drives the terminal UI state either way.
       const pct = data.phase === 'booted' ? 100 : data.phase === 'wait-boot' ? 50 : 20;
       setProgress(data.message || data.phase || 'Memulai...', pct);
     });

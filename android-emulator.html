@@ -142,12 +142,86 @@
       .log-entry[data-type="warn"] .log-text {
         color: #fde68a;
       }
+      .boot-splash {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin: 8px 0 20px;
+      }
+      .boot-splash.active {
+        display: flex;
+      }
+      .boot-splash-ring {
+        position: relative;
+        width: 96px;
+        height: 96px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .boot-splash-ring::before,
+      .boot-splash-ring::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 3px solid transparent;
+        border-top-color: #3ddc84;
+        border-right-color: #3ddc84;
+        animation: boot-spin 1.1s linear infinite;
+      }
+      .boot-splash-ring::after {
+        inset: -10px;
+        border-top-color: rgba(61, 220, 132, 0.35);
+        border-right-color: transparent;
+        animation-duration: 1.8s;
+        animation-direction: reverse;
+      }
+      .boot-splash-logo {
+        width: 56px;
+        height: 56px;
+        border-radius: 14px;
+        object-fit: contain;
+        background: #0f172a;
+        padding: 6px;
+        animation: boot-pulse 1.6s ease-in-out infinite;
+      }
+      .boot-splash-caption {
+        margin-top: 14px;
+        font-size: 0.85rem;
+        color: rgba(226, 232, 240, 0.7);
+        letter-spacing: 0.02em;
+      }
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes boot-pulse {
+        0%,
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        50% {
+          transform: scale(0.92);
+          opacity: 0.85;
+        }
+      }
     </style>
   </head>
   <body>
     <div class="container">
       <h1 id="emulator-title">🤖 Android Emulator</h1>
       <p id="device-name">Android Device</p>
+
+      <div class="boot-splash" id="boot-splash">
+        <div class="boot-splash-ring">
+          <img class="boot-splash-logo" src="assets/starbox.png" alt="StarBox" />
+        </div>
+        <div class="boot-splash-caption">Menyiapkan emulator Android...</div>
+      </div>
 
       <div class="status">
         <h2 id="status-text">Initializing...</h2>
@@ -193,6 +267,18 @@
         const logBody = document.getElementById("start-log");
         const deviceNameEl = document.getElementById("device-name");
         const emulatorTitleEl = document.getElementById("emulator-title");
+        const bootSplash = document.getElementById("boot-splash");
+        const bootSplashCaption = bootSplash
+          ? bootSplash.querySelector(".boot-splash-caption")
+          : null;
+
+        function setBootSplash(active, caption) {
+          if (!bootSplash) return;
+          bootSplash.classList.toggle("active", !!active);
+          if (active && caption && bootSplashCaption) {
+            bootSplashCaption.textContent = caption;
+          }
+        }
 
         const maxLogEntries = 80;
         let bootWaitEntry = null;
@@ -403,6 +489,7 @@
             : null;
 
           if (phase === "error" || phase === "boot-timeout") {
+            setBootSplash(false);
             appendLog("error", rawMessage || "Terjadi kesalahan saat memulai emulator.");
             statusText.textContent = "Gagal Memulai";
             statusDetail.textContent = rawMessage || "Terjadi kesalahan saat memulai emulator.";
@@ -410,6 +497,23 @@
             bootWaitEntry = null;
             return;
           }
+
+          if (phase === "boot-complete") {
+            setBootSplash(false);
+            bootWaitEntry = null;
+            appendLog("success", rawMessage || "Emulator berhasil boot.");
+            statusText.textContent = "Emulator Berjalan!";
+            statusDetail.textContent = rawMessage || "Emulator siap digunakan.";
+            startBtn.style.display = "none";
+            stopBtn.style.display = "inline-block";
+            stopBtn.disabled = false;
+            return;
+          }
+
+          // Everything else happens while StarBox is still trying to bring the
+          // emulator up (AVD setup, GPU/lock retries, spawn, ADB boot-wait) —
+          // keep the branded loading splash visible for all of it.
+          setBootSplash(true);
 
           if (phase === "permissions-warning") {
             appendLog("warn", rawMessage || "Gagal memperbarui izin file emulator.");
@@ -421,6 +525,7 @@
             appendLog("info", rawMessage || "Menjalankan proses emulator...");
             statusText.textContent = "Memulai Emulator...";
             statusDetail.textContent = rawMessage || "Menjalankan proses emulator...";
+            setBootSplash(true, "Menjalankan proses emulator...");
             return;
           }
 
@@ -443,27 +548,22 @@
             }
             statusText.textContent = "Booting Android...";
             statusDetail.textContent = message;
+            setBootSplash(true, "Booting Android...");
             return;
           }
 
-          if (phase === "boot-complete") {
-            bootWaitEntry = null;
-            appendLog("success", rawMessage || "Emulator berhasil boot.");
-            statusText.textContent = "Emulator Berjalan!";
-            statusDetail.textContent = rawMessage || "Emulator siap digunakan.";
-            startBtn.style.display = "none";
-            stopBtn.style.display = "inline-block";
-            stopBtn.disabled = false;
-            return;
-          }
-
-          if (phase === "exit") {
+          if (phase === "attempt-exit") {
             bootWaitEntry = null;
             appendLog("warn", rawMessage || "Emulator berhenti.");
             statusDetail.textContent = rawMessage || "Emulator berhenti.";
-            startBtn.disabled = false;
-            startBtn.style.display = "inline-block";
-            stopBtn.style.display = "none";
+            return;
+          }
+
+          if (phase === "gpu-retry" || phase === "lock-retry") {
+            appendLog("warn", rawMessage);
+            statusText.textContent = "Mencoba Lagi...";
+            statusDetail.textContent = rawMessage || "";
+            setBootSplash(true, "Mencoba lagi...");
             return;
           }
 
@@ -616,9 +716,11 @@
           statusText.textContent = "Memulai Emulator...";
           statusDetail.textContent = "Boot pertama: ~15 menit | Boot berikutnya: ~1 menit (Quick Boot)";
           appendLog("info", "Menjalankan emulator...");
+          setBootSplash(true, "Menyiapkan emulator Android...");
 
           try {
             const result = await electronAPI.android.start(uid, {});
+            setBootSplash(false);
             if (result && result.success) {
               statusText.textContent = "Emulator Berjalan!";
               statusDetail.textContent = result.alreadyRunning
@@ -639,6 +741,7 @@
               throw new Error(message);
             }
           } catch (err) {
+            setBootSplash(false);
             const message = err && err.message ? err.message : "Gagal memulai emulator";
             statusText.textContent = "Gagal Memulai";
             statusDetail.textContent = message;
@@ -648,6 +751,7 @@
         }
 
         async function stopEmulator() {
+          setBootSplash(false);
           stopBtn.disabled = true;
           statusText.textContent = "Menghentikan...";
           appendLog("info", "Menghentikan emulator...");
