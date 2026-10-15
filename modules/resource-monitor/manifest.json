@@ -1,0 +1,63 @@
+{
+  "id": "resource-monitor",
+  "name": "Resource Monitor",
+  "version": "1.0.0",
+  "description": "Pantau CPU, RAM, disk dan layanan StarBox yang berjalan, kelola proses, serta bersihkan cache & sisa data (System Cleaner).",
+  "author": "StarBox",
+  "license": "MIT",
+  "icon": "bi-speedometer2",
+  "engine": {
+    "starbox": ">=2.1.0"
+  },
+  "distribution": "download",
+  "main": "main.js",
+  "renderer": "renderer.js",
+  "page": "page.html",
+  "i18n": "i18n.json",
+  "pageAfter": [
+    "cron",
+    "cctv",
+    "os-virtual",
+    "mikrotik",
+    "remox",
+    "android-ios",
+    "web-emulator"
+  ],
+  "sidebar": {
+    "page": "resource-monitor",
+    "label": "Resource Monitor",
+    "labelKey": "sidebar.resource_monitor",
+    "icon": "bi-speedometer2",
+    "after": [
+      "cron",
+      "cctv",
+      "os-virtual",
+      "mikrotik",
+      "remox",
+      "android-ios",
+      "web-emulator"
+    ],
+    "order": 60,
+    "statsLabel": "📊 Resource Monitor"
+  },
+  "permissions": [
+    "child_process",
+    "filesystem"
+  ],
+  "coreServices": [
+    "getDeviceWindowCount",
+    "getModuleStats"
+  ],
+  "optionalModules": [
+    "android-ios"
+  ],
+  "ipc": {
+    "invoke": [
+      "system-clean-scan",
+      "system-clean-run",
+      "resource-monitor-processes",
+      "resource-monitor-kill",
+      "resource-monitor-get"
+    ]
+  }
+}

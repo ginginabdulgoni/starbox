@@ -91,13 +91,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Remox – SSH / Telnet Terminal Manager
-  resourceMonitor: {
-    get: () => ipcRenderer.invoke('resource-monitor-get'),
-    getProcesses: (limit) => ipcRenderer.invoke('resource-monitor-processes', limit),
-    killProcess: (pid) => ipcRenderer.invoke('resource-monitor-kill', pid),
-    cleanScan: () => ipcRenderer.invoke('system-clean-scan'),
-    cleanRun: (ids) => ipcRenderer.invoke('system-clean-run', ids),
-  },
 
   // MikroTik Manager
   resolveAssetUrl: (assetName) =>
@@ -122,24 +115,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clear: () => ipcRenderer.invoke('clear-logs')
   },
 
-  // Cron Job Manager API
-  cron: {
-    loadJobs: () => ipcRenderer.invoke('cron-load-jobs'),
-    addJob: (job) => ipcRenderer.invoke('cron-add-job', job),
-    editJob: (id, updates) => ipcRenderer.invoke('cron-edit-job', { id, updates }),
-    deleteJob: (id) => ipcRenderer.invoke('cron-delete-job', id),
-    toggleJob: (id, enabled) => ipcRenderer.invoke('cron-toggle-job', { id, enabled }),
-    runNow: (id) => ipcRenderer.invoke('cron-run-now', id),
-    getHistory: (id) => ipcRenderer.invoke('cron-get-history', id),
-    clearHistory: (id) => ipcRenderer.invoke('cron-clear-history', id),
-    validateExpr: (expr) => ipcRenderer.invoke('cron-validate-expr', expr),
-    onJobExecuted: (cb) => {
-      if (typeof cb !== 'function') return () => {};
-      const fn = (_e, data) => cb(data);
-      ipcRenderer.on('cron-job-executed', fn);
-      return () => ipcRenderer.removeListener('cron-job-executed', fn);
-    },
-  },
 
   // StarCapture – Screenshot & Screen Recording
   // Remote Control API – kontrol StarBox di komputer lain

@@ -1,0 +1,68 @@
+{
+  "id": "cron",
+  "name": "Jadwal (Cron)",
+  "version": "1.0.0",
+  "description": "Jadwalkan HTTP request otomatis dengan ekspresi cron (builder visual), jalankan manual, dan lihat riwayat eksekusi.",
+  "author": "StarBox",
+  "license": "MIT",
+  "icon": "bi-clock-history",
+  "engine": {
+    "starbox": ">=2.1.0"
+  },
+  "distribution": "download",
+  "main": "main.js",
+  "renderer": "renderer.js",
+  "page": "page.html",
+  "i18n": "i18n.json",
+  "pageAfter": [
+    "cctv",
+    "os-virtual",
+    "mikrotik",
+    "remox",
+    "android-ios",
+    "web-emulator"
+  ],
+  "sidebar": {
+    "page": "cron",
+    "label": "Jadwal",
+    "labelKey": "sidebar.cron",
+    "icon": "bi-clock-history",
+    "pro": true,
+    "after": [
+      "cctv",
+      "os-virtual",
+      "mikrotik",
+      "remox",
+      "android-ios",
+      "web-emulator"
+    ],
+    "order": 50,
+    "statsLabel": "⏰ Jadwal"
+  },
+  "permissions": [
+    "network"
+  ],
+  "sharedDependencies": [
+    "cron-parser",
+    "uuid"
+  ],
+  "coreServices": [
+    "getAppInfo"
+  ],
+  "ipc": {
+    "invoke": [
+      "cron-load-jobs",
+      "cron-add-job",
+      "cron-edit-job",
+      "cron-delete-job",
+      "cron-toggle-job",
+      "cron-run-now",
+      "cron-get-history",
+      "cron-clear-history",
+      "cron-validate-expr"
+    ],
+    "events": [
+      "cron-job-executed"
+    ]
+  }
+}

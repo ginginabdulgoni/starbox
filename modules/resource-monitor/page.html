@@ -1,0 +1,272 @@
+      <!-- Page: Resource Monitor -->
+      <div id="page-resource-monitor" class="page-content">
+        <style>
+          #page-resource-monitor {
+            overflow-y: auto;
+            padding: 20px 24px;
+            background: var(--color-dark-purple);
+            color: var(--color-text-light);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+          }
+          /* Header */
+          .rm-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding-bottom: 14px;
+            border-bottom: 1px solid rgba(139,92,246,.2);
+          }
+          .rm-header h2 {
+            font-size: 17px; font-weight: 700; margin: 0;
+            display: flex; align-items: center; gap: 8px;
+            color: var(--color-accent-purple);
+          }
+          .rm-header-right { display: flex; align-items: center; gap: 12px; }
+          .rm-last-updated { font-size: 11px; color: var(--color-gray, #888); }
+          .rm-btn {
+            background: var(--color-accent-purple); color: #fff; border: none;
+            border-radius: 8px; padding: 6px 13px; cursor: pointer; font-size: 12px;
+            display: inline-flex; align-items: center; gap: 5px; font-family: inherit;
+            transition: opacity .15s;
+          }
+          .rm-btn:hover { opacity: .85; }
+          .rm-btn-sm {
+            background: transparent; color: var(--color-danger, #ef4444);
+            border: 1px solid var(--color-danger, #ef4444);
+            border-radius: 5px; padding: 2px 7px; cursor: pointer; font-size: 11px;
+            font-family: inherit; transition: background .15s, color .15s;
+          }
+          .rm-btn-sm:hover { background: var(--color-danger, #ef4444); color: #fff; }
+          /* Metric cards */
+          .rm-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+          }
+          .rm-card {
+            background: var(--color-medium-purple);
+            border: 1px solid rgba(139,92,246,.18);
+            border-radius: 12px; padding: 16px 18px;
+          }
+          body.theme-mode-light .rm-card { box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+          .rm-card-label {
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .07em; color: var(--color-gray); margin-bottom: 6px;
+            display: flex; align-items: center; gap: 5px;
+          }
+          .rm-card-value {
+            font-size: 30px; font-weight: 800; line-height: 1; margin-bottom: 5px;
+            color: var(--color-text-light);
+          }
+          .rm-card-sub {
+            font-size: 11px; color: var(--color-gray); margin-bottom: 10px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          }
+          .rm-bar { height: 6px; border-radius: 99px; background: rgba(128,128,128,.15); overflow: hidden; }
+          .rm-bar-fill { height: 100%; border-radius: 99px; transition: width .6s ease; }
+          .rm-bar-cpu  .rm-bar-fill { background: linear-gradient(90deg, var(--color-accent-purple), #c084fc); }
+          .rm-bar-mem  .rm-bar-fill { background: linear-gradient(90deg, var(--color-success, #4ade80), #06b6d4); }
+          .rm-bar-disk .rm-bar-fill { background: linear-gradient(90deg, var(--color-warning, #fbbf24), var(--color-danger, #ef4444)); }
+          .rm-bar-self .rm-bar-fill { background: linear-gradient(90deg, var(--color-info, #60a5fa), #a855f7); }
+          /* Section panels */
+          .rm-section {
+            background: var(--color-medium-purple);
+            border: 1px solid rgba(139,92,246,.18);
+            border-radius: 12px; padding: 16px 18px;
+          }
+          body.theme-mode-light .rm-section { box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+          .rm-section-title {
+            font-size: 12px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .06em; color: var(--color-gray);
+            margin-bottom: 14px; display: flex; align-items: center; gap: 6px;
+          }
+          /* Service mini-cards */
+          .rm-service-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(130px,1fr)); gap: 8px;
+          }
+          .rm-svc-card {
+            background: rgba(128,128,128,.08); border: 1px solid rgba(139,92,246,.12);
+            border-radius: 10px; padding: 12px 10px; text-align: center; transition: border-color .2s;
+          }
+          .rm-svc-icon  { font-size: 17px; margin-bottom: 4px; }
+          .rm-svc-count { font-size: 26px; font-weight: 800; line-height: 1; color: var(--color-gray); }
+          .rm-svc-label { font-size: 10px; color: var(--color-gray); margin-top: 3px; }
+          .rm-svc-active .rm-svc-count { color: var(--color-success, #4ade80); }
+          .rm-svc-active { border-color: rgba(74,222,128,.3); }
+          /* System info */
+          .rm-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+          .rm-info-row {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 12px; padding: 6px 0;
+            border-bottom: 1px solid rgba(128,128,128,.1);
+          }
+          .rm-info-row:last-child { border: none; }
+          .rm-info-key { color: var(--color-gray); }
+          .rm-info-val { font-weight: 600; text-align: right; color: var(--color-text-light); }
+          /* Process table */
+          .rm-proc-toolbar {
+            display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;
+          }
+          .rm-proc-search {
+            background: rgba(128,128,128,.1); border: 1px solid rgba(139,92,246,.2);
+            border-radius: 7px; padding: 5px 10px; color: var(--color-text-light);
+            font-size: 12px; font-family: inherit; outline: none; width: 200px;
+          }
+          .rm-proc-search:focus { border-color: var(--color-accent-purple); }
+          .rm-proc-search::placeholder { color: var(--color-gray); }
+          .rm-proc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          .rm-proc-table th {
+            text-align: left; padding: 6px 8px;
+            color: var(--color-gray); font-size: 10px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: .06em;
+            border-bottom: 1px solid rgba(128,128,128,.15);
+            cursor: pointer; user-select: none; white-space: nowrap;
+          }
+          .rm-proc-table th:hover { color: var(--color-text-light); }
+          .rm-proc-table th.rm-th-active { color: var(--color-accent-purple); }
+          .rm-th-arrow { display:inline-block; margin-left:3px; font-style:normal; }
+          .rm-proc-table td {
+            padding: 5px 8px; border-bottom: 1px solid rgba(128,128,128,.07);
+            vertical-align: middle;
+          }
+          .rm-proc-table tr:hover td { background: rgba(128,128,128,.06); }
+          .rm-proc-table tr:last-child td { border: none; }
+          .rm-proc-name { font-weight: 600; max-width: 200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color: var(--color-text-light); }
+          .rm-proc-pid  { color: var(--color-gray); font-size: 11px; font-family: monospace; }
+          .rm-proc-cpu  { color: var(--color-warning, #fbbf24); font-weight: 600; }
+          .rm-proc-mem  { color: var(--color-info, #60a5fa); font-weight: 600; }
+          .rm-proc-user { color: var(--color-gray); font-size: 10px; }
+          .rm-proc-bar-wrap { width: 60px; }
+          .rm-proc-bar { height: 4px; border-radius: 99px; background: rgba(128,128,128,.15); overflow:hidden; }
+          .rm-proc-bar-fill { height: 100%; border-radius: 99px; background: var(--color-info, #60a5fa); transition: width .4s; }
+          .rm-loading { text-align: center; padding: 20px; color: var(--color-gray); font-size: 12px; }
+          @keyframes rm-spin { to { transform: rotate(360deg); } }
+          .rm-spinner { display: inline-block; animation: rm-spin .8s linear infinite; }
+        </style>
+
+        <!-- Header -->
+        <div class="rm-header">
+          <h2><i class="bi bi-speedometer2"></i> Resource Monitor</h2>
+          <div class="rm-header-right">
+            <span class="rm-last-updated" id="rmLastUpdated" data-i18n="rm.waiting">Waiting for data...</span>
+            <button class="rm-btn" onclick="rmRefreshAll()"><i class="bi bi-arrow-clockwise"></i> <span data-i18n="rm.refresh">Refresh</span></button>
+          </div>
+        </div>
+
+        <!-- Metric cards -->
+        <div class="rm-cards">
+          <div class="rm-card">
+            <div class="rm-card-label"><i class="bi bi-cpu"></i> CPU</div>
+            <div class="rm-card-value" id="rmCpuPct">—</div>
+            <div class="rm-card-sub" id="rmCpuSub">—</div>
+            <div class="rm-bar rm-bar-cpu"><div class="rm-bar-fill" id="rmCpuBar" style="width:0%"></div></div>
+          </div>
+          <div class="rm-card">
+            <div class="rm-card-label"><i class="bi bi-memory"></i> RAM</div>
+            <div class="rm-card-value" id="rmMemPct">—</div>
+            <div class="rm-card-sub" id="rmMemSub">—</div>
+            <div class="rm-bar rm-bar-mem"><div class="rm-bar-fill" id="rmMemBar" style="width:0%"></div></div>
+          </div>
+          <div class="rm-card">
+            <div class="rm-card-label"><i class="bi bi-hdd"></i> Disk</div>
+            <div class="rm-card-value" id="rmDiskPct">—</div>
+            <div class="rm-card-sub" id="rmDiskSub">—</div>
+            <div class="rm-bar rm-bar-disk"><div class="rm-bar-fill" id="rmDiskBar" style="width:0%"></div></div>
+          </div>
+          <div class="rm-card">
+            <div class="rm-card-label"><i class="bi bi-box-seam"></i> StarBox</div>
+            <div class="rm-card-value" id="rmSelfMb">—</div>
+            <div class="rm-card-sub" id="rmSelfSub">—</div>
+            <div class="rm-bar rm-bar-self"><div class="rm-bar-fill" id="rmSelfBar" style="width:0%"></div></div>
+          </div>
+        </div>
+
+        <!-- System Info -->
+        <div class="rm-section">
+          <div class="rm-section-title"><i class="bi bi-info-circle"></i> <span data-i18n="rm.system_info">System Information</span></div>
+          <div class="rm-info-grid">
+            <div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.platform">Platform</span><span class="rm-info-val" id="rmSysPlatform">—</span></div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.arch">Architecture</span><span class="rm-info-val" id="rmSysArch">—</span></div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.cores">CPU Cores</span><span class="rm-info-val" id="rmSysCores">—</span></div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.model">CPU Model</span><span class="rm-info-val" id="rmSysModel" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">—</span></div>
+            </div>
+            <div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.hostname">Hostname</span><span class="rm-info-val" id="rmSysHost">—</span></div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.heap_used">Heap Used</span><span class="rm-info-val" id="rmSysHeap">—</span></div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.heap_total">Heap Total</span><span class="rm-info-val" id="rmSysHeapTotal">—</span></div>
+              <div class="rm-info-row"><span class="rm-info-key" data-i18n="rm.info.uptime">System Uptime</span><span class="rm-info-val" id="rmSysUptime">—</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- StarBox Services -->
+        <div class="rm-section">
+          <div class="rm-section-title"><i class="bi bi-grid-3x3-gap"></i> <span data-i18n="rm.active_services">Active StarBox Services</span></div>
+          <div class="rm-service-grid">
+            <div class="rm-svc-card" id="rmSvcWeb">
+              <div class="rm-svc-icon">🌐</div>
+              <div class="rm-svc-count" id="rmSvcWebCount">—</div>
+              <div class="rm-svc-label">Web Emulator</div>
+            </div>
+            <div class="rm-svc-card" id="rmSvcAndroid">
+              <div class="rm-svc-icon">🤖</div>
+              <div class="rm-svc-count" id="rmSvcAndroidCount">—</div>
+              <div class="rm-svc-label">Android VM</div>
+            </div>
+            <div class="rm-svc-card" id="rmSvcCctv">
+              <div class="rm-svc-icon">📷</div>
+              <div class="rm-svc-count" id="rmSvcCctvCount">—</div>
+              <div class="rm-svc-label">CCTV Stream</div>
+            </div>
+            <div class="rm-svc-card" id="rmSvcWa">
+              <div class="rm-svc-icon">💬</div>
+              <div class="rm-svc-count" id="rmSvcWaCount">—</div>
+              <div class="rm-svc-label">WA Gateway</div>
+            </div>
+            <div class="rm-svc-card" id="rmSvcAdb">
+              <div class="rm-svc-icon">📱</div>
+              <div class="rm-svc-count" id="rmSvcAdbCount">—</div>
+              <div class="rm-svc-label">Android ADB Remote</div>
+            </div>
+            <div class="rm-svc-card" id="rmSvcRemox">
+              <div class="rm-svc-icon">🖥️</div>
+              <div class="rm-svc-count" id="rmSvcRemoxCount">—</div>
+              <div class="rm-svc-label">Remox SSH/Telnet</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- System Cleaner -->
+        <div class="rm-section">
+          <div class="rm-proc-toolbar">
+            <div class="rm-section-title" style="margin:0"><i class="bi bi-stars"></i> Pembersih Sistem</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button class="rm-btn" id="rmCleanScanBtn" onclick="rmCleanScan()"><i class="bi bi-search"></i> Scan</button>
+              <button class="rm-btn" id="rmCleanRunBtn" onclick="rmCleanRun()" disabled style="opacity:.5"><i class="bi bi-trash3"></i> Bersihkan</button>
+            </div>
+          </div>
+          <div id="rmCleanBody">
+            <div style="font-size:12px;color:var(--color-gray)">
+              Klik <strong>Scan</strong> untuk menghitung cache &amp; file sampah yang bisa dibersihkan
+              (cache web session StarBox, file temp sistem, data emulator yatim, cache aplikasi lain).
+              Login dan data aplikasi Anda tidak akan terhapus.
+            </div>
+          </div>
+        </div>
+
+        <!-- System Processes -->
+        <div class="rm-section">
+          <div class="rm-proc-toolbar">
+            <div class="rm-section-title" style="margin:0"><i class="bi bi-list-task"></i> <span data-i18n="rm.system_procs">System Processes</span></div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input class="rm-proc-search" id="rmProcSearch" type="text" data-i18n-placeholder="rm.proc.search" placeholder="Search processes..." oninput="rmFilterProcs()">
+              <button class="rm-btn" style="padding:5px 10px;font-size:11px" onclick="rmLoadProcs()"><i class="bi bi-arrow-clockwise"></i></button>
+            </div>
+          </div>
+          <div id="rmProcContainer">
+            <div class="rm-loading"><span class="rm-spinner">⟳</span> <span data-i18n="rm.loading_procs">Loading processes...</span></div>
+          </div>
+        </div>
+
+      </div>

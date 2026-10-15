@@ -1,0 +1,184 @@
+      <!-- ═══════════════════════════════════════════════════════ -->
+      <!-- Page: Cron Job Manager                                  -->
+      <!-- ═══════════════════════════════════════════════════════ -->
+      <div id="page-cron" class="page-content">
+        <style>
+          #page-cron { display: none; flex-direction: column; overflow-y: auto; padding: 20px 24px; background: var(--color-dark-purple); color: var(--color-text-light); }
+          #page-cron.active { display: flex; }
+          .cron-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+          .cron-subtitle { font-size: 13px; color: #888; flex: 1; }
+          .cron-job-list { display: flex; flex-direction: column; gap: 12px; }
+          .cron-job-card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; overflow: hidden; transition: border-color 0.2s; }
+          .cron-job-card:hover { border-color: #7c6fe0; }
+          .cron-job-card.cron-disabled { opacity: 0.6; }
+          .cron-card-header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; }
+          .cron-card-header:hover .cron-card-name { color: #a78bfa; }
+          .cron-toggle { width: 36px; height: 20px; background: #333; border-radius: 10px; border: none; cursor: pointer; position: relative; transition: background 0.2s; flex-shrink: 0; }
+          .cron-toggle.on { background: #7c6fe0; }
+          .cron-toggle::after { content:''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left 0.2s; }
+          .cron-toggle.on::after { left: 19px; }
+          .cron-card-name { font-size: 14px; font-weight: 600; color: #e0e0e0; flex: 1; }
+          .cron-card-schedule { font-family: monospace; font-size: 12px; color: #a78bfa; background: rgba(124,111,224,0.1); padding: 2px 8px; border-radius: 5px; }
+          .cron-card-status { font-size: 11px; padding: 2px 8px; border-radius: 5px; font-weight: 600; }
+          .cron-card-status.success { background: rgba(16,185,129,0.15); color: #10b981; }
+          .cron-card-status.failed { background: rgba(239,68,68,0.15); color: #ef4444; }
+          .cron-card-status.pending { background: rgba(148,163,184,0.15); color: #94a3b8; }
+          .cron-card-actions { display: flex; gap: 6px; margin-left: auto; }
+          .cron-act-btn { background: rgba(255,255,255,0.05); border: 1px solid #30363d; border-radius: 6px; color: #aaa; cursor: pointer; padding: 4px 10px; font-size: 12px; transition: all 0.15s; }
+          .cron-act-btn:hover { background: rgba(124,111,224,0.15); border-color: #7c6fe0; color: #a78bfa; }
+          .cron-act-btn.danger:hover { background: rgba(239,68,68,0.15); border-color: #ef4444; color: #ef4444; }
+          .cron-card-meta { padding: 0 16px 10px; display: flex; gap: 20px; flex-wrap: wrap; }
+          .cron-meta-item { font-size: 11px; color: #666; }
+          .cron-meta-item span { color: #aaa; }
+          .cron-card-url { padding: 0 16px 10px; font-size: 12px; color: #555; word-break: break-all; }
+          .cron-card-url a { color: #7c6fe0; text-decoration: none; }
+          .cron-history-panel { display: none; border-top: 1px solid #30363d; }
+          .cron-history-panel.open { display: block; }
+          .cron-history-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: #0d1117; }
+          .cron-history-header h4 { margin: 0; font-size: 12px; font-weight: 600; color: #888; }
+          .cron-history-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          .cron-history-table th { padding: 6px 10px; text-align: left; color: #666; font-weight: 500; border-bottom: 1px solid #21262d; }
+          .cron-history-table td { padding: 6px 10px; color: #aaa; border-bottom: 1px solid #161b22; }
+          .cron-history-table tr:last-child td { border-bottom: none; }
+          .cron-status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+          .cron-status-dot.success { background: #10b981; }
+          .cron-status-dot.failed { background: #ef4444; }
+          .cron-empty { text-align: center; padding: 60px 20px; color: #555; }
+          .cron-empty i { font-size: 40px; color: #333; display: block; margin-bottom: 12px; }
+          .cron-empty h3 { margin: 0 0 6px; font-size: 16px; color: #666; }
+          /* Cron Modal */
+          #cronModal { display: none; position: fixed; inset: 0; z-index: 9000; background: rgba(0,0,0,0.65); align-items: center; justify-content: center; overflow-y: auto; padding: 20px 0; }
+          #cronModal.open { display: flex; }
+          .cron-modal-box { background: #161b22; border: 1px solid #30363d; border-radius: 14px; width: 560px; max-width: 95vw; box-shadow: 0 24px 64px rgba(0,0,0,0.5); }
+          .cron-modal-header { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid #30363d; }
+          .cron-modal-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+          .cron-modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid #30363d; }
+          .cron-field label { display: block; font-size: 12px; font-weight: 600; color: #aaa; margin-bottom: 5px; }
+          .cron-field input, .cron-field select, .cron-field textarea { width: 100%; padding: 8px 10px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e0e0e0; font-size: 13px; box-sizing: border-box; }
+          .cron-field input:focus, .cron-field select:focus, .cron-field textarea:focus { outline: none; border-color: #7c6fe0; }
+          .cron-preset-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+          .cron-chip { padding: 3px 10px; background: rgba(255,255,255,0.05); border: 1px solid #30363d; border-radius: 12px; color: #888; font-size: 11px; cursor: pointer; }
+          .cron-chip:hover { background: rgba(124,111,224,0.15); border-color: #7c6fe0; color: #a78bfa; }
+          .cron-expr-preview { font-size: 11px; margin-top: 4px; color: #10b981; }
+          .cron-expr-preview.invalid { color: #ef4444; }
+          .cron-toggle-row { display: flex; align-items: center; gap: 10px; }
+          /* ── Schedule Visual Builder ── */
+          .cron-builder-wrap { display: flex; flex-direction: column; gap: 8px; }
+          .cron-builder-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+          .cron-cycle-select { padding: 8px 10px; background: #0d1117; border: 1px solid #7c6fe0; border-radius: 6px; color: #e0e0e0; font-size: 13px; font-weight: 600; min-width: 140px; cursor: pointer; }
+          .cron-builder-fields { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+          .cron-builder-num { width: 72px; padding: 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e0e0e0; font-size: 14px; text-align: center; }
+          .cron-builder-time { padding: 8px 10px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e0e0e0; font-size: 14px; }
+          .cron-builder-sel { padding: 8px 10px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e0e0e0; font-size: 13px; }
+          .cron-builder-lbl { font-size: 13px; color: #888; white-space: nowrap; }
+          .cron-builder-desc { display: inline-flex; align-items: center; gap: 6px; background: rgba(124,111,224,0.12); border: 1px solid rgba(124,111,224,0.3); border-radius: 8px; padding: 6px 12px; font-size: 13px; color: #a78bfa; font-weight: 500; }
+          .cron-builder-desc i { font-size: 14px; }
+          .cron-adv-btn { background: none; border: 1px solid #30363d; border-radius: 6px; color: #666; cursor: pointer; padding: 4px 10px; font-size: 11px; transition: all 0.15s; }
+          .cron-adv-btn:hover, .cron-adv-btn.active { border-color: #7c6fe0; color: #a78bfa; }
+        </style>
+
+        <!-- Toolbar -->
+        <div class="cron-toolbar">
+          <div>
+            <h2 style="margin:0;font-size:18px;font-weight:700;color:#e0e0e0"><i class="bi bi-clock-history" style="color:#7c6fe0;margin-right:8px"></i><span data-i18n="sidebar.cron">Jadwal</span></h2>
+            <p class="cron-subtitle" data-i18n="cron.subtitle">Kelola tugas terjadwal berbasis URL (cron job)</p>
+          </div>
+          <div style="flex:1"></div>
+          <button onclick="openCronModal()" style="display:flex;align-items:center;gap:6px;padding:8px 16px;background:linear-gradient(135deg,#7c6fe0,#a78bfa);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600">
+            <i class="bi bi-plus-lg"></i><span data-i18n="cron.add_job">Tambah Job</span>
+          </button>
+        </div>
+
+        <!-- Job List -->
+        <div id="cronJobList" class="cron-job-list">
+          <div class="cron-empty">
+            <i class="bi bi-clock-history"></i>
+            <h3 data-i18n="cron.loading">Memuat jadwal...</h3>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal: Cron Job -->
+      <div id="cronModal">
+        <div class="cron-modal-box">
+          <div class="cron-modal-header">
+            <i class="bi bi-clock-history" style="font-size:18px;color:#7c6fe0"></i>
+            <h3 id="cronModalTitle" data-i18n="cron.modal.add" style="margin:0;font-size:16px;font-weight:600;color:#e0e0e0;flex:1">Tambah Cron Job</h3>
+            <button onclick="closeCronModal()" style="background:none;border:none;color:#666;cursor:pointer;font-size:18px;line-height:1;padding:2px 6px">×</button>
+          </div>
+          <div class="cron-modal-body">
+            <input type="hidden" id="cronJobId">
+
+            <!-- Job Name -->
+            <div class="cron-field">
+              <label data-i18n="cron.form.name">Nama Job</label>
+              <input type="text" id="cronJobName" data-i18n-placeholder="cron.form.name_placeholder" placeholder="Mis: Health check API">
+            </div>
+
+            <!-- Schedule Visual Builder -->
+            <div class="cron-field">
+              <label data-i18n="cron.form.schedule">Siklus Eksekusi</label>
+              <div class="cron-builder-wrap">
+                <!-- Row: cycle dropdown + dynamic fields -->
+                <div class="cron-builder-row">
+                  <select id="cronCycle" class="cron-cycle-select" onchange="cronBuilderChange()">
+                    <!-- Options filled by JS based on language -->
+                  </select>
+                  <div id="cronBuilderFields" class="cron-builder-fields"></div>
+                </div>
+                <!-- Human-readable description badge -->
+                <div id="cronBuilderDesc" class="cron-builder-desc"></div>
+                <!-- Advanced toggle -->
+                <div style="margin-top:8px">
+                  <button type="button" id="cronAdvToggle" onclick="cronToggleAdvanced()" class="cron-adv-btn">
+                    <i class="bi bi-code-slash" style="margin-right:4px"></i><span data-i18n="cron.advanced">Advanced</span>
+                  </button>
+                  <div id="cronAdvancedPanel" style="display:none;margin-top:6px">
+                    <input type="text" id="cronJobSchedule" value="*/5 * * * *"
+                      style="font-family:monospace;font-size:12px;width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;box-sizing:border-box"
+                      oninput="cronParseRaw()">
+                    <p style="margin:3px 0 0;font-size:11px;color:#555" data-i18n="cron.form.schedule_hint">Format: menit jam hari bulan hari-minggu</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- URL -->
+            <div class="cron-field">
+              <label data-i18n="cron.form.url">URL yang Dipanggil *</label>
+              <input type="url" id="cronJobUrl" data-i18n-placeholder="cron.form.url_placeholder" placeholder="https://example.com/api/ping">
+            </div>
+
+            <!-- Method + Body in a row -->
+            <div style="display:grid;grid-template-columns:140px 1fr;gap:12px">
+              <div class="cron-field">
+                <label data-i18n="cron.form.method">Metode HTTP</label>
+                <select id="cronJobMethod" onchange="cronToggleBody()">
+                  <option value="GET">GET</option>
+                  <option value="POST">POST</option>
+                  <option value="PUT">PUT</option>
+                  <option value="PATCH">PATCH</option>
+                  <option value="DELETE">DELETE</option>
+                  <option value="HEAD">HEAD</option>
+                </select>
+              </div>
+              <div class="cron-field" id="cronBodyField" style="display:none">
+                <label data-i18n="cron.form.body">Request Body (POST saja)</label>
+                <textarea id="cronJobBody" rows="2" data-i18n-placeholder="cron.form.body_placeholder" placeholder='{"key":"value"}' style="resize:vertical"></textarea>
+              </div>
+            </div>
+
+            <!-- Enable toggle -->
+            <div class="cron-toggle-row">
+              <input type="checkbox" id="cronJobEnabled" checked style="width:16px;height:16px;accent-color:#7c6fe0">
+              <label for="cronJobEnabled" style="font-size:13px;color:#ccc;cursor:pointer" data-i18n="cron.form.enabled">Aktifkan job ini</label>
+            </div>
+          </div>
+          <div class="cron-modal-footer">
+            <button onclick="closeCronModal()" data-i18n="cron.form.cancel" style="padding:8px 20px;background:rgba(255,255,255,0.06);border:1px solid #30363d;border-radius:8px;color:#aaa;cursor:pointer;font-size:13px">Batal</button>
+            <button onclick="submitCronJob()" style="padding:8px 20px;background:linear-gradient(135deg,#7c6fe0,#a78bfa);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600">
+              <i class="bi bi-floppy" style="margin-right:5px"></i><span data-i18n="cron.form.save">Simpan Job</span>
+            </button>
+          </div>
+        </div>
+      </div>

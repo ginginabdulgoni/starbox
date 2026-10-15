@@ -1,0 +1,38 @@
+{
+  "en": {
+    "sidebar.resource_monitor": "Resource Monitor",
+    "rm.waiting": "Waiting for data...",
+    "rm.refresh": "Refresh",
+    "rm.active_services": "Active StarBox Services",
+    "rm.system_procs": "System Processes",
+    "rm.proc.search": "Search processes...",
+    "rm.loading_procs": "Loading processes...",
+    "rm.system_info": "System Information",
+    "rm.info.platform": "Platform",
+    "rm.info.arch": "Architecture",
+    "rm.info.cores": "CPU Cores",
+    "rm.info.model": "CPU Model",
+    "rm.info.hostname": "Hostname",
+    "rm.info.heap_used": "Heap Used",
+    "rm.info.heap_total": "Heap Total",
+    "rm.info.uptime": "System Uptime"
+  },
+  "id": {
+    "sidebar.resource_monitor": "Resource Monitor",
+    "rm.waiting": "Menunggu data…",
+    "rm.refresh": "Refresh",
+    "rm.active_services": "Layanan StarBox Aktif",
+    "rm.system_procs": "Proses Sistem",
+    "rm.proc.search": "Cari proses…",
+    "rm.loading_procs": "Memuat proses…",
+    "rm.system_info": "Informasi Sistem",
+    "rm.info.platform": "Platform",
+    "rm.info.arch": "Arsitektur",
+    "rm.info.cores": "CPU Core",
+    "rm.info.model": "CPU Model",
+    "rm.info.hostname": "Hostname",
+    "rm.info.heap_used": "Heap Used",
+    "rm.info.heap_total": "Heap Total",
+    "rm.info.uptime": "System Uptime"
+  }
+}

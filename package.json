@@ -69,6 +69,8 @@
       "!modules/os-virtual/**/*",
       "!modules/starcapture/**/*",
       "!modules/android-ios/**/*",
+      "!modules/cron/**/*",
+      "!modules/resource-monitor/**/*",
       "!dist-modules/**/*"
     ],
     "mac": {
