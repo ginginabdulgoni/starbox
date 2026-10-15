@@ -254,6 +254,30 @@
 
   let catalogCache = null;
   let catalogError = null;
+  let suggestedCache = [];
+
+  function renderSuggestBanner() {
+    const el = document.getElementById("modulesSuggestBanner");
+    if (!el) return;
+    const pending = suggestedCache.filter((s) => !progressById.has(s.id));
+    if (!pending.length) {
+      el.style.display = "none";
+      return;
+    }
+    const nameOf = (id) => (catalogCache || []).find((m) => m.id === id)?.name || id;
+    el.innerHTML = `<span><i class="bi bi-box-arrow-in-down"></i> Fitur yang sebelumnya kamu pakai sekarang berupa modul dan belum terpasang:
+      <strong>${pending.map((s) => esc(nameOf(s.id))).join(", ")}</strong>. Data lamamu tetap aman.</span>
+      <button class="mod-btn mod-btn-primary" onclick="StarBoxModuleHost.installSuggested()"><i class="bi bi-download"></i> Pasang semua</button>`;
+    el.style.display = "flex";
+  }
+
+  async function installSuggested() {
+    for (const s of suggestedCache.slice()) {
+      if (progressById.get(s.id)?.phase === "done") continue;
+      await install(s.id);
+    }
+    renderSuggestBanner();
+  }
 
   async function renderModulesPage({ refreshCatalog = false } = {}) {
     const list = document.getElementById("modulesList");
@@ -265,6 +289,12 @@
         catalogCache = res.modules || [];
         catalogError = res.success ? null : res.error;
       }
+      try {
+        suggestedCache = (await api().suggested?.())?.modules || [];
+      } catch {
+        suggestedCache = [];
+      }
+      renderSuggestBanner();
       const merged = mergeModules(modules, catalogCache);
       list.innerHTML = merged.length
         ? merged.map(renderCard).join("")
@@ -332,9 +362,33 @@
     };
   }
 
+  /** Saat startup: beri tahu user lama bila fiturnya kini perlu dipasang sebagai modul. */
+  async function notifySuggested() {
+    try {
+      const res = await api()?.suggested?.();
+      const ids = (res?.modules || []).map((m) => m.id);
+      if (!ids.length) return;
+      const item = document.querySelector('.sidebar-item[data-page="modules"]');
+      if (item && !item.querySelector(".mod-badge-dot")) {
+        const dot = document.createElement("span");
+        dot.className = "mod-badge-dot";
+        item.appendChild(dot);
+      }
+      const key = "starbox-module-suggest-notified";
+      let notified = "";
+      try { notified = localStorage.getItem(key) || ""; } catch {}
+      if (notified === ids.join(",")) return;
+      try { localStorage.setItem(key, ids.join(",")); } catch {}
+      if (typeof window.showToast === "function") {
+        window.showToast("Beberapa fitur yang kamu pakai sekarang berupa modul — buka halaman Modul untuk memasangnya.", 7000, "info");
+      }
+    } catch {}
+  }
+
   function start() {
     loadScripts();
     hookModulesPage();
+    setTimeout(notifySuggested, 2500);
     api()?.onInstallProgress?.((p) => {
       if (!p || !p.id) return;
       progressById.set(p.id, p);
@@ -349,7 +403,7 @@
   }
 
   window.StarBoxModuleHost = {
-    injectUi, start, toggle, install, uninstall, relaunch, openPage,
+    injectUi, start, toggle, install, uninstall, relaunch, openPage, installSuggested,
     refresh: () => renderModulesPage({ refreshCatalog: true }),
   };
 })();

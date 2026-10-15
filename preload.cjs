@@ -126,6 +126,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setEnabled: (id, enabled) => ipcRenderer.invoke('modules-set-enabled', id, enabled),
     relaunch: () => ipcRenderer.invoke('restart-app'),
     catalog: () => ipcRenderer.invoke('modules-catalog'),
+    suggested: () => ipcRenderer.invoke('modules-suggested'),
     install: (id) => ipcRenderer.invoke('modules-install', id),
     uninstall: (id) => ipcRenderer.invoke('modules-uninstall', id),
     onInstallProgress: (cb) => {

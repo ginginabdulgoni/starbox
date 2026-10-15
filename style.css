@@ -4578,3 +4578,6 @@ body.theme-mode-light .filter-chip.is-active .filter-badge {
 .mod-progress-bar { height: 100%; background: var(--color-accent-purple, #7c3aed); transition: width 0.2s ease; }
 .mod-progress-text { font-size: 0.78rem; color: var(--color-muted, #94a3b8); }
 .mod-catalog-note { margin: 0 0 14px; font-size: 0.8rem; color: var(--color-muted, #94a3b8); }
+.mod-suggest-banner { background: rgba(124, 58, 237, 0.1); border-color: rgba(124, 58, 237, 0.35); color: inherit; }
+.sidebar-item { position: relative; }
+.mod-badge-dot { position: absolute; top: 10px; left: 30px; width: 8px; height: 8px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 2px var(--color-card, #fff); }

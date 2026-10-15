@@ -1,0 +1,47 @@
+# Rilis modul StarBox ke GitHub Releases dan terbitkan katalognya.
+#
+# Jalan saat ada perubahan di modules/ pada branch main (atau manual lewat
+# "Run workflow"). Hanya modul yang versinya (manifest.json "version") belum
+# punya release `module-<id>-v<version>` yang di-pack ulang; naikkan versi
+# modul untuk merilis update. catalog.json selalu diperbarui di release
+# `modules-catalog`, yang dibaca halaman Modul di StarBox.
+name: Release modules
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "modules/**"
+      - "scripts/pack-module.js"
+      - "scripts/release-modules.js"
+      - ".github/workflows/modules.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-modules
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Hanya butuh adm-zip dari dependensi core; lewati install script
+      # (unduhan Electron & rebuild native) karena tidak diperlukan di sini.
+      - name: Install core dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Pack & publish modules
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/release-modules.js

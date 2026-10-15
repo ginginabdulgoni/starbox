@@ -450,7 +450,7 @@ function initializeLogging() {
   RemoteSocketClient.setSshClientResolver(() => moduleLoader?.getApi("remox")?.SshClient || null);
   moduleInstaller = new ModuleInstaller({
     // Developer: STARBOX_MODULE_CATALOG=dist-modules/catalog.json (lihat scripts/pack-module.js)
-    catalogSource: process.env.STARBOX_MODULE_CATALOG || `${DEFAULT_API_BASE_URL}/modules/catalog.json`,
+    catalogSource: process.env.STARBOX_MODULE_CATALOG || MODULE_CATALOG_URL,
     installDir: path.join(app.getPath("userData"), "modules"),
     validateManifest,
   });
@@ -2042,6 +2042,9 @@ async function refreshServicesFromServer() {
 // Global paths (will be initialized after app is ready)
 let userDataPath = null;
 let DB_PATH = null;
+// Katalog modul — diterbitkan oleh .github/workflows/modules.yml (scripts/release-modules.js)
+const MODULE_CATALOG_URL =
+  "https://github.com/ginginabdulgoni/starbox/releases/download/modules-catalog/catalog.json";
 let moduleLoader = null;
 // Android / iOS (emulator, ADB remote, scrcpy, StarSync, iOS Simulator) adalah
 // modul "android-ios". Core hanya memanggil API-nya bila modul terpasang.
@@ -7146,6 +7149,40 @@ ipcMain.on("modules-get-renderer-config", (event) => {
 });
 
 ipcMain.handle("modules-list", () => ({ modules: moduleLoader ? moduleLoader.list() : [] }));
+
+// Modul yang datanya sudah ada di disk (dipakai sebelum StarBox jadi modular)
+// tapi belum terpasang — disarankan di halaman Modul supaya user lama tidak
+// "kehilangan" fiturnya setelah update.
+function countJsonItems(file, filterFn = null) {
+  try {
+    const data = JSON.parse(fs.readFileSync(path.join(app.getPath("userData"), file), "utf8"));
+    const lists = Array.isArray(data) ? [data] : Object.values(data || {}).filter(Array.isArray);
+    return lists.reduce((n, list) => n + (filterFn ? list.filter(filterFn).length : list.length), 0);
+  } catch {
+    return 0;
+  }
+}
+
+ipcMain.handle("modules-suggested", () => {
+  const isAndroid = (d) => String(d?.service || "").toLowerCase() === "android";
+  const evidence = {
+    "whatsapp-gateway": countJsonItems("wa-gateway-data.json"),
+    cctv: countJsonItems("cctv-cameras.json"),
+    remox: countJsonItems("remox-connections.json"),
+    mikrotik: countJsonItems("mikrotik-devices.json"),
+    "os-virtual": countJsonItems(path.join("db", "virtual-machines.json")),
+    cron: countJsonItems(path.join("db", "cron-jobs.json")),
+    "android-ios":
+      countJsonItems(path.join("db", "devices.json"), isAndroid) +
+      countJsonItems(path.join("db", "adb-devices.json")),
+  };
+  const known = new Set((moduleLoader?.list() || []).map((m) => m.id));
+  return {
+    modules: Object.entries(evidence)
+      .filter(([id, count]) => count > 0 && !known.has(id))
+      .map(([id, count]) => ({ id, count })),
+  };
+});
 
 ipcMain.handle("modules-catalog", async () => {
   try {

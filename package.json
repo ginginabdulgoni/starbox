@@ -23,7 +23,8 @@
     "build:win:nover": "node ./node_modules/electron-builder/out/cli/cli.js --win --arm64 --x64",
     "build:linux:nover": "node ./node_modules/electron-builder/out/cli/cli.js --linux --arm64 --x64",
     "modules:install": "node scripts/modules-install.js",
-    "modules:pack": "node scripts/pack-module.js"
+    "modules:pack": "node scripts/pack-module.js",
+    "modules:release": "node scripts/release-modules.js"
   },
   "build": {
     "asar": true,
