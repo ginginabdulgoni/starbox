@@ -1,0 +1,362 @@
+      <!-- Page: CCTV -->
+      <div id="page-cctv" class="page-content">
+        <main class="page-main cctv-page-main">
+          <!-- Hero Card: CCTV Live Surveillance -->
+          <div class="cctv-hero-card">
+            <div class="cctv-hero-top">
+              <div class="cctv-badge-wrap">
+                <span class="cctv-hero-badge"><i class="bi bi-camera-video-fill"></i> CCTV Multi-Channel</span>
+                <span class="cctv-hero-badge-sub"><i class="bi bi-shield-check"></i> 24/7 Live Surveillance</span>
+                <span class="cctv-hero-badge-engine"><i class="bi bi-broadcast-pin"></i> ONVIF / RTSP / MJPEG</span>
+              </div>
+            </div>
+            <div class="cctv-hero-body">
+              <h1 class="cctv-hero-title">
+                <i class="bi bi-camera-video-fill cctv-hero-icon"></i>
+                <span>Smart CCTV & IP Camera Monitor</span>
+              </h1>
+              <p class="cctv-hero-desc">
+                Sistem monitoring multi-channel kamera IP terpusat dengan dukungan protokol RTSP, ONVIF discovery, MJPEG, snapshot recorder, kendali rotasi PTZ (Pan-Tilt-Zoom), dan transkoding ultra-low latency berbasis FFmpeg.
+              </p>
+            </div>
+            <div class="cctv-hero-highlights">
+              <div class="cctv-hl-item"><i class="bi bi-record-circle-fill" style="color:#ef4444;"></i> Ultra-Low Latency RTSP Stream</div>
+              <div class="cctv-hl-item"><i class="bi bi-radar" style="color:#06b6d4;"></i> Auto ONVIF Network Discovery</div>
+              <div class="cctv-hl-item"><i class="bi bi-controller" style="color:#a855f7;"></i> PTZ Speed Dome Controller</div>
+              <div class="cctv-hl-item"><i class="bi bi-grid-3x3-gap-fill" style="color:#f59e0b;"></i> Multi-Grid Instant Layout</div>
+            </div>
+          </div>
+
+          <!-- Dashboard Summary Metrics -->
+          <div class="cctv-dashboard-metrics" id="cctvDashboardMetrics">
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;">
+                <i class="bi bi-camera-video"></i>
+              </div>
+              <div class="metric-content">
+                <span class="metric-label">Total Kamera</span>
+                <span class="metric-value" id="metricCctvTotal">0</span>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(16, 185, 129, 0.15); color: #34d399;">
+                <i class="bi bi-broadcast"></i>
+              </div>
+              <div class="metric-content">
+                <span class="metric-label">Live Streaming</span>
+                <span class="metric-value" id="metricCctvLive">0</span>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(6, 182, 212, 0.15); color: #06b6d4;">
+                <i class="bi bi-hdd-network"></i>
+              </div>
+              <div class="metric-content">
+                <span class="metric-label">RTSP / ONVIF</span>
+                <span class="metric-value" id="metricCctvRtsp">0</span>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24;">
+                <i class="bi bi-grid-3x3-gap-fill"></i>
+              </div>
+              <div class="metric-content">
+                <span class="metric-label">Grid Mode</span>
+                <span class="metric-value" id="metricCctvLayout">2×2 (Quad)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Modern CCTV Toolbar -->
+          <div class="toolbar cctv-toolbar">
+            <div class="cctv-status-indicator-box">
+              <span id="cctvStatusDot" class="cctv-status-dot" title="FFmpeg status"></span>
+              <span id="cctvStatusText" data-i18n="cctv.checking" class="cctv-status-text">Memeriksa FFmpeg...</span>
+              <button id="cctvInstallFfmpegBtn" onclick="cctvInstallFfmpeg()" class="btn-primary btn-xs" style="display:none;">
+                <i class="bi bi-download"></i> Install FFmpeg
+              </button>
+              <button id="cctvFfmpegTutorialBtn" onclick="showFfmpegTutorial()" class="btn-secondary btn-xs" style="display:none;">
+                <i class="bi bi-book"></i> Tutorial
+              </button>
+            </div>
+
+            <!-- Search box for camera -->
+            <div class="search-box cctv-search-box">
+              <i class="bi bi-search"></i>
+              <input type="text" id="cctvSearchInput" placeholder="Cari kamera berdasarkan nama atau IP..." oninput="cctvFilterSearch()" />
+            </div>
+
+            <!-- Layout selector segmented controls -->
+            <div class="cctv-layout-selector">
+              <button onclick="cctvSetLayout(1)" id="cctvLayout1" class="btn-cctv-layout" title="1 Kamera (Single View)">
+                <svg width="15" height="15" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="2" fill="currentColor"/></svg>
+                <span>1×1</span>
+              </button>
+              <button onclick="cctvSetLayout(4)" id="cctvLayout4" class="btn-cctv-layout active" title="4 Kamera (2×2 Quad)">
+                <svg width="15" height="15" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1" fill="currentColor"/><rect x="1" y="9" width="6" height="6" rx="1" fill="currentColor"/><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor"/></svg>
+                <span>2×2</span>
+              </button>
+              <button onclick="cctvSetLayout(9)" id="cctvLayout9" class="btn-cctv-layout" title="9 Kamera (3×3 Grid)">
+                <svg width="15" height="15" viewBox="0 0 16 16">
+                  <rect x="1" y="1" width="4" height="4" rx="0.5" fill="currentColor"/><rect x="6" y="1" width="4" height="4" rx="0.5" fill="currentColor"/><rect x="11" y="1" width="4" height="4" rx="0.5" fill="currentColor"/>
+                  <rect x="1" y="6" width="4" height="4" rx="0.5" fill="currentColor"/><rect x="6" y="6" width="4" height="4" rx="0.5" fill="currentColor"/><rect x="11" y="6" width="4" height="4" rx="0.5" fill="currentColor"/>
+                  <rect x="1" y="11" width="4" height="4" rx="0.5" fill="currentColor"/><rect x="6" y="11" width="4" height="4" rx="0.5" fill="currentColor"/><rect x="11" y="11" width="4" height="4" rx="0.5" fill="currentColor"/>
+                </svg>
+                <span>3×3</span>
+              </button>
+              <button onclick="cctvSetLayout(16)" id="cctvLayout16" class="btn-cctv-layout" title="16 Kamera (4×4 Matrix)">
+                <svg width="15" height="15" viewBox="0 0 16 16">
+                  <rect x="1" y="1" width="3" height="3" rx="0.3" fill="currentColor"/><rect x="5" y="1" width="3" height="3" rx="0.3" fill="currentColor"/><rect x="9" y="1" width="3" height="3" rx="0.3" fill="currentColor"/><rect x="13" y="1" width="3" height="3" rx="0.3" fill="currentColor"/>
+                  <rect x="1" y="5" width="3" height="3" rx="0.3" fill="currentColor"/><rect x="5" y="5" width="3" height="3" rx="0.3" fill="currentColor"/><rect x="9" y="5" width="3" height="3" rx="0.3" fill="currentColor"/><rect x="13" y="5" width="3" height="3" rx="0.3" fill="currentColor"/>
+                  <rect x="1" y="9" width="3" height="3" rx="0.3" fill="currentColor"/><rect x="5" y="9" width="3" height="3" rx="0.3" fill="currentColor"/><rect x="9" y="9" width="3" height="3" rx="0.3" fill="currentColor"/><rect x="13" y="9" width="3" height="3" rx="0.3" fill="currentColor"/>
+                  <rect x="1" y="13" width="3" height="3" rx="0.3" fill="currentColor"/><rect x="5" y="13" width="3" height="3" rx="0.3" fill="currentColor"/><rect x="9" y="13" width="3" height="3" rx="0.3" fill="currentColor"/><rect x="13" y="13" width="3" height="3" rx="0.3" fill="currentColor"/>
+                </svg>
+                <span>4×4</span>
+              </button>
+            </div>
+
+            <!-- Toolbar Actions -->
+            <div class="cctv-toolbar-actions">
+              <button onclick="cctvOpenScanModal()" class="btn-secondary" title="Pindai jaringan lokal mencari kamera ONVIF">
+                <i class="bi bi-radar"></i> <span data-i18n="cctv.scan_onvif">Scan ONVIF</span>
+              </button>
+              <button onclick="cctvOpenAddModal()" class="btn-primary" title="Tambah kamera IP atau RTSP manual">
+                <i class="bi bi-plus-lg"></i> <span data-i18n="cctv.add_camera">Tambah Kamera</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- FFmpeg missing banner -->
+          <div id="cctvFfmpegMissingBanner" class="cctv-missing-banner" style="display:none;">
+            <div class="cctv-missing-banner-icon">
+              <i class="bi bi-exclamation-triangle-fill"></i>
+            </div>
+            <div class="cctv-missing-banner-text">
+              <strong>FFmpeg Streaming Engine tidak ditemukan</strong>
+              <span>FFmpeg diperlukan untuk decoding RTSP / H.264 stream secara real-time. Klik tombol install untuk memasang otomatis.</span>
+            </div>
+            <div class="cctv-missing-banner-actions">
+              <button id="cctvInstallFfmpegBannerBtn" onclick="cctvInstallFfmpeg()" class="btn-primary btn-sm">
+                <i class="bi bi-download"></i> Install FFmpeg
+              </button>
+              <button onclick="showFfmpegTutorial()" class="btn-secondary btn-sm">
+                <i class="bi bi-book"></i> Tutorial
+              </button>
+            </div>
+          </div>
+
+          <!-- CCTV Video Grid -->
+          <div class="cctv-grid-container">
+            <div id="cctvGrid" class="cctv-grid cctv-grid-4">
+              <!-- cells rendered by JS -->
+            </div>
+          </div>
+        </main>
+      </div>
+      <!-- End Page: CCTV -->
+
+      <!-- CCTV Add/Edit Modal -->
+      <div id="cctvModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9000;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+        <div style="background:var(--color-medium-purple,#2d2446);border-radius:14px;padding:28px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.08);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 id="cctvModalTitle" data-i18n="cctv.modal.add" style="margin:0;font-size:1.1rem;">Add Camera</h3>
+            <button onclick="cctvCloseModal()" style="background:none;border:none;color:var(--color-muted);font-size:1.3rem;cursor:pointer;padding:4px;">×</button>
+          </div>
+
+          <input type="hidden" id="cctvEditUid" value="">
+
+          <div style="display:flex;flex-direction:column;gap:14px;">
+            <div>
+              <label data-i18n="cctv.form.name" style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">Camera Name *</label>
+              <input id="cctvName" type="text" placeholder="Contoh: Kamera Depan" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;box-sizing:border-box;">
+            </div>
+
+            <div>
+              <label data-i18n="cctv.form.type" style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">Stream Type</label>
+              <select id="cctvType" onchange="cctvOnTypeChange()" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;">
+                <option value="rtsp">RTSP (DVR/NVR/IP Camera)</option>
+                <option value="http-mjpeg">HTTP MJPEG (IP Camera langsung)</option>
+                <option value="hls">HLS (.m3u8)</option>
+                <option value="snapshot">Snapshot URL (auto-refresh)</option>
+              </select>
+            </div>
+
+            <div id="cctvBrandHelper" style="display:none;">
+              <label data-i18n="cctv.form.template" style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">URL Template (optional)</label>
+              <select onchange="cctvApplyTemplate(this.value)" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;">
+                <option value="" data-i18n="cctv.form.template_default">— Select brand to auto-fill URL —</option>
+                <option value="rtsp://IP:554/Streaming/Channels/101">Hikvision (Channel 1 Main)</option>
+                <option value="rtsp://IP:554/Streaming/Channels/201">Hikvision (Channel 2 Main)</option>
+                <option value="rtsp://IP:554/cam/realmonitor?channel=1&subtype=0">Dahua (CH1 Main)</option>
+                <option value="rtsp://IP:554/cam/realmonitor?channel=1&subtype=1">Dahua (CH1 Sub)</option>
+                <option value="rtsp://IP:554/h264Preview_01_main">Reolink (CH1 Main)</option>
+                <option value="rtsp://IP:554/axis-media/media.amp">Axis</option>
+                <option value="rtsp://IP:554/live/ch00_0">Tiandy / Generic DVR</option>
+                <option value="rtsp://IP:554/stream1">Generic (stream1)</option>
+                <option value="rtsp://IP:554/0">Generic (channel 0)</option>
+                <option disabled>─── Indonesia ───</option>
+                <option value="rtsp://admin:admin@IP:8554/Streaming/Channels/101">Bardi (Main Stream)</option>
+                <option value="rtsp://admin:admin@IP:8554/Streaming/Channels/102">Bardi (Sub Stream)</option>
+                <option value="rtsp://admin:admin@IP:554/stream1">AVARO (stream1)</option>
+                <option value="rtsp://admin:admin@IP:554/live">AVARO (live)</option>
+                <option value="rtsp://admin:admin@IP:554/videoMain">AVARO / Tuya (videoMain)</option>
+              </select>
+            </div>
+
+            <div>
+              <label data-i18n="cctv.form.url" style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">URL / Stream Address *</label>
+              <input id="cctvUrl" type="text" placeholder="rtsp://192.168.1.100:554/stream1" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;font-family:monospace;box-sizing:border-box;">
+              <p id="cctvUrlHint" style="margin:4px 0 0;font-size:0.75rem;color:var(--color-muted);"></p>
+            </div>
+
+            <div style="display:flex;gap:10px;" id="cctvCredFields">
+              <div style="flex:1;">
+                <label style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">Username</label>
+                <input id="cctvUsername" type="text" placeholder="admin" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;box-sizing:border-box;">
+              </div>
+              <div style="flex:1;">
+                <label style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">Password</label>
+                <input id="cctvPassword" type="password" placeholder="••••••" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;box-sizing:border-box;">
+              </div>
+            </div>
+
+            <div id="cctvFpsField">
+              <label data-i18n="cctv.form.fps" style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">Frame Rate (fps)</label>
+              <select id="cctvFps" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;">
+                <option value="5">5 fps (hemat CPU)</option>
+                <option value="10">10 fps</option>
+                <option value="15" selected>15 fps (default)</option>
+                <option value="25">25 fps</option>
+                <option value="30">30 fps</option>
+              </select>
+            </div>
+
+            <div id="cctvSnapshotInterval" style="display:none;">
+              <label data-i18n="cctv.form.refresh" style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">Refresh Interval (seconds)</label>
+              <input id="cctvRefreshSec" type="number" min="1" max="300" value="5" style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;box-sizing:border-box;">
+            </div>
+
+            <div>
+              <label data-i18n="cctv.form.notes" style="font-size:0.8rem;color:var(--color-muted);display:block;margin-bottom:5px;">Notes</label>
+              <input id="cctvNotes" type="text" placeholder="Lokasi, keterangan, dll." style="width:100%;padding:9px 12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);font-size:0.9rem;box-sizing:border-box;">
+            </div>
+
+            <!-- PTZ / ONVIF section -->
+            <div style="border:1px solid #4c1d9566;border-radius:10px;padding:14px 14px 10px;">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                <span data-i18n="cctv.form.ptz" style="font-size:0.82rem;font-weight:700;color:#a78bfa;">🎮 PTZ / ONVIF</span>
+                <span data-i18n="cctv.form.ptz_hint" style="font-size:0.72rem;color:var(--color-muted);">Fill in to show camera direction control buttons</span>
+                <button type="button" onclick="cctvAutoFillOnvif()" style="margin-left:auto;padding:3px 10px;background:#4c1d95;border:none;color:#fff;border-radius:5px;cursor:pointer;font-size:0.72rem;white-space:nowrap;">⚡ Isi Otomatis</button>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 100px 1fr;gap:10px;">
+                <div>
+                  <label data-i18n="cctv.form.onvif_ip" style="font-size:0.75rem;color:var(--color-muted);display:block;margin-bottom:4px;">ONVIF IP</label>
+                  <input id="cctvOnvifIp" type="text" placeholder="192.168.2.245" style="width:100%;padding:8px 10px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:7px;color:var(--color-text);font-size:0.85rem;box-sizing:border-box;">
+                </div>
+                <div>
+                  <label data-i18n="cctv.form.onvif_port" style="font-size:0.75rem;color:var(--color-muted);display:block;margin-bottom:4px;">ONVIF Port</label>
+                  <input id="cctvOnvifPort" type="number" placeholder="80" value="80" style="width:100%;padding:8px 10px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:7px;color:var(--color-text);font-size:0.85rem;box-sizing:border-box;">
+                </div>
+                <div>
+                  <label style="font-size:0.75rem;color:var(--color-muted);display:block;margin-bottom:4px;">Profile Token</label>
+                  <input id="cctvOnvifToken" type="text" placeholder="MainStream" style="width:100%;padding:8px 10px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:7px;color:var(--color-text);font-size:0.85rem;box-sizing:border-box;">
+                </div>
+              </div>
+              <div style="font-size:0.7rem;color:var(--color-muted);margin-top:7px;">
+                💡 Bardi: port <b>835</b>, token <b>MainStream</b> &nbsp;·&nbsp; AVARO: port <b>80</b>, token <b>MainStream</b>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:24px;">
+            <button onclick="cctvCloseModal()" style="padding:9px 20px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:8px;color:var(--color-text);cursor:pointer;font-size:0.9rem;" data-i18n="cctv.form.cancel">Cancel</button>
+            <button onclick="cctvSaveCamera()" style="padding:9px 20px;background:var(--color-primary);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;font-weight:600;" data-i18n="cctv.form.save">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CCTV Fullscreen Overlay -->
+      <div id="cctvFullscreen" style="display:none;position:fixed;inset:0;background:#000;z-index:9500;flex-direction:column;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:rgba(0,0,0,0.7);position:absolute;top:0;left:0;right:0;z-index:1;">
+          <span id="cctvFsTitle" style="color:#fff;font-weight:700;"></span>
+          <button onclick="cctvCloseFullscreen()" style="background:rgba(255,255,255,0.15);border:none;color:#fff;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:0.85rem;">✕ Tutup</button>
+        </div>
+        <img id="cctvFsImg" src="" style="width:100%;height:100%;object-fit:contain;display:none;" alt="CCTV Stream">
+        <video id="cctvFsVideo" style="width:100%;height:100%;object-fit:contain;display:none;" autoplay muted controls></video>
+      </div>
+
+      <!-- CCTV ONVIF Scan Modal -->
+      <div id="cctvScanModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9200;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+        <div style="background:var(--color-medium-purple,#2d2446);border-radius:14px;padding:24px;width:620px;max-width:96vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.08);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <div>
+              <h3 data-i18n="cctv.scan.title" style="margin:0;font-size:1.05rem;">Scan ONVIF / IP Camera</h3>
+              <p data-i18n="cctv.scan.desc" style="margin:4px 0 0;font-size:0.75rem;color:var(--color-muted);">WS-Discovery + TCP scan on local subnet ports 80, 8080, 8899</p>
+            </div>
+            <button onclick="cctvCloseScanModal()" style="background:none;border:none;color:var(--color-muted);font-size:1.3rem;cursor:pointer;">×</button>
+          </div>
+
+          <!-- IP Range -->
+          <div style="margin-bottom:12px;">
+            <label style="font-size:0.75rem;color:var(--color-muted);display:block;margin-bottom:4px;">
+              <span data-i18n="cctv.scan.subnet">Subnet or Range</span>
+              <span data-i18n="cctv.scan.subnet_hint" style="color:var(--color-muted);font-weight:400;"> — leave blank for auto-detect local subnet</span>
+            </label>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input id="cctvScanSubnet" type="text" placeholder="Contoh: 192.168.100 atau 192.168.100.1-50"
+                style="flex:1;min-width:200px;padding:8px 10px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:7px;color:var(--color-text);font-size:0.85rem;font-family:monospace;box-sizing:border-box;">
+              <div style="display:flex;gap:6px;flex-wrap:wrap;" id="cctvSubnetChips">
+                <!-- populated by JS -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Credentials + Scan button -->
+          <div style="display:flex;gap:10px;margin-bottom:14px;">
+            <div style="flex:1;">
+              <label data-i18n="cctv.scan.user" style="font-size:0.75rem;color:var(--color-muted);display:block;margin-bottom:4px;">Username (optional)</label>
+              <input id="cctvScanUser" type="text" placeholder="admin" style="width:100%;padding:8px 10px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:7px;color:var(--color-text);font-size:0.85rem;box-sizing:border-box;">
+            </div>
+            <div style="flex:1;">
+              <label data-i18n="cctv.scan.pass" style="font-size:0.75rem;color:var(--color-muted);display:block;margin-bottom:4px;">Password (optional)</label>
+              <div style="position:relative;">
+                <input id="cctvScanPass" type="password" placeholder="••••••" style="width:100%;padding:8px 36px 8px 10px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:7px;color:var(--color-text);font-size:0.85rem;box-sizing:border-box;">
+                <button type="button" onclick="cctvToggleScanPass(this)"
+                  style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--color-muted);cursor:pointer;padding:2px 4px;font-size:0.9rem;line-height:1;">
+                  <i class="bi bi-eye"></i>
+                </button>
+              </div>
+            </div>
+            <div style="display:flex;align-items:flex-end;">
+              <button id="cctvScanBtn" onclick="cctvStartScan()" style="padding:8px 18px;background:var(--color-primary);color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:0.85rem;font-weight:600;white-space:nowrap;">
+                <i class="bi bi-search"></i> <span data-i18n="cctv.scan.start">Start Scan</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Progress -->
+          <div id="cctvScanProgress" style="display:none;margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+              <span id="cctvScanMsg" style="font-size:0.78rem;color:var(--color-muted);"></span>
+              <span id="cctvScanPct" style="font-size:0.78rem;color:var(--color-muted);"></span>
+            </div>
+            <div style="height:4px;background:var(--color-bg);border-radius:2px;overflow:hidden;">
+              <div id="cctvScanBar" style="height:100%;background:var(--color-primary);width:0%;transition:width .3s;"></div>
+            </div>
+          </div>
+
+          <!-- Brand notes -->
+          <div style="background:#f59e0b18;border:1px solid #f59e0b44;border-radius:7px;padding:8px 12px;margin-bottom:10px;font-size:0.75rem;color:#f59e0b;line-height:1.6;">
+            <b>Bardi</b>: Aktifkan ONVIF dulu di aplikasi Bardi → Perangkat → Pengaturan → ONVIF. Port RTSP: <code style="background:#0003;padding:1px 5px;border-radius:3px;">8554</code><br>
+            <b>AVARO</b>: Support ONVIF via port 80/8080. Jika tidak terdeteksi, tambah manual dengan URL template AVARO.
+          </div>
+
+          <!-- Results -->
+          <div id="cctvScanResults" style="flex:1;overflow-y:auto;min-height:100px;">
+            <div id="cctvScanEmpty" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100px;color:var(--color-muted);gap:8px;">
+              <i class="bi bi-radar" style="font-size:2rem;"></i>
+              <span data-i18n="cctv.scan.hint" style="font-size:0.85rem;">Click "Start Scan" to search for ONVIF cameras on the local network</span>
+            </div>
+          </div>
+        </div>
+      </div>

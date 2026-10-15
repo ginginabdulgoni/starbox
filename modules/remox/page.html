@@ -1,0 +1,741 @@
+      <!-- Page: Remox -->
+      <div id="page-remox" class="page-content">
+        <style>
+          /* ── Remox Layout ── */
+          #page-remox { display: none; flex-direction: column; min-height: 0; padding: 0; overflow: hidden; }
+          #page-remox.active { display: flex; min-height: 0; }
+
+          /* ── Top bar ── */
+          .rmx-topbar {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 16px;
+            background: var(--color-dark-purple);
+            border-bottom: 1px solid rgba(139,92,246,0.15);
+            flex-shrink: 0;
+          }
+          .rmx-topbar h2 { margin: 0; font-size: 16px; font-weight: 600; color: var(--color-text-light); }
+          .rmx-topbar .rmx-topbar-actions { margin-left: auto; display: flex; gap: 8px; }
+          .rmx-workspace { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+
+          /* ── Sidebar connections ── */
+          .rmx-sidebar {
+            width: 240px; min-width: 200px;
+            background: var(--color-medium-purple);
+            border-right: 1px solid rgba(139,92,246,0.15);
+            display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;
+            min-height: 0;
+          }
+          .rmx-sidebar-head {
+            padding: 10px 12px; display: flex; align-items: center; justify-content: space-between;
+            border-bottom: 1px solid rgba(139,92,246,0.12);
+          }
+          .rmx-sidebar-head span {
+            font-size: 11px; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.8px; color: var(--color-gray);
+          }
+          /* ── Search bar ── */
+          .rmx-search-wrap {
+            display: flex; align-items: center; gap: 6px;
+            padding: 7px 10px; border-bottom: 1px solid rgba(139,92,246,0.1);
+            flex-shrink: 0;
+          }
+          .rmx-search-wrap i { color: var(--color-gray); font-size: 12px; flex-shrink: 0; }
+          .rmx-search-wrap input {
+            flex: 1; background: none; border: none; outline: none;
+            font-size: 12px; color: var(--color-text-light);
+            caret-color: var(--color-accent-purple);
+          }
+          .rmx-search-wrap input::placeholder { color: var(--color-gray); }
+          /* ── Cloud sync indicator per connection ── */
+          .rmx-cloud-dot {
+            width:22px;height:22px;border-radius:5px;flex-shrink:0;
+            display:flex;align-items:center;justify-content:center;
+            font-size:12px;cursor:pointer;transition:background 0.15s, transform 0.1s;
+            position:relative;
+          }
+          .rmx-cloud-dot:hover { background:rgba(139,92,246,0.14); transform:scale(1.15); }
+          .rmx-cloud-dot.synced   { color:#50c878; }
+          .rmx-cloud-dot.pending  { color:#f0a040; }
+          .rmx-cloud-dot.excluded { color:#555; }
+          .rmx-cloud-dot.synced i  { filter: drop-shadow(0 0 3px #50c87866); }
+          .rmx-cloud-dot.pending i { animation: rmx-pulse 1.8s ease-in-out infinite; }
+
+          /* ── Quota badge ── */
+          .rmx-quota-badge {
+            font-size:11px;padding:3px 8px;border-radius:10px;font-weight:600;
+            background:rgba(99,102,241,0.12);color:#a5b4fc;
+            border:1px solid rgba(99,102,241,0.2);white-space:nowrap;
+          }
+          .rmx-quota-badge.full {
+            background:rgba(220,38,38,0.15);color:#fca5a5;border-color:rgba(220,38,38,0.3);
+          }
+          /* ── Sync badge ── */
+          .rmx-sync-btn {
+            display:flex;align-items:center;gap:5px;
+            padding:5px 10px;border-radius:6px;font-size:12px;font-weight:500;
+            background:rgba(99,102,241,0.15);color:#a5b4fc;
+            border:1px solid rgba(99,102,241,0.25);cursor:pointer;transition:background 0.15s;
+          }
+          .rmx-sync-btn:hover{background:rgba(99,102,241,0.28);}
+          .rmx-sync-btn.syncing i{animation:spin 0.9s linear infinite;}
+          @keyframes spin{to{transform:rotate(360deg)}}
+          .rmx-conn-list {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 6px 0;
+            overscroll-behavior: contain;
+          }
+          .rmx-conn-item {
+            display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+            cursor: pointer; transition: background 0.15s;
+            border-left: 3px solid transparent; user-select: none;
+          }
+          .rmx-conn-item:hover { background: rgba(139,92,246,0.08); }
+          .rmx-conn-item.active { background: rgba(139,92,246,0.15); border-left-color: var(--color-accent-purple); }
+          .rmx-conn-icon {
+            width: 30px; height: 30px; border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px; flex-shrink: 0;
+          }
+          .rmx-conn-icon.ssh    { background: rgba(80,160,240,0.18); color: #50a0f0; }
+          .rmx-conn-icon.telnet { background: rgba(80,200,120,0.18); color: #50c878; }
+          .rmx-conn-icon.rdp    { background: rgba(139,92,246,0.18); color: var(--color-accent-purple); }
+          .rmx-conn-info { flex: 1; min-width: 0; }
+          .rmx-conn-head {
+            display: flex; align-items: center; justify-content: space-between; gap: 8px;
+          }
+          .rmx-conn-name {
+            font-size: 13px; font-weight: 600; color: var(--color-text-light);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          }
+          .rmx-conn-meta {
+            display: none;
+          }
+          .rmx-conn-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s; flex-shrink: 0; }
+          .rmx-conn-item:hover .rmx-conn-actions { opacity: 1; }
+          .rmx-conn-btn {
+            background: none; border: none; cursor: pointer; padding: 2px 4px;
+            border-radius: 4px; font-size: 12px; color: var(--color-gray);
+          }
+          .rmx-conn-btn:hover { background: rgba(139,92,246,0.15); color: var(--color-text-light); }
+          .rmx-conn-btn.danger:hover { background: rgba(220,60,60,0.2); color: var(--color-danger, #ef4444); }
+          .rmx-conn-empty { padding: 24px 16px; text-align: center; color: var(--color-gray); font-size: 13px; }
+
+          /* ── Ping badge ── */
+          .rmx-ping-badge {
+            display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+            font-size: 10px; padding: 2px 6px; border-radius: 10px;
+            background: rgba(139,92,246,0.08); color: var(--color-gray);
+            cursor: pointer; user-select: none; transition: background 0.15s;
+          }
+          .rmx-ping-badge:hover { background: rgba(139,92,246,0.15); color: var(--color-text-light); }
+          .rmx-ping-badge .rmx-ping-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-gray); flex-shrink: 0; }
+          .rmx-ping-badge.ok .rmx-ping-dot   { background: #50c878; box-shadow: 0 0 4px #50c87866; }
+          .rmx-ping-badge.fail .rmx-ping-dot  { background: var(--color-danger, #e87070); }
+          .rmx-ping-badge.checking .rmx-ping-dot { background: var(--color-warning, #f0a040); animation: rmx-pulse 0.8s infinite; }
+          .rmx-ping-badge.ok   { color: #50c878; }
+          .rmx-ping-badge.fail { color: var(--color-danger, #e87070); }
+          @keyframes rmx-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+          /* ── Terminal area — intentionally kept dark (terminal UX) ── */
+          .rmx-terminal-area { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #0d1117; }
+          .rmx-quickbar {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 10px;
+            background: #11161d;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            flex-shrink: 0;
+            position: relative;
+          }
+          .rmx-quickbar-label {
+            font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase; color: #6e7681; white-space: nowrap;
+          }
+          .rmx-quickbar-spacer { flex: 1; }
+          .rmx-quickbar-dropdown { position: relative; }
+          .rmx-quickbar-toggle {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px; color: #c9d1d9; padding: 7px 12px;
+            cursor: pointer; font-size: 12px; white-space: nowrap;
+            transition: background 0.15s, border-color 0.15s;
+          }
+          .rmx-quickbar-toggle:hover,
+          .rmx-quickbar-toggle[aria-expanded="true"] {
+            background: rgba(124,111,224,0.14);
+            border-color: rgba(124,111,224,0.35);
+          }
+          .rmx-quickbar-menu {
+            position: absolute; top: calc(100% + 8px); right: 0; z-index: 40;
+            width: min(420px, calc(100vw - 32px));
+            background: #161b22; border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px; box-shadow: 0 18px 40px rgba(0,0,0,0.42);
+            padding: 8px; display: none;
+          }
+          .rmx-quickbar-menu.open { display: block; }
+          .rmx-quickbar-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px;
+          }
+          .rmx-quick-btn {
+            display: inline-flex; align-items: center; gap: 7px;
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px; color: #c9d1d9; padding: 8px 10px;
+            cursor: pointer; font-size: 12px; white-space: nowrap; width: 100%;
+            justify-content: space-between;
+            transition: background 0.15s, border-color 0.15s, transform 0.12s;
+          }
+          .rmx-quick-btn span { flex: 1; text-align: left; }
+          .rmx-quick-btn:hover {
+            background: rgba(124,111,224,0.14);
+            border-color: rgba(124,111,224,0.35);
+            transform: translateY(-1px);
+          }
+          .rmx-quick-btn kbd {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 10px; color: #8b949e;
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+            border-bottom-color: rgba(255,255,255,0.16);
+            border-radius: 5px; padding: 2px 5px;
+          }
+          .rmx-quick-btn.help {
+            color: #a78bfa;
+            border-color: rgba(124,111,224,0.28);
+            background: rgba(124,111,224,0.10);
+          }
+          .rmx-quick-btn.help:hover {
+            background: rgba(124,111,224,0.18);
+            border-color: rgba(124,111,224,0.4);
+          }
+          .rmx-tabs {
+            display: flex; align-items: center; background: #161b22;
+            border-bottom: 1px solid rgba(255,255,255,0.07); flex-shrink: 0; overflow-x: auto;
+            position: relative;
+          }
+          .rmx-tab-add {
+            display: flex; align-items: center; justify-content: center;
+            width: 30px; height: 30px; flex-shrink: 0; cursor: pointer;
+            color: #666; font-size: 16px; border-left: 1px solid rgba(255,255,255,0.05);
+            transition: color 0.15s, background 0.15s;
+          }
+          .rmx-tab-add:hover { color: #ccc; background: rgba(255,255,255,0.06); }
+          .rmx-tab-dropdown {
+            position: absolute; top: 100%; left: 0; z-index: 500;
+            background: #1c2230; border: 1px solid #30363d; border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5); min-width: 220px;
+            padding: 4px 0; display: none;
+          }
+          .rmx-tab-dropdown.open { display: block; }
+          .rmx-tab-dropdown-title {
+            padding: 6px 12px 4px; font-size: 10px; font-weight: 600;
+            color: #666; text-transform: uppercase; letter-spacing: 0.8px;
+          }
+          .rmx-tab-dropdown-item {
+            display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+            cursor: pointer; transition: background 0.12s; font-size: 13px; color: #ccc;
+          }
+          .rmx-tab-dropdown-item:hover { background: rgba(124,111,224,0.2); color: #e0e0e0; }
+          .rmx-tab-dropdown-item .rmx-conn-icon { width: 24px; height: 24px; font-size: 12px; border-radius: 4px; }
+          .rmx-tab-dropdown-empty { padding: 10px 12px; font-size: 12px; color: #666; }
+          .rmx-tab {
+            display: flex; align-items: center; gap: 6px; padding: 7px 14px;
+            cursor: pointer; border-right: 1px solid rgba(255,255,255,0.05);
+            font-size: 12px; color: #888; white-space: nowrap; flex-shrink: 0;
+            transition: background 0.15s, color 0.15s;
+          }
+          .rmx-tab:hover { background: rgba(255,255,255,0.04); color: #ccc; }
+          .rmx-tab.active { background: #0d1117; color: #e0e0e0; border-bottom: 2px solid var(--color-accent-purple, #7c6fe0); }
+          .rmx-tab.dragging { opacity: 0.45; }
+          .rmx-tab.drop-before { box-shadow: inset 2px 0 0 #7c6fe0; }
+          .rmx-tab.drop-after { box-shadow: inset -2px 0 0 #7c6fe0; }
+          .rmx-tab-dot { width: 7px; height: 7px; border-radius: 50%; background: #555; }
+          .rmx-tab-dot.connected  { background: #50c878; box-shadow: 0 0 4px #50c87866; }
+          .rmx-tab-dot.connecting { background: #f0a040; animation: rmx-pulse 1s infinite; }
+          .rmx-tab-dot.error      { background: #e87070; }
+          .rmx-tab-close { background: none; border: none; cursor: pointer; color: #555;
+            padding: 0 2px; font-size: 13px; line-height: 1; border-radius: 3px; }
+          .rmx-tab-close:hover { color: #e87070; background: rgba(220,60,60,0.15); }
+
+          .rmx-terminal-panels { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+          .rmx-terminal-panel { position: absolute; inset: 0; display: none; padding: 6px; }
+          .rmx-terminal-panel.active { display: flex; flex-direction: column; }
+          .rmx-term-container { flex: 1; overflow: hidden; }
+          .rmx-term-container .xterm { height: 100%; }
+          .rmx-term-container .xterm-viewport { overflow-y: auto !important; }
+
+          .rmx-splash {
+            flex: 1; display: flex; flex-direction: column; align-items: center;
+            justify-content: center; gap: 12px; color: #555;
+          }
+          .rmx-splash i  { font-size: 3.5rem; color: #2a3550; }
+          .rmx-splash h3 { margin: 0; font-size: 16px; color: #666; }
+          .rmx-splash p  { margin: 0; font-size: 13px; color: #555; text-align: center; max-width: 320px; }
+
+          /* ── Light-mode overrides for non-terminal areas ── */
+          body.theme-mode-light .rmx-topbar {
+            background: var(--color-medium-purple);
+            border-bottom-color: var(--card-border-light, #d4dbe9);
+          }
+          body.theme-mode-light .rmx-sidebar {
+            background: var(--card-bg-light, #ffffff);
+            border-right-color: var(--card-border-light, #d4dbe9);
+          }
+          body.theme-mode-light .rmx-sidebar-head {
+            border-bottom-color: var(--card-border-light, #d4dbe9);
+          }
+          body.theme-mode-light .rmx-conn-item:hover  { background: rgba(99,102,241,0.07); }
+          body.theme-mode-light .rmx-conn-item.active { background: rgba(99,102,241,0.12); border-left-color: var(--color-accent-purple); }
+          body.theme-mode-light .rmx-conn-btn:hover   { background: rgba(99,102,241,0.1); }
+          body.theme-mode-light .rmx-ping-badge       { background: rgba(0,0,0,0.05); }
+          body.theme-mode-light .rmx-ping-badge:hover { background: rgba(0,0,0,0.1); }
+          body.theme-mode-light .rmx-quickbar {
+            background: #f8fafc;
+            border-bottom-color: var(--card-border-light, #d4dbe9);
+          }
+          body.theme-mode-light .rmx-quickbar-label { color: #64748b; }
+          body.theme-mode-light .rmx-quickbar-menu {
+            background: #ffffff;
+            border-color: #d4dbe9;
+            box-shadow: 0 18px 36px rgba(15, 23, 42, 0.16);
+          }
+          body.theme-mode-light .rmx-quickbar-toggle {
+            background: #ffffff;
+            color: #0f172a;
+            border-color: #d4dbe9;
+          }
+          body.theme-mode-light .rmx-quick-btn {
+            background: #ffffff;
+            color: #0f172a;
+            border-color: #d4dbe9;
+          }
+          body.theme-mode-light .rmx-quick-btn:hover {
+            background: #eef2ff;
+            border-color: rgba(124,111,224,0.35);
+          }
+          body.theme-mode-light .rmx-quick-btn kbd {
+            color: #475569;
+            background: #f8fafc;
+            border-color: #d4dbe9;
+          }
+
+          /* ── Modal form inputs ── */
+          .rmx-modal-overlay {
+            position: fixed; inset: 0; z-index: 9000;
+            background: rgba(0,0,0,0.6);
+            align-items: center; justify-content: center;
+          }
+          .rmx-modal-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            width: 480px;
+            max-width: 95vw;
+            padding: 24px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+          }
+          body.theme-mode-light .rmx-modal-overlay {
+            background: rgba(15, 23, 42, 0.38);
+          }
+          body.theme-mode-light .rmx-modal-card {
+            background: #ffffff;
+            border-color: var(--card-border-light, #d4dbe9);
+            box-shadow: 0 22px 56px rgba(15, 23, 42, 0.20);
+          }
+          body.theme-mode-light #rmxModalTitle {
+            color: #0f172a !important;
+          }
+          body.theme-mode-light #rmxModal .rmx-form-group label {
+            color: #475569;
+          }
+          #rmxModal .modal-dialog { max-width: 480px; }
+          .rmx-form-group { margin-bottom: 14px; }
+          .rmx-form-group label {
+            display: block; font-size: 12px; font-weight: 600;
+            color: var(--color-gray); margin-bottom: 5px;
+          }
+          .rmx-form-group input, .rmx-form-group select, .rmx-form-group textarea {
+            width: 100%; padding: 8px 10px;
+            background: var(--color-dark-purple); border: 1px solid rgba(139,92,246,0.25);
+            border-radius: 6px; color: var(--color-text-light); font-size: 13px; outline: none;
+          }
+          body.theme-mode-light .rmx-form-group input,
+          body.theme-mode-light .rmx-form-group select,
+          body.theme-mode-light .rmx-form-group textarea {
+            background: #f8fafc; border-color: var(--card-border-light, #d4dbe9);
+          }
+          .rmx-form-group input:focus, .rmx-form-group select:focus, .rmx-form-group textarea:focus {
+            border-color: var(--color-accent-purple);
+          }
+          .rmx-form-row { display: flex; gap: 10px; }
+          .rmx-form-row .rmx-form-group { flex: 1; }
+          .rmx-pass-wrap { position: relative; }
+          .rmx-pass-wrap input { padding-right: 40px; }
+          .rmx-pass-toggle {
+            position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 24px; height: 24px; border: none; background: transparent;
+            color: #888; cursor: pointer; padding: 0;
+          }
+          .rmx-pass-toggle:hover { color: var(--color-accent-purple); }
+          .rmx-pk-toggle { font-size: 11px; color: var(--color-accent-purple); cursor: pointer; text-decoration: underline; }
+          #rmxPkField { display: none; }
+
+          /* ── Group headers in sidebar ── */
+          .rmx-group-header {
+            display: flex; align-items: center; gap: 5px;
+            padding: 10px 12px 3px;
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.9px; color: rgba(139,92,246,0.65);
+            cursor: pointer; user-select: none; transition: color 0.15s;
+          }
+          .rmx-group-header:hover { color: rgba(139,92,246,1); }
+          .rmx-group-header .rmx-group-arrow { font-size: 9px; transition: transform 0.18s; margin-right: 2px; }
+          .rmx-group-header.collapsed .rmx-group-arrow { transform: rotate(-90deg); }
+          .rmx-group-items.hidden { display: none; }
+          .rmx-group-count { margin-left: auto; font-size: 9px; background: rgba(139,92,246,0.15);
+            color: rgba(139,92,246,0.7); padding: 1px 5px; border-radius: 8px; }
+
+          /* ── Tab connect modal ── */
+          #rmxTabModal {
+            display: none; position: fixed; inset: 0; z-index: 9100;
+            background: rgba(0,0,0,0.55); align-items: center; justify-content: center;
+          }
+          #rmxTabModal.open { display: flex; }
+          .rmx-tab-modal-box {
+            background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+            width: 400px; max-width: 96vw; max-height: 72vh;
+            display: flex; flex-direction: column;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.65);
+            overflow: hidden;
+          }
+          .rmx-tab-modal-head {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 13px 16px; border-bottom: 1px solid #21262d; flex-shrink: 0;
+          }
+          .rmx-tab-modal-head span { font-size: 13px; font-weight: 600; color: #e0e0e0; }
+          .rmx-tab-modal-close {
+            background: none; border: none; color: #666; cursor: pointer;
+            font-size: 17px; padding: 0 2px; border-radius: 4px; line-height: 1;
+          }
+          .rmx-tab-modal-close:hover { color: #ccc; background: rgba(255,255,255,0.08); }
+          .rmx-tab-modal-body { overflow-y: auto; flex: 1; padding: 6px 0; }
+          .rmx-tab-modal-group-label {
+            padding: 8px 14px 2px; font-size: 10px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.8px; color: rgba(139,92,246,0.55);
+          }
+          .rmx-tab-modal-item {
+            display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+            cursor: pointer; transition: background 0.12s;
+          }
+          .rmx-tab-modal-item:hover { background: rgba(124,111,224,0.16); }
+          .rmx-tab-modal-item .rmx-tmi-name { font-size: 13px; font-weight: 500; color: #ddd; }
+          .rmx-tab-modal-item .rmx-tmi-meta { font-size: 11px; color: #555; margin-top: 1px; }
+          .rmx-tab-modal-empty { padding: 20px 16px; text-align: center; font-size: 13px; color: #555; }
+
+          /* ── Resizable divider ── */
+          .rmx-resize-handle {
+            width: 5px; flex-shrink: 0; cursor: col-resize;
+            background: transparent;
+            position: relative; z-index: 10;
+            transition: background 0.15s;
+          }
+          .rmx-resize-handle:hover,
+          .rmx-resize-handle.dragging { background: rgba(139,92,246,0.45); }
+          .rmx-resize-handle::after {
+            content: ''; position: absolute; inset: 0 -3px;
+          }
+
+          /* ── No-tabs: terminal hidden, sidebar full-width ── */
+          .rmx-workspace.no-tabs .rmx-terminal-area { display: none; }
+          .rmx-workspace.no-tabs .rmx-resize-handle  { display: none; }
+          .rmx-workspace.no-tabs .rmx-sidebar { width: 100% !important; max-width: none; border-right: none; }
+
+          /* ── Compact layout mode ── */
+          .rmx-sidebar:not(.layout-detail) .rmx-conn-item {
+            margin: 6px 8px;
+            padding: 9px 10px;
+            gap: 7px;
+            border: 1px solid rgba(139,92,246,0.12);
+            border-left-width: 3px;
+            border-radius: 10px;
+            background: rgba(139,92,246,0.04);
+          }
+          .rmx-sidebar:not(.layout-detail) .rmx-conn-icon {
+            width: 26px; height: 26px; font-size: 12px; border-radius: 5px;
+          }
+          .rmx-sidebar:not(.layout-detail) .rmx-conn-name { font-size: 12px; }
+          .rmx-sidebar:not(.layout-detail) .rmx-ping-badge { font-size: 9px; padding: 2px 5px; }
+          .rmx-sidebar:not(.layout-detail) .rmx-conn-actions { opacity: 1; }
+          .rmx-sidebar:not(.layout-detail) .rmx-conn-meta { margin-top: 2px; }
+
+          /* ── Detail layout mode ── */
+          .rmx-sidebar.layout-detail .rmx-conn-item {
+            padding: 11px 12px;
+            align-items: flex-start;
+            border-left-width: 4px;
+            border-bottom: 1px solid rgba(139,92,246,0.09);
+          }
+          .rmx-sidebar.layout-detail .rmx-conn-item:hover { background: rgba(139,92,246,0.12); }
+          .rmx-sidebar.layout-detail .rmx-conn-icon {
+            width: 34px; height: 34px; font-size: 15px; margin-top: 2px;
+          }
+          .rmx-sidebar.layout-detail .rmx-conn-name {
+            white-space: normal; font-size: 13px; line-height: 1.35;
+          }
+          .rmx-sidebar.layout-detail .rmx-conn-meta {
+            display: block;
+            white-space: normal; overflow: visible; text-overflow: initial;
+            font-size: 11px; line-height: 1.45; margin-top: 3px;
+            color: rgba(148,163,184,0.95);
+          }
+          .rmx-sidebar.layout-detail .rmx-conn-actions { opacity: 1; }
+          .rmx-sidebar.layout-detail .rmx-conn-btn {
+            background: rgba(139,92,246,0.14);
+            color: #c4b5fd;
+          }
+          .rmx-sidebar.layout-detail .rmx-conn-btn:hover {
+            background: rgba(139,92,246,0.25);
+            color: #efe7ff;
+          }
+          body.theme-mode-light .rmx-sidebar.layout-detail .rmx-conn-item {
+            border-bottom-color: rgba(99,102,241,0.12);
+          }
+          body.theme-mode-light .rmx-sidebar.layout-detail .rmx-conn-meta {
+            color: #64748b;
+          }
+
+          /* ── Layout toggle active state ── */
+          .rmx-layout-btn.active { background: rgba(139,92,246,0.18); color: var(--color-text-light); }
+
+          /* ── Cloud access banner ── */
+          .rmx-cloud-banner {
+            display: flex; align-items: center; gap: 10px;
+            padding: 7px 16px; flex-shrink: 0;
+            background: rgba(99,102,241,0.1);
+            border-bottom: 1px solid rgba(99,102,241,0.2);
+            font-size: 12px; color: #a5b4fc;
+          }
+          .rmx-cloud-banner.warn {
+            background: rgba(240,160,64,0.1);
+            border-bottom-color: rgba(240,160,64,0.25);
+            color: #f0a040;
+          }
+        </style>
+
+        <div class="rmx-topbar">
+          <i class="bi bi-terminal-fill" style="color:#7c6fe0;font-size:18px"></i>
+          <h2>Remox — Remote Terminal</h2>
+          <div class="rmx-topbar-actions">
+            <span class="rmx-quota-badge" id="rmxQuotaBadge" style="display:none" title="Kuota cloud Remox"></span>
+            <button class="rmx-sync-btn" id="rmxPullBtn" onclick="rmxPullCloud()" title="Tarik koneksi dari server ke lokal">
+              <i class="bi bi-cloud-arrow-down-fill"></i> Tarik dari Server
+            </button>
+            <button class="rmx-sync-btn" id="rmxSyncBtn" onclick="rmxSyncCloud()" title="Sinkron koneksi lokal ke server">
+              <i class="bi bi-cloud-arrow-up-fill"></i> Sinkron Cloud
+            </button>
+            <button class="btn-icon" onclick="rmxOpenAddModal()" data-i18n-title="remox.add_connection.title" title="Add Connection">
+              <i class="bi bi-plus-lg"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Cloud access banner -->
+        <div id="rmxCloudBanner" class="rmx-cloud-banner" style="display:none;">
+          <i class="bi bi-cloud-slash-fill" style="font-size:14px;flex-shrink:0;"></i>
+          <span id="rmxCloudBannerText"></span>
+          <a id="rmxCloudBannerLoginBtn" href="#" onclick="event.preventDefault();document.querySelector('[data-label=Login],[data-action=login]')?.click()" style="display:none;margin-left:auto;font-size:11px;padding:3px 10px;border-radius:6px;background:rgba(99,102,241,0.2);color:#a5b4fc;text-decoration:none;">Masuk / Daftar</a>
+          <span id="rmxCloudBannerUpgradeBtn" style="display:none;margin-left:auto;font-size:11px;padding:3px 10px;border-radius:6px;background:rgba(240,160,64,0.2);color:#f0a040;cursor:pointer;" onclick="openPackageModal?.()">Lihat Paket</span>
+        </div>
+
+        <div class="rmx-workspace">
+          <!-- Sidebar -->
+          <div class="rmx-sidebar" id="rmxSidebar">
+            <div class="rmx-sidebar-head">
+              <span data-i18n="remox.connections">KONEKSI</span>
+              <div style="display:flex;align-items:center;gap:2px;margin-left:auto;">
+                <button class="rmx-conn-btn rmx-layout-btn active" id="rmxLayoutCompactBtn" onclick="rmxSetLayout('compact')" title="Tampilan card">
+                  <i class="bi bi-list-ul"></i>
+                </button>
+                <button class="rmx-conn-btn rmx-layout-btn" id="rmxLayoutDetailBtn" onclick="rmxSetLayout('detail')" title="Tampilan detail (label penuh)">
+                  <i class="bi bi-card-list"></i>
+                </button>
+                <button class="rmx-conn-btn" onclick="rmxOpenAddModal()" data-i18n-title="remox.add_new.title" title="Tambah koneksi baru" style="margin-left:4px;">
+                  <i class="bi bi-plus"></i>
+                </button>
+              </div>
+            </div>
+            <div class="rmx-search-wrap">
+              <i class="bi bi-search"></i>
+              <input id="rmxSearch" type="search" placeholder="Cari nama, IP, grup..."
+                oninput="rmxSetSearch(this.value.trim())">
+            </div>
+            <div class="rmx-conn-list" id="rmxConnList">
+              <div class="rmx-conn-empty" data-i18n="remox.empty">No saved connections.</div>
+            </div>
+          </div>
+
+          <!-- Resizable divider -->
+          <div class="rmx-resize-handle" id="rmxResizeHandle" title="Geser untuk ubah lebar sidebar"></div>
+
+          <!-- Terminal area -->
+          <div class="rmx-terminal-area">
+            <div class="rmx-quickbar" id="rmxQuickbar">
+              <span class="rmx-quickbar-label">NOC Tools</span>
+              <div class="rmx-quickbar-spacer"></div>
+              <div class="rmx-quickbar-dropdown">
+                <button
+                  type="button"
+                  class="rmx-quickbar-toggle"
+                  id="rmxQuickbarToggle"
+                  onclick="rmxToggleQuickbarMenu(event)"
+                  aria-expanded="false"
+                >
+                  <i class="bi bi-lightning-charge"></i>
+                  <span>Quick Actions</span>
+                  <i class="bi bi-chevron-down"></i>
+                </button>
+                <div class="rmx-quickbar-menu" id="rmxQuickbarMenu">
+                  <div class="rmx-quickbar-grid">
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('health')">
+                      <i class="bi bi-activity"></i><span>Health</span><kbd>Ctrl+Shift+1</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('disk')">
+                      <i class="bi bi-device-hdd"></i><span>Disk</span><kbd>Ctrl+Shift+2</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('memory')">
+                      <i class="bi bi-memory"></i><span>Memory</span><kbd>Ctrl+Shift+3</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('network')">
+                      <i class="bi bi-diagram-3"></i><span>Network</span><kbd>Ctrl+Shift+4</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('services')">
+                      <i class="bi bi-gear-wide-connected"></i><span>Services</span><kbd>Ctrl+Shift+5</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('logs')">
+                      <i class="bi bi-journal-text"></i><span>Logs</span><kbd>Ctrl+Shift+6</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('docker')">
+                      <i class="bi bi-box-seam"></i><span>Docker</span><kbd>Ctrl+Shift+7</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('update')">
+                      <i class="bi bi-arrow-repeat"></i><span>Update</span><kbd>Ctrl+Shift+8</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('uptime')">
+                      <i class="bi bi-clock-history"></i><span>Uptime</span><kbd>Ctrl+Shift+9</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn" onclick="rmxRunQuickAction('ports')">
+                      <i class="bi bi-broadcast-pin"></i><span>Ports</span><kbd>Ctrl+Shift+0</kbd>
+                    </button>
+                    <button type="button" class="rmx-quick-btn help" onclick="rmxShowShortcutHelp()">
+                      <i class="bi bi-keyboard"></i><span>Shortcut</span><kbd>Ctrl+Shift+/</kbd>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="rmx-tabs" id="rmxTabs">
+              <div class="rmx-tab-add" id="rmxTabAddBtn" onclick="rmxOpenTabModal()" title="Buka koneksi baru">+</div>
+            </div>
+            <div class="rmx-terminal-panels" id="rmxPanels">
+              <div class="rmx-splash" id="rmxSplash">
+                <i class="bi bi-terminal"></i>
+                <h3>Remox Terminal</h3>
+                <p data-i18n="remox.splash">Select a connection in the sidebar then click <strong>Connect</strong> to open a terminal session.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add/Edit Connection Modal -->
+        <div id="rmxModal" class="rmx-modal-overlay" style="display:none;">
+          <div class="rmx-modal-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+              <h3 id="rmxModalTitle" data-i18n="remox.modal.add" style="margin:0;font-size:16px;font-weight:600;color:#e0e0e0">Add Connection</h3>
+              <button onclick="rmxCloseModal()" style="background:none;border:none;color:#888;cursor:pointer;font-size:18px">
+                <i class="bi bi-x"></i>
+              </button>
+            </div>
+            <input type="hidden" id="rmxEditId" value="">
+            <div class="rmx-form-row">
+              <div class="rmx-form-group" style="flex:2">
+                <label data-i18n="remox.form.name">Connection Name</label>
+                <input type="text" id="rmxFormName" placeholder="contoh: Web Server Production">
+              </div>
+              <div class="rmx-form-group" style="flex:1">
+                <label>Group <span style="font-size:10px;color:#666;font-weight:400">(opsional)</span></label>
+                <div style="display: flex; gap: 5px;">
+                  <select id="rmxFormGroup" style="flex: 1;">
+                    <option value="">Tanpa group</option>
+                  </select>
+                  <button type="button" onclick="rmxAddNewGroup()" class="btn-secondary" style="padding: 0 12px;" title="Buat grup baru">
+                    <i class="bi bi-plus-lg"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="rmx-form-row">
+              <div class="rmx-form-group">
+                <label data-i18n="remox.form.type">Type</label>
+                <select id="rmxFormType" onchange="rmxOnTypeChange()">
+                  <option value="ssh">SSH</option>
+                  <option value="telnet">Telnet</option>
+                  <option value="rdp">RDP (Windows)</option>
+                </select>
+              </div>
+              <div class="rmx-form-group" style="flex:2">
+                <label data-i18n="remox.form.host">Host / IP</label>
+                <input type="text" id="rmxFormHost" placeholder="192.168.1.1 atau domain.com">
+              </div>
+              <div class="rmx-form-group" style="flex:0 0 80px">
+                <label data-i18n="remox.form.port">Port</label>
+                <input type="number" id="rmxFormPort" value="22" min="1" max="65535">
+              </div>
+            </div>
+            <div id="rmxSshFields">
+              <div class="rmx-form-row">
+                <div class="rmx-form-group">
+                  <label data-i18n="remox.form.user">Username</label>
+                  <input type="text" id="rmxFormUser" placeholder="root">
+                </div>
+                <div class="rmx-form-group">
+                  <label>Password <span class="rmx-pk-toggle" id="rmxPkToggleBtn" data-i18n="remox.form.pk_toggle" onclick="rmxTogglePk()">or Use Private Key</span></label>
+                  <div class="rmx-pass-wrap">
+                    <input type="password" id="rmxFormPass" placeholder="••••••••">
+                    <button type="button" class="rmx-pass-toggle" id="rmxPassToggleBtn" onclick="rmxTogglePasswordVisibility()" title="Show password" aria-label="Show password">
+                      <i class="bi bi-eye" id="rmxPassToggleIcon"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div id="rmxRdpFields" style="display:none">
+                <div class="rmx-form-group">
+                  <label data-i18n="remox.form.domain">Domain</label>
+                  <input type="text" id="rmxFormDomain" placeholder="WORKGROUP ou nome de domínio">
+                </div>
+              </div>
+              <div id="rmxPkField" class="rmx-form-group">
+                <label data-i18n="remox.form.pk">Private Key (paste content of .pem / id_rsa file)</label>
+                <textarea id="rmxFormPk" rows="4" placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;..."></textarea>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
+              <button onclick="rmxCloseModal()" class="btn-secondary" data-i18n="remox.form.cancel" style="padding:8px 20px;border-radius:8px">Cancel</button>
+              <button onclick="rmxSaveConnection()" class="btn-primary" style="padding:8px 20px;border-radius:8px">
+                <i class="bi bi-floppy"></i> <span data-i18n="remox.form.save">Save</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <!-- Tab Connect Modal -->
+        <div id="rmxTabModal">
+          <div class="rmx-tab-modal-box">
+            <div class="rmx-tab-modal-head">
+              <span><i class="bi bi-plug" style="color:#7c6fe0;margin-right:6px"></i>Buka Koneksi</span>
+              <button class="rmx-tab-modal-close" onclick="rmxCloseTabModal()"><i class="bi bi-x"></i></button>
+            </div>
+            <div class="rmx-tab-modal-body" id="rmxTabModalBody"></div>
+          </div>
+        </div>
+      </div>
+      <!-- End Page: Remox -->

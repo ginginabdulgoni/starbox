@@ -1,0 +1,67 @@
+{
+  "id": "mikrotik",
+  "name": "MikroTik",
+  "version": "1.0.0",
+  "description": "Kelola router MikroTik: daftar perangkat, scan jaringan, WebUI lewat proxy lokal, Winbox, tunnel Winbox lewat relay, dan SSH (butuh modul Remox).",
+  "author": "StarBox",
+  "license": "MIT",
+  "icon": "bi-router",
+  "engine": {
+    "starbox": ">=2.1.0"
+  },
+  "distribution": "download",
+  "main": "main.js",
+  "renderer": "renderer.js",
+  "page": "page.html",
+  "pageAfter": [
+    "remox",
+    "android-ios"
+  ],
+  "sidebar": {
+    "page": "mikrotik",
+    "label": "MikroTik",
+    "icon": "bi-router",
+    "pro": true,
+    "after": [
+      "remox",
+      "android-ios"
+    ],
+    "order": 20,
+    "statsLabel": "🔧 MikroTik"
+  },
+  "permissions": [
+    "network",
+    "child_process",
+    "filesystem"
+  ],
+  "sharedDependencies": [
+    "uuid"
+  ],
+  "coreServices": [
+    "getAuthSession",
+    "getApiBaseUrl",
+    "getRemoteSocket",
+    "getRemoteClientId"
+  ],
+  "optionalModules": [
+    "remox"
+  ],
+  "ipc": {
+    "invoke": [
+      "mikrotik:load-devices",
+      "mikrotik:save-device",
+      "mikrotik:delete-device",
+      "mikrotik:scan-network",
+      "mikrotik:open-webui",
+      "mikrotik:open-ssh",
+      "mikrotik:launch-winbox",
+      "mikrotik:start-proxy",
+      "mikrotik:stop-proxy",
+      "mikrotik:open-webui-proxy",
+      "mikrotik:start-winbox-tunnel",
+      "mikrotik:stop-winbox-tunnel",
+      "mikrotik:get-winbox-tunnel-port",
+      "mikrotik:sync-to-server"
+    ]
+  }
+}

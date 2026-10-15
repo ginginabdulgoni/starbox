@@ -308,3 +308,25 @@ The overridden `switchPage()` function automatically loads the correct device li
 - `TROUBLESHOOTING.md`: Common issues and fixes (especially Windows)
 - `SHOPEE_AUTOMATION.md`: Shopee-specific automation
 - `VERSION.md`: Version history
+
+## Module System (StarBox as launcher)
+
+Features are being split into modules under `modules/<id>/` (built-in) or `<userData>/modules/<id>/` (installed; wins when its version is newer). CCTV is the first one.
+
+- `module-loader.js` (main): discovers, validates and loads modules; state in `<userData>/modules-state.json`.
+- `module-host.js` (renderer): `injectUi()` runs before `renderer.js` (sidebar, page, i18n), `start()` at end of `<body>` loads module scripts and renders the **Modules** page.
+- `manifest.json` declares `main`, `renderer`, `page`, `i18n`, `sidebar` (`page`, `after`, `pro`), `permissions`, `sharedDependencies` and `ipc.invoke` / `ipc.events`.
+- A module may only `ipcMain.handle` channels listed in `ipc.invoke`; preload (`electronAPI.modules.invoke/on`) only forwards channels of loaded modules.
+- Module main exports `register(ctx)`, optional `getStats()` and `shutdown()`. Use `ctx.requireShared(name)` for core npm packages listed in `sharedDependencies`.
+- Enabling/disabling a module takes effect after restart.
+
+### Download-only modules (WhatsApp Gateway / Baileys)
+
+- `modules/whatsapp-gateway/` has its own `package.json` + lockfile + `node_modules`; Baileys is **not** a core dependency anymore and is excluded from the installer (`build.files`).
+- `manifest.distribution: "download"` → loaded from `modules/` only in development (`STARBOX_DEV_MODULES=off` disables that to test the install flow); release users install it from the catalog on the **Modules** page.
+- `module-installer.js`: fetches the catalog (`STARBOX_MODULE_CATALOG` or `<API>/modules/catalog.json`), downloads over HTTPS (catalog host + GitHub only), verifies SHA-256, extracts to `<userData>/modules/<id>`.
+- `npm run modules:install` installs module deps for dev; `npm run modules:pack -- <id> [--base-url <url/>]` builds `dist-modules/<id>-<ver>.zip` + `catalog.json`.
+- Module deps must stay compatible with Electron's Node (Electron 25 = Node 18.15); the WA lockfile was seeded from the core lockfile for that reason.
+- Manifest extras: `pageAfter`, `pageLabel`, `rendererDeps` / `styleDeps` (cdnjs/jsdelivr only), `coreServices` (core functions exposed via `ctx.services`), `icon`, `ipc.send` (fire-and-forget channels → `ipcMain.on`, renderer `electronAPI.modules.send`); module main may export `start()` (awaited after app ready) and `api` (read by core via `moduleLoader.getApi(id)`).
+- Download modules today: `whatsapp-gateway` (Baileys), `remox` (SSH/Telnet/RDP; `ssh2` installed pure-JS with `--omit=optional`), `mikrotik` (uses Remox via `ctx.getModuleApi("remox")`, declared in `optionalModules`) and `os-virtual` (QEMU/VNC; `vm-storage.js`, `vnc-viewer.html`, `vnc-preload.cjs` live in the module).
+- Sidebar placement: `sidebar.after` / `pageAfter` accept a list of fallback anchors and modules are inserted by `sidebar.order`, so the order stays stable whichever modules are installed. Core features that use them must handle the module being absent: MikroTik SSH returns `needsModule: "remox"` and the UI calls `StarBoxModuleHost.openPage(page, moduleId)`; the remote-client SSH relay gets `ssh2` via `RemoteSocketClient.setSshClientResolver`.

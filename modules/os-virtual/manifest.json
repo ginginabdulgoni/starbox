@@ -1,0 +1,75 @@
+{
+  "id": "os-virtual",
+  "name": "OS Virtual",
+  "version": "1.0.0",
+  "description": "Jalankan mesin virtual (Linux, Windows, dll.) dengan QEMU: snapshot, pause/resume, konsol VNC, unduh ISO, dan pemasang QEMU otomatis.",
+  "author": "StarBox",
+  "license": "MIT",
+  "icon": "bi-display",
+  "engine": {
+    "starbox": ">=2.1.0"
+  },
+  "distribution": "download",
+  "main": "main.js",
+  "renderer": "renderer.js",
+  "page": "page.html",
+  "i18n": "i18n.json",
+  "pageAfter": [
+    "mikrotik",
+    "remox",
+    "android-ios"
+  ],
+  "sidebar": {
+    "page": "os-virtual",
+    "label": "OS Virtual",
+    "labelKey": "sidebar.os_virtual",
+    "icon": "bi-display",
+    "pro": true,
+    "after": [
+      "mikrotik",
+      "remox",
+      "android-ios"
+    ],
+    "order": 30,
+    "statsLabel": "🖥️ OS Virtual"
+  },
+  "permissions": [
+    "network",
+    "child_process",
+    "filesystem",
+    "dialog",
+    "system-install"
+  ],
+  "sharedDependencies": [
+    "ws"
+  ],
+  "ipc": {
+    "invoke": [
+      "download-iso",
+      "list-cached-isos",
+      "open-vnc-window",
+      "focus-vnc-window",
+      "get-vnc-source-id",
+      "browse-iso-file",
+      "os-vm-list",
+      "os-vm-upsert",
+      "os-vm-delete",
+      "os-vm-start",
+      "os-vm-stop",
+      "os-vm-restart",
+      "os-vm-force-stop",
+      "os-vm-pause",
+      "os-vm-resume",
+      "os-vm-kill-all-qemu",
+      "os-vm-snapshot",
+      "os-vm-snapshot-restore",
+      "os-vm-snapshot-delete",
+      "os-vm-check-qemu",
+      "os-vm-install-qemu"
+    ],
+    "events": [
+      "iso-download-progress",
+      "qemu-install-progress"
+    ]
+  }
+}

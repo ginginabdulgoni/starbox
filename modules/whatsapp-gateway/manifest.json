@@ -1,0 +1,55 @@
+{
+  "id": "whatsapp-gateway",
+  "name": "WhatsApp Gateway",
+  "version": "1.0.0",
+  "description": "Hubungkan nomor WhatsApp lewat Baileys (tanpa browser): kirim pesan, auto-reply, jadwal, broadcast campaign dan log pesan.",
+  "author": "StarBox",
+  "license": "MIT",
+  "icon": "bi-whatsapp",
+  "engine": { "starbox": ">=2.1.0" },
+  "distribution": "download",
+  "main": "main.js",
+  "renderer": "renderer.js",
+  "page": "page.html",
+  "pageAfter": "android-ios",
+  "pageLabel": "💬 WhatsApp Gateway",
+  "rendererDeps": [
+    "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",
+    "https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"
+  ],
+  "permissions": ["network"],
+  "sharedDependencies": ["cron-parser"],
+  "coreServices": ["sendSystemInfoReport", "resolveWhatsAppUserAgent", "getMainWindow"],
+  "ipc": {
+    "invoke": [
+      "wa-get-devices",
+      "wa-create-device",
+      "wa-start-device",
+      "wa-stop-device",
+      "wa-delete-device",
+      "wa-send-message",
+      "wa-get-status",
+      "wa-get-profile",
+      "wa-get-auto-replies",
+      "wa-add-auto-reply",
+      "wa-delete-auto-reply",
+      "wa-toggle-auto-reply",
+      "wa-set-auto-reply-enabled",
+      "wa-set-auto-reject-calls",
+      "wa-get-schedules",
+      "wa-add-schedule",
+      "wa-delete-schedule",
+      "wa-get-message-logs",
+      "wa-clear-logs",
+      "wa-open-web",
+      "wa-send-typing"
+    ],
+    "events": [
+      "wa-qr-code",
+      "wa-connected",
+      "wa-status-change",
+      "wa-schedule-status",
+      "wa-message-received"
+    ]
+  }
+}

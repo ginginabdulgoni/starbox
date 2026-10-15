@@ -1,0 +1,63 @@
+{
+  "id": "cctv",
+  "name": "CCTV",
+  "version": "1.0.0",
+  "description": "Pantau kamera IP / CCTV multi-channel: RTSP, MJPEG, HLS, ONVIF auto-discovery dan kontrol PTZ.",
+  "author": "StarBox",
+  "license": "MIT",
+  "engine": {
+    "starbox": ">=2.1.0"
+  },
+  "main": "main.js",
+  "renderer": "renderer.js",
+  "page": "page.html",
+  "i18n": "i18n.json",
+  "sidebar": {
+    "page": "cctv",
+    "label": "CCTV",
+    "labelKey": "sidebar.cctv",
+    "icon": "bi-camera-video",
+    "pro": true,
+    "after": [
+      "os-virtual",
+      "mikrotik",
+      "remox",
+      "android-ios"
+    ],
+    "statsLabel": "📷 CCTV",
+    "order": 40
+  },
+  "permissions": [
+    "network",
+    "child_process",
+    "dialog",
+    "system-install"
+  ],
+  "sharedDependencies": [
+    "extract-zip"
+  ],
+  "ipc": {
+    "invoke": [
+      "cctv-get-cameras",
+      "cctv-save-camera",
+      "cctv-delete-camera",
+      "cctv-start-stream",
+      "cctv-stop-stream",
+      "cctv-stream-status",
+      "cctv-snapshot",
+      "cctv-check-ffmpeg",
+      "cctv-install-ffmpeg",
+      "cctv-scan-onvif",
+      "cctv-probe-onvif",
+      "cctv-ptz-move",
+      "cctv-ptz-stop",
+      "cctv-ptz-presets",
+      "cctv-ptz-goto-preset",
+      "cctv-ptz-set-preset"
+    ],
+    "events": [
+      "cctv-ffmpeg-install-progress",
+      "cctv-scan-progress"
+    ]
+  }
+}

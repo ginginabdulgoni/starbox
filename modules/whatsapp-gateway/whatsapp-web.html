@@ -253,7 +253,7 @@
         }
         setAlert("Memuat data WA...", "info");
         try {
-          const devicesResponse = await window.electronAPI.whatsappGateway.getDevices();
+          const devicesResponse = await window.electronAPI.modules.invoke('wa-get-devices');
           if (!devicesResponse.success) {
             throw new Error(devicesResponse.error || "Gagal memuat perangkat");
           }
@@ -263,7 +263,7 @@
           }
           refreshStatusDisplay();
 
-          const logsResponse = await window.electronAPI.whatsappGateway.getMessageLogs(deviceId, MAX_LOGS);
+          const logsResponse = await window.electronAPI.modules.invoke('wa-get-message-logs', deviceId, MAX_LOGS);
           const logs = logsResponse.logs || [];
           chatBuckets = buildChatBuckets(logs);
           if (!selectedPhone && chatBuckets.length) {
@@ -294,7 +294,7 @@
         sendForm.querySelector("button").disabled = true;
         setAlert("Mengirim pesan...", "info");
         try {
-          await window.electronAPI.whatsappGateway.sendMessage(deviceId, selectedPhone, text);
+          await window.electronAPI.modules.invoke('wa-send-message', deviceId, selectedPhone, text);
           messageInput.value = "";
           setAlert("Pesan terkirim.", "success");
           await refreshData();

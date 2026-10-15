@@ -4379,6 +4379,19 @@ async function refreshAutomationMessagesForSession(session, options = {}) {
       typing: false,
       activeId: null,
     });
+
+    // Otomatis picu pengiriman segera jika ada pesan pending di antrean
+    const pendingCount = (session.messages || []).filter(
+      (item) => item.status !== "done"
+    ).length;
+    if (pendingCount > 0 && !session.isSending && !session.isPaused) {
+      ensureAutomationLoop();
+      setTimeout(() => {
+        runAutomationTickForSession(session).catch((err) =>
+          console.error("Auto tick trigger error:", err)
+        );
+      }, 300);
+    }
   } catch (err) {
     console.error(
       `⚠️ Gagal memuat daftar pesan pending untuk ${session.uid}:`,
@@ -4479,6 +4492,10 @@ async function syncAutomationSource(devices = [], options = {}) {
     await refreshAutomationMessagesForSession(primarySession, { silent: true });
   } else if (primarySession) {
     broadcastAutomationMonitor(primarySession);
+  }
+
+  if (automationSessions.size > 0) {
+    ensureAutomationLoop();
   }
 }
 
@@ -4735,7 +4752,116 @@ function setDeviceState(uid, state) {
       inlineStop.disabled = false;
     }
   }
+
+  if (Array.isArray(cachedWebDevices)) {
+    const found = cachedWebDevices.find((d) => d.uid === uid);
+    if (found) found.status = normalized;
+    if (typeof updateDashboardMetrics === "function") {
+      updateDashboardMetrics(cachedWebDevices);
+    }
+  }
 }
+
+let currentDeviceFilter = "all";
+
+function updateDashboardMetrics(webDevices = []) {
+  const total = webDevices.length;
+  let running = 0;
+  let waCount = 0;
+  let autoSenderCount = 0;
+  let tiktokCount = 0;
+  let stoppedCount = 0;
+
+  webDevices.forEach((device) => {
+    const isRunning =
+      (typeof isDeviceRunning === "function" && isDeviceRunning(device.uid)) ||
+      ["active", "running", "starting"].includes(
+        (device.status || "").toLowerCase()
+      );
+    const service = (device.service || "").toLowerCase();
+    if (isRunning) {
+      running++;
+    } else {
+      stoppedCount++;
+    }
+
+    if (service.includes("whatsapp") || service === "wa") {
+      waCount++;
+    }
+    if (service.includes("tiktok")) {
+      tiktokCount++;
+    }
+    if (device.autoSender) {
+      autoSenderCount++;
+    }
+  });
+
+  const totalEl = document.getElementById("metricTotalDevices");
+  if (totalEl) totalEl.textContent = total;
+  const runningEl = document.getElementById("metricRunningDevices");
+  if (runningEl) runningEl.textContent = running;
+  const waEl = document.getElementById("metricWaDevices");
+  if (waEl) waEl.textContent = waCount;
+  const autoEl = document.getElementById("metricAutoSenderDevices");
+  if (autoEl) autoEl.textContent = autoSenderCount;
+
+  const bAll = document.getElementById("badgeFilterAll");
+  if (bAll) bAll.textContent = total;
+  const bRunning = document.getElementById("badgeFilterRunning");
+  if (bRunning) bRunning.textContent = running;
+  const bWa = document.getElementById("badgeFilterWa");
+  if (bWa) bWa.textContent = waCount;
+  const bTiktok = document.getElementById("badgeFilterTiktok");
+  if (bTiktok) bTiktok.textContent = tiktokCount;
+  const bAuto = document.getElementById("badgeFilterAutoSender");
+  if (bAuto) bAuto.textContent = autoSenderCount;
+  const bStopped = document.getElementById("badgeFilterStopped");
+  if (bStopped) bStopped.textContent = stoppedCount;
+}
+
+function filterDevicesByChip(devices = []) {
+  if (!currentDeviceFilter || currentDeviceFilter === "all") return devices;
+  return devices.filter((device) => {
+    const isRunning =
+      (typeof isDeviceRunning === "function" && isDeviceRunning(device.uid)) ||
+      ["active", "running", "starting"].includes(
+        (device.status || "").toLowerCase()
+      );
+    const service = (device.service || "").toLowerCase();
+    switch (currentDeviceFilter) {
+      case "running":
+        return isRunning;
+      case "stopped":
+        return !isRunning;
+      case "wa":
+        return service.includes("whatsapp") || service === "wa";
+      case "tiktok":
+        return service.includes("tiktok");
+      case "autosender":
+        return !!device.autoSender;
+      default:
+        return true;
+    }
+  });
+}
+
+window.applyDeviceFilter = function (filter) {
+  currentDeviceFilter = filter || "all";
+  const chips = document.querySelectorAll("#deviceFilterChips .filter-chip");
+  chips.forEach((chip) => {
+    if (chip.dataset.filter === currentDeviceFilter) {
+      chip.classList.add("is-active");
+    } else {
+      chip.classList.remove("is-active");
+    }
+  });
+
+  if (Array.isArray(cachedWebDevices) && cachedWebDevices.length) {
+    renderDevices(cachedWebDevices);
+  } else if (Array.isArray(cachedDevices) && cachedDevices.length) {
+    renderDevices(cachedDevices);
+  }
+};
 
 function filterDevicesBySearch(devices = []) {
   if (!deviceSearchQuery) return devices.slice();
@@ -4772,7 +4898,10 @@ async function renderDevices(devices) {
     (d) => (d.service || "").toLowerCase() !== "android"
   );
 
-  const filteredDevices = filterDevicesBySearch(webDevices);
+  updateDashboardMetrics(webDevices);
+
+  const chipFilteredDevices = filterDevicesByChip(webDevices);
+  const filteredDevices = filterDevicesBySearch(chipFilteredDevices);
   const { visible: visibleDevices, hidden: hiddenDevices } =
     partitionDevicesByLimit(filteredDevices);
   const isSearching = !!deviceSearchQuery;
@@ -4888,26 +5017,33 @@ async function renderDevices(devices) {
           </label>
         </div>` : ""}
         <div class="device-actions">
-          <button class="run">
+          <button class="run" title="${isActive ? 'Restart Device' : 'Jalankan Device'}">
             <i class="bi ${runIcon}"></i>
             <span>${runLabel}</span>
           </button>
           <button class="open-window" title="Buka di Window Baru">
             <i class="bi bi-window-plus"></i>
-            <span>Window</span>
           </button>
-          <button class="edit" data-uid="${device.uid}">
-            <i class="bi bi-pencil-square"></i>
-            <span>Edit</span>
-          </button>
-          <button class="record-btn" title="Rekam layar device">
-            <i class="bi bi-record-circle"></i>
-            <span>Record</span>
-          </button>
-          <button class="delete">
-            <i class="bi bi-trash-fill"></i>
-            <span>Hapus</span>
-          </button>
+          <div class="device-more-wrapper">
+            <button class="device-more" title="Menu Opsi Lainnya" type="button" aria-label="Menu Opsi">
+              <i class="bi bi-three-dots-vertical"></i>
+            </button>
+            <div class="device-dropdown">
+              <button type="button" class="dropdown-action edit" data-uid="${device.uid}">
+                <i class="bi bi-pencil-square"></i>
+                <span>Edit Device</span>
+              </button>
+              <button type="button" class="dropdown-action record-btn" title="Rekam layar device">
+                <i class="bi bi-record-circle"></i>
+                <span>Rekam Layar</span>
+              </button>
+              <div class="dropdown-separator"></div>
+              <button type="button" class="dropdown-action delete" title="Hapus device">
+                <i class="bi bi-trash-fill"></i>
+                <span>Hapus Device</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     `;
@@ -4947,6 +5083,25 @@ async function renderDevices(devices) {
     const editButton = deviceCard.querySelector(".edit");
     const recordButton = deviceCard.querySelector(".record-btn");
     const remoteToggleInput = deviceCard.querySelector(".remote-toggle-input");
+    const moreButton = deviceCard.querySelector(".device-more");
+    const dropdown = deviceCard.querySelector(".device-dropdown");
+
+    moreButton?.addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      const alreadyOpen = dropdown?.classList.contains("show");
+      document
+        .querySelectorAll(".device-dropdown.show")
+        .forEach((el) => {
+          el.classList.remove("show");
+          el.closest(".device")?.classList.remove("dropdown-open");
+        });
+      if (!alreadyOpen && dropdown) {
+        dropdown.classList.add("show");
+        deviceCard.classList.add("dropdown-open");
+      } else {
+        deviceCard.classList.remove("dropdown-open");
+      }
+    });
 
     remoteToggleInput?.addEventListener("change", async (e) => {
       const newEnabled = e.target.checked;
@@ -5042,8 +5197,14 @@ async function renderDevices(devices) {
       });
     }
 
-    deleteButton.addEventListener("click", () => deleteDevice(device.uid));
-    editButton.addEventListener("click", () => {
+    deleteButton?.addEventListener("click", (e) => {
+      e?.stopPropagation();
+      dropdown?.classList.remove("show");
+      deleteDevice(device.uid);
+    });
+    editButton?.addEventListener("click", (e) => {
+      e?.stopPropagation();
+      dropdown?.classList.remove("show");
       window.currentEditUID = device.uid;
       window.currentEditService = device.service || "";
       document.getElementById("editDeviceName").value =
@@ -5107,6 +5268,7 @@ async function renderDevices(devices) {
     // Record button
     recordButton?.addEventListener("click", (e) => {
       e.stopPropagation();
+      dropdown?.classList.remove("show");
       if (recordingSessions.has(device.uid)) {
         stopRecording(device.uid);
       } else {
@@ -5179,8 +5341,17 @@ async function sendAutomationQueueForSession(session, options = {}) {
   }
 
   const card = document.querySelector(`.device[data-uid="${session.uid}"]`);
-  const currentStatus = (card?.dataset.status || "").toLowerCase();
-  if (!["active", "running"].includes(currentStatus)) {
+  let isRunning = false;
+  if (card) {
+    const currentStatus = (card.dataset.status || "").toLowerCase();
+    isRunning = ["active", "running"].includes(currentStatus);
+  }
+  if (!isRunning && window.electronAPI?.isDeviceRunning) {
+    try {
+      isRunning = await window.electronAPI.isDeviceRunning(session.uid);
+    } catch (_) {}
+  }
+  if (!isRunning) {
     if (!silent) {
       showToast(
         `Jalankan device ${
@@ -5490,12 +5661,17 @@ async function runAutomationTickForSession(session) {
   }
 
   const card = document.querySelector(`.device[data-uid="${session.uid}"]`);
-  if (!card) {
-    return false;
+  let isRunning = false;
+  if (card) {
+    const status = (card.dataset.status || "").toLowerCase();
+    isRunning = ["active", "running"].includes(status);
   }
-
-  const status = (card.dataset.status || "").toLowerCase();
-  if (!["active", "running"].includes(status)) {
+  if (!isRunning && window.electronAPI?.isDeviceRunning) {
+    try {
+      isRunning = await window.electronAPI.isDeviceRunning(session.uid);
+    } catch (_) {}
+  }
+  if (!isRunning) {
     return false;
   }
 
@@ -5637,6 +5813,69 @@ async function loadAllDevicesWeb() {
   }
 }
 
+let currentAndroidFilter = "all";
+let androidSearchQuery = "";
+
+function updateAndroidDashboardMetrics(devices = []) {
+  const total = devices.length;
+  let running = 0;
+  let emus = 0;
+  let physical = 0;
+  let stopped = 0;
+
+  devices.forEach((d) => {
+    const isEmu = d._deviceType === "emulator";
+    if (isEmu) emus++;
+    else physical++;
+
+    const status = String(d.status || "").toLowerCase();
+    const isActive = ["running", "active", "starting", "connected"].includes(status);
+    if (isActive) {
+      running++;
+    } else {
+      stopped++;
+    }
+  });
+
+  const totalEl = document.getElementById("metricAndroidTotal");
+  if (totalEl) totalEl.textContent = total;
+  const runningEl = document.getElementById("metricAndroidRunning");
+  if (runningEl) runningEl.textContent = running;
+  const emusEl = document.getElementById("metricAndroidEmus");
+  if (emusEl) emusEl.textContent = emus;
+  const physicalEl = document.getElementById("metricAndroidPhysical");
+  if (physicalEl) physicalEl.textContent = physical;
+
+  const bAll = document.getElementById("badgeAndroidAll");
+  if (bAll) bAll.textContent = total;
+  const bRunning = document.getElementById("badgeAndroidRunning");
+  if (bRunning) bRunning.textContent = running;
+  const bEmu = document.getElementById("badgeAndroidEmulator");
+  if (bEmu) bEmu.textContent = emus;
+  const bPhysical = document.getElementById("badgeAndroidPhysical");
+  if (bPhysical) bPhysical.textContent = physical;
+  const bStopped = document.getElementById("badgeAndroidStopped");
+  if (bStopped) bStopped.textContent = stopped;
+}
+
+window.applyAndroidFilter = function (filter) {
+  currentAndroidFilter = filter || "all";
+  const chips = document.querySelectorAll("#androidFilterChips .filter-chip");
+  chips.forEach((chip) => {
+    if (chip.dataset.filter === currentAndroidFilter) {
+      chip.classList.add("is-active");
+    } else {
+      chip.classList.remove("is-active");
+    }
+  });
+  renderDevicesAndroid(cachedAndroidRemoteDevices);
+};
+
+window.filterAndroidBySearch = function (query) {
+  androidSearchQuery = (query || "").trim().toLowerCase();
+  renderDevicesAndroid(cachedAndroidRemoteDevices);
+};
+
 // Render Android devices (MUST BE DEFINED BEFORE loadAllDevicesAndroid)
 function renderDevicesAndroid(devices = []) {
   const container = document.getElementById("device-list-android");
@@ -5645,17 +5884,81 @@ function renderDevicesAndroid(devices = []) {
     return;
   }
   cachedAndroidRemoteDevices = Array.isArray(devices) ? devices : [];
+  updateAndroidDashboardMetrics(cachedAndroidRemoteDevices);
   container.innerHTML = "";
 
   if (!cachedAndroidRemoteDevices.length) {
-    container.innerHTML =
-      '<div style="padding: 2rem; text-align: center; color: #6b7280;">Belum ada device Android. Klik "Tambah Device" untuk menambah ADB Remote atau Android Emulator.</div>';
+    container.innerHTML = `
+      <div class="android-empty-state">
+        <div class="android-empty-icon"><i class="bi bi-phone"></i></div>
+        <h3>Belum Ada Perangkat Android / Emulator</h3>
+        <p>Mulai dengan membuat Android Virtual Emulator baru atau sambungkan HP fisik Anda melalui kabel USB / ADB Wireless.</p>
+        <div class="android-empty-actions">
+          <button type="button" class="btn-create-emu" onclick="openModalAndroid()">
+            <i class="bi bi-plus-circle-fill"></i> Tambah Device
+          </button>
+          <button type="button" class="btn-tutorial-adb secondary" onclick="openAdbTutorialModal()">
+            <i class="bi bi-journal-check"></i> Panduan ADB
+          </button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  let filtered = cachedAndroidRemoteDevices.slice();
+
+  if (currentAndroidFilter === "running") {
+    filtered = filtered.filter((d) =>
+      ["running", "active", "starting", "connected"].includes(String(d.status || "").toLowerCase())
+    );
+  } else if (currentAndroidFilter === "emulator") {
+    filtered = filtered.filter((d) => d._deviceType === "emulator");
+  } else if (currentAndroidFilter === "physical") {
+    filtered = filtered.filter((d) => d._deviceType !== "emulator");
+  } else if (currentAndroidFilter === "stopped") {
+    filtered = filtered.filter((d) =>
+      !["running", "active", "starting", "connected"].includes(String(d.status || "").toLowerCase())
+    );
+  }
+
+  if (androidSearchQuery) {
+    filtered = filtered.filter((d) => {
+      const haystack = [
+        d.name,
+        d.uid,
+        d.adbId,
+        d.adbName,
+        d.service,
+        d.status,
+        d.androidVersion,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(androidSearchQuery);
+    });
+  }
+
+  if (!filtered.length) {
+    container.innerHTML = `
+      <div class="android-empty-state" style="padding: 34px 20px;">
+        <div class="android-empty-icon" style="font-size: 1.5rem; width: 50px; height: 50px;"><i class="bi bi-search"></i></div>
+        <h3>Tidak Ada Perangkat Ditemukan</h3>
+        <p>Tidak ada perangkat atau emulator yang cocok dengan kata kunci pencarian atau filter yang dipilih.</p>
+        <div class="android-empty-actions">
+          <button type="button" class="btn-tutorial-adb secondary" onclick="const inp = document.getElementById('androidSearchInput'); if (inp) inp.value=''; window.filterAndroidBySearch(''); window.applyAndroidFilter('all');">
+            <i class="bi bi-arrow-repeat"></i> Reset Filter
+          </button>
+        </div>
+      </div>
+    `;
     return;
   }
 
   const fragment = document.createDocumentFragment();
 
-    cachedAndroidRemoteDevices.forEach((device) => {
+    filtered.forEach((device) => {
       if (device._deviceType === 'emulator') {
         const card = buildAndroidEmulatorCard(device);
         if (card) fragment.appendChild(card);
@@ -5677,8 +5980,13 @@ function renderDevicesAndroid(devices = []) {
     deviceCard.innerHTML = `
       <div class="device-header">
         <div class="device-meta">
-          <h3>${device.name || serviceMeta.label}</h3>
-          <span class="device-service-name">${serviceMeta.label}</span>
+          <div class="device-header-title-row">
+            <div class="android-card-avatar adb"><i class="bi bi-phone-fill"></i></div>
+            <div>
+              <h3>${device.name || serviceMeta.label}</h3>
+              <span class="device-service-name">${serviceMeta.label}</span>
+            </div>
+          </div>
         </div>
         <span class="${statusMeta.className}">${statusMeta.label}</span>
       </div>
@@ -5692,42 +6000,29 @@ function renderDevicesAndroid(devices = []) {
         </div>
         <div class="device-footer">
           <div class="device-actions">
-            <button class="restart ${isConnected ? 'secondary' : 'is-hidden'}">
+            <button class="restart ${isConnected ? 'secondary' : ''}" title="${isConnected ? 'Restart ADB' : 'Hubungkan ADB'}">
               <i class="bi bi-arrow-clockwise"></i>
-              <span>Restart</span>
+              <span>${isConnected ? 'Restart' : 'Connect'}</span>
             </button>
-            <button class="stop ${isConnected ? '' : 'is-hidden'}">
-              <i class="bi bi-stop-fill"></i>
-              <span>Stop</span>
+            <button class="monitor" title="Buka Tampilan Layar">
+              <i class="bi bi-display"></i>
             </button>
-            <button class="edit">
-              <i class="bi bi-pencil-fill"></i>
-              <span>Edit</span>
-            </button>
-            <button class="monitor">
-            <i class="bi bi-display"></i>
-            <span>Monitor</span>
-          </button>
-          <button class="delete">
-            <i class="bi bi-trash-fill"></i>
-            <span>Hapus</span>
-          </button>
-          <div class="device-dropdown">
-            <button class="dropdown-action" data-action="wake">
-              <i class="bi bi-power"></i> Wake
-            </button>
-            <button class="dropdown-action" data-action="sleep">
-              <i class="bi bi-moon"></i> Sleep
-            </button>
-            <button class="dropdown-action" data-action="volume-up">
-              <i class="bi bi-volume-up"></i> Vol +
-            </button>
-            <button class="dropdown-action" data-action="volume-down">
-              <i class="bi bi-volume-down"></i> Vol -
-            </button>
-            <button class="dropdown-action" data-action="screenshot">
-              <i class="bi bi-camera"></i> Screenshot
-            </button>
+            <div class="device-more-wrapper">
+              <button class="device-more" title="Menu Opsi Lainnya" type="button" aria-label="Menu Opsi">
+                <i class="bi bi-three-dots-vertical"></i>
+              </button>
+              <div class="device-dropdown">
+                <button type="button" class="dropdown-action edit"><i class="bi bi-pencil-fill"></i> <span>Edit Device</span></button>
+                <button type="button" class="dropdown-action stop ${isConnected ? '' : 'is-hidden'}"><i class="bi bi-stop-fill"></i> <span>Stop ADB</span></button>
+                <button type="button" class="dropdown-action" data-action="wake"><i class="bi bi-power"></i> <span>Wake</span></button>
+                <button type="button" class="dropdown-action" data-action="sleep"><i class="bi bi-moon"></i> <span>Sleep</span></button>
+                <button type="button" class="dropdown-action" data-action="volume-up"><i class="bi bi-volume-up"></i> <span>Vol +</span></button>
+                <button type="button" class="dropdown-action" data-action="volume-down"><i class="bi bi-volume-down"></i> <span>Vol -</span></button>
+                <button type="button" class="dropdown-action" data-action="screenshot"><i class="bi bi-camera"></i> <span>Screenshot</span></button>
+                <div class="dropdown-separator"></div>
+                <button type="button" class="dropdown-action delete" title="Hapus device"><i class="bi bi-trash-fill"></i> <span>Hapus Device</span></button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -5841,6 +6136,14 @@ function buildAndroidEmulatorCard(device) {
   const showEmuMonitorButton =
     isAndroidWhatsAppService(effectiveServiceId) &&
     (device.androidDisplayMode || "readonly") !== "native";
+  // "playstore" is the actual fallback used when *booting* a device with no
+  // saved androidImageVariant (see startAndroidEmulatorDevice() in
+  // electron-main.js) — the badge must default the same way, otherwise a
+  // legacy device with no explicit variant shows "Root" here while actually
+  // booting non-rootable (adbd refuses "root": "cannot run as root in
+  // production builds", verified live against StarBox_Andro1_fa2fe5).
+  const imageVariant = device.androidImageVariant || 'playstore';
+  const isRootable = imageVariant !== 'playstore';
   const card = document.createElement('div');
   card.className = 'device android-remote-card';
   card.dataset.uid = device.uid;
@@ -5851,10 +6154,18 @@ function buildAndroidEmulatorCard(device) {
   card.innerHTML = `
     <div class="device-header">
       <div class="device-meta">
-        <h3>${device.name || 'Android Emulator'}</h3>
-        <span class="device-service-name">Android Emulator • ${serviceMeta.label}</span>
+        <div class="device-header-title-row">
+          <div class="android-card-avatar emu"><i class="bi bi-cpu-fill"></i></div>
+          <div>
+            <h3>${device.name || 'Android Emulator'}</h3>
+            <span class="device-service-name">Android Emulator • ${serviceMeta.label}</span>
+          </div>
+        </div>
       </div>
-      <span class="status-badge ${isRunning ? 'active' : 'inactive'}">${isRunning ? 'Running' : 'Stopped'}</span>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <span class="status-badge ${isRunning ? 'active' : 'inactive'}">${isRunning ? 'Running' : 'Stopped'}</span>
+        <span class="status-badge" style="background:${isRootable ? '#10b981' : '#475569'};" title="${isRootable ? 'Rootable — bisa pakai Device Profile, Play Store dipasang otomatis' : 'Standar — Play Store bawaan, tidak bisa di-root'}">${isRootable ? '🔓 Root' : '🔒 Standar'}</span>
+      </div>
     </div>
     <div class="device-body android-remote-body">
       <p id="emuVersion-${device.uid}"><strong>Versi:</strong> ${androidVersionLabelFromApi(device.androidVersion || 30)}</p>
@@ -5875,30 +6186,41 @@ function buildAndroidEmulatorCard(device) {
           <i class="bi bi-${isRunning ? 'arrow-clockwise' : 'play-fill'}"></i>
           <span>${isRunning ? 'Restart' : 'Start'}</span>
         </button>
-        <button class="emu-stop-btn ${isRunning ? '' : 'is-hidden'}">
-          <i class="bi bi-stop-fill"></i>
-          <span>Stop</span>
-        </button>
-        <button class="emu-edit-btn">
-          <i class="bi bi-pencil-fill"></i>
-          <span>Edit</span>
-        </button>
-        <button class="emu-status-btn">
-          <i class="bi bi-card-text"></i>
-          <span>Status</span>
-        </button>
         ${showEmuMonitorButton ? `
-        <button class="emu-monitor-btn">
+        <button class="emu-monitor-btn" title="Buka Monitor Layar">
           <i class="bi bi-display"></i>
-          <span>Monitor</span>
         </button>` : ''}
-        <button class="delete">
-          <i class="bi bi-trash-fill"></i>
-          <span>Hapus</span>
-        </button>
+        <div class="device-more-wrapper">
+          <button class="device-more emu-more-btn" title="Menu Opsi Lainnya" type="button" aria-label="Menu Opsi">
+            <i class="bi bi-three-dots-vertical"></i>
+          </button>
+          <div class="device-dropdown">
+            <button type="button" class="dropdown-action emu-stop-btn ${isRunning ? '' : 'is-hidden'}">
+              <i class="bi bi-stop-fill"></i> <span>Stop Emulator</span>
+            </button>
+            <button type="button" class="dropdown-action emu-edit-btn">
+              <i class="bi bi-pencil-fill"></i> <span>Edit Emulator</span>
+            </button>
+            <button type="button" class="dropdown-action emu-status-btn">
+              <i class="bi bi-card-text"></i> <span>Detail Status</span>
+            </button>
+            <div class="dropdown-separator"></div>
+            <button type="button" class="dropdown-action delete" title="Hapus emulator">
+              <i class="bi bi-trash-fill"></i> <span>Hapus Emulator</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   `;
+
+  const emuDropdown = card.querySelector('.device-dropdown');
+  card.querySelector('.emu-more-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const alreadyOpen = emuDropdown?.classList.contains('show');
+    document.querySelectorAll('.device-dropdown.show').forEach((el) => el.classList.remove('show'));
+    if (!alreadyOpen && emuDropdown) emuDropdown.classList.add('show');
+  });
 
   card.querySelector('.emu-start-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -5908,16 +6230,19 @@ function buildAndroidEmulatorCard(device) {
 
   card.querySelector('.emu-stop-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
+    emuDropdown?.classList.remove('show');
     stopAndroidEmulatorCard(device.uid);
   });
 
   card.querySelector('.emu-edit-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
+    emuDropdown?.classList.remove('show');
     window.openEditAndroidModal(device.uid);
   });
 
   card.querySelector('.emu-status-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
+    emuDropdown?.classList.remove('show');
     runDevice(device.uid, "android");
   });
 
@@ -5931,6 +6256,7 @@ function buildAndroidEmulatorCard(device) {
 
   card.querySelector('.delete')?.addEventListener('click', (e) => {
     e.stopPropagation();
+    emuDropdown?.classList.remove('show');
     deleteAndroidEmulatorCard(device.uid, device.name);
   });
 
@@ -5983,7 +6309,10 @@ async function startAndroidEmulatorCard(uid, cardEl) {
       // succeed. Don't reset the progress UI on it; the final resolution of
       // window.electronAPI.android.start(uid) below (success or catch)
       // already drives the terminal UI state either way.
-      const pct = data.phase === 'booted' ? 100 : data.phase === 'wait-boot' ? 50 : 20;
+      const pct = data.phase === 'booted' ? 100
+        : data.phase === 'install-playstore' ? 95
+        : data.phase === 'wait-boot' ? 50
+        : 20;
       setProgress(data.message || data.phase || 'Memulai...', pct);
     });
 
@@ -7478,7 +7807,6 @@ window.addEventListener("DOMContentLoaded", () => {
       renderDevices(cachedDevices);
     });
   }
-  loadVmList();
   syncThemeSelector();
   syncServiceAvailability();
 
@@ -7531,12 +7859,21 @@ window.addEventListener("DOMContentLoaded", () => {
       }
 
       if (state === "running") {
-        // Resume automation: start timer jika belum berjalan
+        // Resume automation: pastikan loop berjalan & start timer jika belum berjalan
+        session.isPaused = false;
+        ensureAutomationLoop();
         if (!session.fetchTimer) {
           startDeviceFetchTimer(session);
           console.log(`▶️ Automation resumed untuk ${uid}`);
         }
-        session.isPaused = false;
+        const pendingCount = (session.messages || []).filter(
+          (item) => item.status !== "done"
+        ).length;
+        if (pendingCount > 0 && !session.isSending) {
+          runAutomationTickForSession(session).catch((err) =>
+            console.error("Resume send tick error:", err)
+          );
+        }
       } else if (state === "paused") {
         // Pause automation: stop timer tapi jangan hapus session
         stopDeviceFetchTimer(session);
@@ -7574,6 +7911,9 @@ document.addEventListener("click", () => {
   document
     .querySelectorAll(".device-dropdown.show")
     .forEach((el) => el.classList.remove("show"));
+  document
+    .querySelectorAll(".device.dropdown-open")
+    .forEach((el) => el.classList.remove("dropdown-open"));
 });
 
 window.triggerVersionCheck =
@@ -7587,531 +7927,6 @@ window.startVersionDownload =
   function () {
     startVersionDownload();
   };
-
-window.openVmModal = function (vm = null) {
-  const modal = document.getElementById("vmModal");
-  if (!modal) return;
-  modal.style.display = "flex";
-  populateCachedIsos();
-
-  const vmId = document.getElementById("vmId");
-  const vmName = document.getElementById("vmName");
-  const vmOsType = document.getElementById("vmOsType");
-  const vmCpu = document.getElementById("vmCpu");
-  const vmMemory = document.getElementById("vmMemory");
-  const vmStorage = document.getElementById("vmStorage");
-  const vmNetwork = document.getElementById("vmNetwork");
-  const vmBridge = document.getElementById("vmBridge");
-  const vmMac = document.getElementById("vmMac");
-  const vmIso = document.getElementById("vmIso");
-  const vmDisk = document.getElementById("vmDisk");
-  const vmAutostart = document.getElementById("vmAutostart");
-  const vmVncPort = document.getElementById("vmVncPort");
-  const vmQemuBin = document.getElementById("vmQemuBin");
-  const vmBootOrder = document.getElementById("vmBootOrder");
-  const vmNotes = document.getElementById("vmNotes");
-
-  if (vmId) vmId.value = vm?.id || "";
-  if (vmName) vmName.value = vm?.name || "";
-  if (vmOsType) vmOsType.value = vm?.osType || "linux";
-  if (vmCpu) vmCpu.value = vm?.cpu || 2;
-  if (vmMemory) vmMemory.value = vm?.memoryMb || 2048;
-  if (vmStorage) vmStorage.value = vm?.storageGb || 20;
-  if (vmNetwork) vmNetwork.value = vm?.networkMode || "nat";
-  if (vmBridge) vmBridge.value = vm?.bridgeInterface || "";
-  if (vmMac) vmMac.value = vm?.macAddress || "";
-  if (vmIso) vmIso.value = vm?.isoPath || "";
-  if (vmDisk) vmDisk.value = vm?.diskPath || "";
-  if (vmAutostart) vmAutostart.checked = !!vm?.autostart;
-  if (vmVncPort) vmVncPort.value = vm?.vncPort || 5901;
-  if (vmQemuBin) vmQemuBin.value = vm?.qemuBinary || "qemu-system-x86_64";
-  if (vmBootOrder) vmBootOrder.value = vm?.bootOrder || "cd";
-  if (vmNotes) vmNotes.value = vm?.notes || "";
-};
-
-window.closeVmModal = function () {
-  const modal = document.getElementById("vmModal");
-  if (modal) modal.style.display = "none";
-};
-
-window.saveVm = async function () {
-  try {
-    const vmId = document.getElementById("vmId");
-    const vmName = document.getElementById("vmName");
-    const vmOsType = document.getElementById("vmOsType");
-    const vmCpu = document.getElementById("vmCpu");
-    const vmMemory = document.getElementById("vmMemory");
-    const vmStorage = document.getElementById("vmStorage");
-    const vmNetwork = document.getElementById("vmNetwork");
-    const vmBridge = document.getElementById("vmBridge");
-    const vmMac = document.getElementById("vmMac");
-    const vmIso = document.getElementById("vmIso");
-    const vmDisk = document.getElementById("vmDisk");
-    const vmAutostart = document.getElementById("vmAutostart");
-    const vmVncPort = document.getElementById("vmVncPort");
-    const vmQemuBin = document.getElementById("vmQemuBin");
-    const vmBootOrder = document.getElementById("vmBootOrder");
-    const vmNotes = document.getElementById("vmNotes");
-
-    const payload = {
-      id: vmId?.value || null,
-      name: vmName?.value?.trim() || "",
-      osType: vmOsType?.value || "linux",
-      cpu: parseInt(vmCpu?.value, 10) || 2,
-      memoryMb: parseInt(vmMemory?.value, 10) || 2048,
-      storageGb: parseInt(vmStorage?.value, 10) || 20,
-      networkMode: vmNetwork?.value || "nat",
-      bridgeInterface: vmBridge?.value?.trim() || "",
-      macAddress: vmMac?.value?.trim() || "",
-      isoPath: vmIso?.value?.trim() || "",
-      diskPath: vmDisk?.value?.trim() || "",
-      autostart: vmAutostart?.checked || false,
-      vncPort: parseInt(vmVncPort?.value, 10) || 5901,
-      qemuBinary: vmQemuBin?.value?.trim() || "qemu-system-x86_64",
-      bootOrder: vmBootOrder?.value?.trim() || "cd",
-      notes: vmNotes?.value?.trim() || "",
-    };
-    const result = await window.electronAPI.virtualOS.save(payload);
-    if (!result?.success) {
-      showToast(result?.message || "Gagal menyimpan VM.", 3500, "error");
-      return;
-    }
-    closeVmModal();
-    await loadVmList();
-    showToast(window.t('toast.vm.saved'), 2500, "success");
-  } catch (err) {
-    showToast(err?.message || window.t('toast.vm.save_error'), 3500, "error");
-  }
-};
-
-async function deleteVm(id) {
-  if (!id) return;
-  const confirm = await Swal.fire({
-    title: window.t('dialog.delete_vm.title'),
-    text: window.t('dialog.delete_vm.text'),
-    icon: "warning",
-    showCancelButton: true,
-    confirmButtonText: window.t('dialog.delete_vm.confirm'),
-    cancelButtonText: window.t('dialog.delete_vm.cancel'),
-  });
-  if (!confirm.isConfirmed) return;
-  const result = await window.electronAPI.virtualOS.delete(id);
-  if (!result?.success) {
-    showToast(result?.message || window.t('toast.vm.delete_error'), 3500, "error");
-    return;
-  }
-  await loadVmList();
-  showToast(window.t('toast.vm.deleted'), 2500, "success");
-}
-
-async function checkQemuStatus() {
-  const banner = document.getElementById('qemuMissingBanner');
-  if (!banner) return;
-  try {
-    const r = await window.electronAPI.virtualOS.checkQemu();
-    banner.style.display = r.available ? 'none' : 'flex';
-  } catch {
-    banner.style.display = 'none';
-  }
-}
-
-async function installQemu() {
-  const btn = document.getElementById('installQemuBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Menginstall...'; }
-
-  let unsubscribe = null;
-  try {
-    const swalInst = Swal.fire({
-      title: 'Install QEMU',
-      html: `<div style="text-align:left;max-height:240px;overflow-y:auto;font-size:0.85rem;font-family:monospace;background:#111;padding:8px;border-radius:6px;" id="qemuInstallLog">Memulai instalasi...</div>`,
-      allowOutsideClick: false,
-      allowEscapeKey: false,
-      showConfirmButton: false,
-    });
-
-    unsubscribe = window.electronAPI.virtualOS.onQemuInstallProgress((data) => {
-      const log = document.getElementById('qemuInstallLog');
-      if (log && data.message) {
-        const line = document.createElement('div');
-        line.textContent = data.message;
-        log.appendChild(line);
-        log.scrollTop = log.scrollHeight;
-      }
-      if (data.done || data.error) {
-        Swal.close();
-      }
-    });
-
-    const result = await window.electronAPI.virtualOS.installQemu();
-    if (unsubscribe) unsubscribe();
-
-    if (result.success) {
-      await Swal.fire({ icon: 'success', title: 'QEMU Terinstall', text: 'QEMU berhasil diinstall. Silakan coba jalankan VM.', confirmButtonText: 'OK' });
-      await checkQemuStatus();
-    } else {
-      const opts = { icon: 'error', title: 'Gagal Install QEMU', text: result.message || 'Terjadi kesalahan.', confirmButtonText: 'OK' };
-      if (result.manualUrl) opts.footer = `<a href="${result.manualUrl}" target="_blank">Download Manual</a>`;
-      await Swal.fire(opts);
-    }
-  } catch (err) {
-    if (unsubscribe) unsubscribe();
-    Swal.fire({ icon: 'error', title: 'Error', text: err.message, confirmButtonText: 'OK' });
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Install QEMU'; }
-  }
-}
-
-async function loadVmList() {
-  const container = document.getElementById("vm-list");
-  if (!container) return;
-  container.innerHTML = `<div class="osv-empty"><i class="bi bi-arrow-repeat"></i><h3>Memuat daftar VM...</h3></div>`;
-  checkQemuStatus();
-  try {
-    const result = await window.electronAPI.virtualOS.list();
-    if (!result?.success) {
-      container.innerHTML = `<div class="osv-empty"><i class="bi bi-exclamation-triangle"></i><h3>Gagal memuat VM</h3><p>${result?.message || ""}</p></div>`;
-      return;
-    }
-    const items = Array.isArray(result.items) ? result.items : [];
-    vmListCache = items;
-    if (!items.length) {
-      container.innerHTML = `<div class="osv-empty"><i class="bi bi-display"></i><h3>Belum ada OS Virtual</h3><p>Klik "Tambah VM" untuk membuat mesin virtual baru.</p></div>`;
-      return;
-    }
-
-    const osIcons = {
-      linux: { icon: "bi-ubuntu", color: "#e95420" },
-      windows: { icon: "bi-windows", color: "#0078d7" },
-      macos: { icon: "bi-apple", color: "#a2aaad" },
-      android: { icon: "bi-android2", color: "#3ddc84" },
-      freebsd: { icon: "bi-hdd-network", color: "#ab2b28" },
-      other: { icon: "bi-cpu", color: "#7c3aed" },
-    };
-
-    container.innerHTML = items.map((vm) => {
-      const osKey = (vm.osType || "linux").toLowerCase();
-      const osInfo = osIcons[osKey] || osIcons.other;
-      const isRunning = vm.status === "running";
-      const isStarting = vm.status === "starting";
-      const statusLabel = isRunning ? "Running" : isStarting ? "Starting..." : "Stopped";
-      const statusCls = isRunning ? "running" : isStarting ? "starting" : "stopped";
-      const ramGb = vm.memoryMb >= 1024 ? (vm.memoryMb / 1024).toFixed(1) + " GB" : (vm.memoryMb || 0) + " MB";
-
-      // Badge akselerasi hardware (HVF/KVM/WHPX = cepat, TCG = emulasi software)
-      const accel = (vm.accelUsed || "").toLowerCase();
-      const accelHw = accel && accel !== "tcg";
-      const accelBadge = isRunning && accel
-        ? `<span title="${accelHw ? "Akselerasi hardware aktif — performa native" : "Emulasi software (TCG) — lebih lambat, arsitektur guest ≠ host"}" style="color:${accelHw ? "#50c878" : "#f0a040"}"><i class="bi bi-${accelHw ? "rocket-takeoff" : "cpu"}"></i> ${accel.toUpperCase()}</span>`
-        : "";
-
-      // Daftar snapshot (3 terbaru) + tombol restore / hapus
-      const snaps = Array.isArray(vm.snapshots) ? vm.snapshots : [];
-      const snapBtnStyle = "background:none;border:none;cursor:pointer;padding:1px 4px;border-radius:4px;font-size:11px";
-      const snapsHtml = snaps.length
-        ? `<div class="osv-snapshots">
-            <div class="osv-snap-title">Snapshot (${snaps.length})</div>
-            ${snaps.slice(-3).reverse().map((s) => `
-              <div class="osv-snap-item">
-                <i class="bi bi-camera"></i>
-                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${s.name} — ${new Date(s.createdAt).toLocaleString()}">${s.name}${s.live ? ' <i class="bi bi-lightning-charge-fill" style="color:#f0a040" title="Snapshot live (termasuk RAM)"></i>' : ""}</span>
-                <button style="${snapBtnStyle};color:#50c878" onclick="restoreVmSnapshot('${vm.id}','${s.id}')" title="Restore snapshot ini"><i class="bi bi-arrow-counterclockwise"></i></button>
-                <button style="${snapBtnStyle};color:#e87070" onclick="deleteVmSnapshot('${vm.id}','${s.id}')" title="Hapus snapshot"><i class="bi bi-x-lg"></i></button>
-              </div>`).join("")}
-          </div>`
-        : "";
-
-      return `
-        <div class="osv-card" data-vm-id="${vm.id}">
-          <div class="osv-card-head">
-            <div class="osv-os-icon" style="background:${osInfo.color}22; color:${osInfo.color}">
-              <i class="bi ${osInfo.icon}"></i>
-            </div>
-            <div class="osv-card-name">
-              <h4>${vm.name || "Tanpa nama"}</h4>
-              <span>${(vm.osType || "linux").toUpperCase()}</span>
-            </div>
-            <span class="osv-status-badge ${statusCls}">
-              <span class="dot"></span>${statusLabel}
-            </span>
-          </div>
-          <div class="osv-specs">
-            <div class="osv-spec"><div class="osv-spec-val">${vm.cpu || 1}</div><div class="osv-spec-key">vCPU</div></div>
-            <div class="osv-spec"><div class="osv-spec-val">${ramGb}</div><div class="osv-spec-key">RAM</div></div>
-            <div class="osv-spec"><div class="osv-spec-val">${vm.storageGb || 0} GB</div><div class="osv-spec-key">Disk</div></div>
-            <div class="osv-spec"><div class="osv-spec-val">:${vm.vncPort || 5901}</div><div class="osv-spec-key">VNC</div></div>
-          </div>
-          <div class="osv-info">
-            <span><i class="bi bi-diagram-3"></i> ${(vm.networkMode || "nat").toUpperCase()}</span>
-            ${accelBadge}
-            ${vm.autostart ? '<span><i class="bi bi-lightning-fill" style="color:#f0a040"></i> Autostart</span>' : ""}
-            ${vm.isoPath ? `<span title="${vm.isoPath}"><i class="bi bi-disc"></i> ISO</span>` : ""}
-          </div>
-          ${snapsHtml}
-          ${vm.notes ? `<div class="osv-notes">${vm.notes}</div>` : ""}
-          <div class="osv-actions">
-            <button class="osv-btn start" onclick="startVm('${vm.id}')" title="Start"><i class="bi bi-play-fill"></i> Start</button>
-            <button class="osv-btn restart" onclick="restartVm('${vm.id}')" title="Restart"><i class="bi bi-arrow-repeat"></i></button>
-            <button class="osv-btn stop" onclick="stopVm('${vm.id}')" title="Stop"><i class="bi bi-stop-fill"></i> Stop</button>
-            <button class="osv-btn" style="border-color:rgba(239,68,68,0.4);color:#f87171" onclick="forceStopVm('${vm.id}')" title="Stop Paksa (SIGKILL) — gunakan jika Stop biasa tidak mempan"><i class="bi bi-lightning-fill"></i></button>
-            <button class="osv-btn" onclick="snapshotVm('${vm.id}')" title="Snapshot"><i class="bi bi-camera"></i></button>
-            <button class="osv-btn" onclick="openVmModalById('${vm.id}')" title="Edit"><i class="bi bi-pencil"></i></button>
-            <button class="osv-btn danger" onclick="deleteVm('${vm.id}')" title="Hapus"><i class="bi bi-trash"></i></button>
-          </div>
-        </div>
-      `;
-    }).join("");
-  } catch (err) {
-    container.innerHTML = `<div class="osv-empty"><i class="bi bi-exclamation-triangle"></i><h3>Error</h3><p>${err?.message || "Gagal memuat VM"}</p></div>`;
-  }
-}
-
-window.openVmModalById = function (id) {
-  if (!id || !vmListCache) return;
-  const vm = vmListCache.find((v) => v.id === id);
-  if (vm) window.openVmModal(vm);
-};
-
-async function killAllQemu() {
-  const confirm = await Swal.fire({
-    title: window.t('dialog.kill_qemu.title'),
-    text: window.t('dialog.kill_qemu.text'),
-    icon: "warning",
-    showCancelButton: true,
-    confirmButtonColor: "#f0a040",
-    confirmButtonText: window.t('dialog.kill_qemu.confirm'),
-    cancelButtonText: window.t('dialog.kill_qemu.cancel'),
-  });
-  if (!confirm.isConfirmed) return;
-  const result = await window.electronAPI.virtualOS.killAllQemu();
-  if (result?.success) {
-    showToast(window.t('toast.qemu.killed'), 2500, "success");
-  } else {
-    showToast(result?.message || "Gagal.", 3000, "error");
-  }
-  await loadVmList();
-}
-
-async function startVm(id) {
-  // If already running, just focus the VNC window
-  const card = document.querySelector(`.osv-card[data-vm-id="${id}"]`);
-  const statusBadge = card?.querySelector(".osv-status-badge");
-  if (statusBadge?.classList.contains("running")) {
-    await window.electronAPI.virtualOS.focusVncWindow(id);
-    return;
-  }
-
-  showToast(window.t('toast.vm.starting'), 1500, "info");
-  const vmName = card?.querySelector("h4")?.textContent || id;
-  const result = await window.electronAPI.virtualOS.start(id);
-  if (!result?.success) {
-    const msg = result?.message || "Gagal start VM.";
-    const isLocked = msg.includes("terkunci") || msg.includes("locked") || msg.includes("image");
-    await Swal.fire({
-      title: window.t('dialog.vm_start_fail'),
-      html: msg.replace(/\n/g, "<br>") +
-        (isLocked ? `<br><br>${window.t('dialog.vm_start_fail_tip')}` : ""),
-      icon: "error",
-      confirmButtonText: window.t('common.close'),
-    });
-    await loadVmList();
-    return;
-  }
-  showToast(window.t('toast.vm.started'), 2000, "success");
-  if (result.wsPort) {
-    await openVncViewer(result.wsPort, id, vmName);
-  }
-  await loadVmList();
-}
-
-async function forceStopVm(id) {
-  const result = await window.electronAPI.virtualOS.forceStop(id);
-  if (!result?.success) {
-    showToast(result?.message || window.t('toast.vm.force_stop_error'), 3000, "error");
-  } else {
-    showToast(window.t('toast.vm.force_stopped'), 2000, "success");
-  }
-  await loadVmList();
-}
-
-async function stopVm(id) {
-  const result = await window.electronAPI.virtualOS.stop(id);
-  if (!result?.success) {
-    showToast(result?.message || window.t('toast.vm.stop_error'), 3500, "error");
-    return;
-  }
-  showToast(window.t('toast.vm.stopped'), 2000, "info");
-  await loadVmList();
-}
-
-async function restartVm(id) {
-  const result = await window.electronAPI.virtualOS.restart(id);
-  if (!result?.success) {
-    showToast(result?.message || window.t('toast.vm.restart_error'), 3500, "error");
-    return;
-  }
-  showToast("VM direstart.", 2000, "info");
-  await loadVmList();
-}
-
-async function snapshotVm(id) {
-  const input = await Swal.fire({
-    title: "Snapshot",
-    input: "text",
-    inputLabel: "Nama snapshot",
-    inputPlaceholder: "Misal: sebelum update",
-    showCancelButton: true,
-    confirmButtonText: "Simpan",
-    cancelButtonText: "Batal",
-  });
-  if (!input.isConfirmed) return;
-  const result = await window.electronAPI.virtualOS.snapshot(
-    id,
-    input.value || "Snapshot"
-  );
-  if (!result?.success) {
-    showToast(result?.message || "Gagal snapshot.", 3500, "error");
-    return;
-  }
-  await loadVmList();
-  showToast("Snapshot dibuat.", 2000, "success");
-}
-
-async function restoreVmSnapshot(id, snapshotId) {
-  const confirm = await Swal.fire({
-    title: "Restore Snapshot?",
-    text: "Kondisi VM saat ini akan digantikan oleh snapshot. Perubahan setelah snapshot akan hilang.",
-    icon: "warning",
-    showCancelButton: true,
-    confirmButtonText: "Restore",
-    cancelButtonText: "Batal",
-  });
-  if (!confirm.isConfirmed) return;
-  showToast("Me-restore snapshot...", 2000, "info");
-  const result = await window.electronAPI.virtualOS.snapshotRestore(id, snapshotId);
-  if (!result?.success) {
-    showToast(result?.message || "Gagal restore snapshot.", 4000, "error");
-    return;
-  }
-  await loadVmList();
-  showToast("Snapshot di-restore.", 2500, "success");
-}
-
-async function deleteVmSnapshot(id, snapshotId) {
-  const confirm = await Swal.fire({
-    title: "Hapus Snapshot?",
-    text: "Data snapshot di dalam disk virtual juga akan dihapus.",
-    icon: "warning",
-    showCancelButton: true,
-    confirmButtonText: "Hapus",
-    cancelButtonText: "Batal",
-  });
-  if (!confirm.isConfirmed) return;
-  const result = await window.electronAPI.virtualOS.snapshotDelete(id, snapshotId);
-  if (!result?.success) {
-    showToast(result?.message || "Gagal menghapus snapshot.", 3500, "error");
-    return;
-  }
-  await loadVmList();
-  showToast("Snapshot dihapus.", 2000, "success");
-}
-
-async function openVncViewer(port, vmId, vmName) {
-  if (!port) return;
-  await window.electronAPI.virtualOS.openVncWindow({ vmId, wsPort: port, vmName });
-}
-
-async function browseVmIsoFile() {
-  try {
-    const isoInput = document.getElementById("vmIso");
-    const result = await window.electronAPI.virtualOS.browseIsoFile();
-    if (result?.success && result.path) {
-      isoInput.value = result.path;
-    } else if (!result?.canceled && result?.message) {
-      showToast(result.message, 3000, "warning");
-    }
-  } catch (err) {
-    console.warn("⚠️ Gagal membuka dialog ISO:", err?.message || err);
-  }
-}
-
-async function populateCachedIsos() {
-  const group = document.getElementById("vmCachedIsoGroup");
-  if (!group) return;
-  try {
-    const cached = await window.electronAPI.virtualOS.listCachedIsos();
-    group.innerHTML = "";
-    cached.forEach(c => {
-      const opt = document.createElement("option");
-      opt.value = "__cached__" + c.localPath;
-      opt.textContent = `✓ ${c.filename}${c.sizeMb ? ` (${c.sizeMb}MB)` : ""}`;
-      group.appendChild(opt);
-    });
-    group.style.display = cached.length > 0 ? "" : "none";
-  } catch (_) {
-    if (group) group.style.display = "none";
-  }
-}
-
-async function applyQuickIso() {
-  const select = document.getElementById("vmQuickIso");
-  const isoInput = document.getElementById("vmIso");
-  const progressEl = document.getElementById("vmIsoDownloadProgress");
-  let url = select?.value || "";
-  if (!url) return;
-
-  // Cached ISO: just set the path directly without downloading
-  if (url.startsWith("__cached__")) {
-    const localPath = url.slice("__cached__".length);
-    if (isoInput) isoInput.value = localPath;
-    showToast("ISO dipilih dari cache lokal", 2000, "success");
-    select.value = "";
-    return;
-  }
-
-  const filename = url.split("/").pop() || "os.iso";
-
-  // Show progress UI
-  if (progressEl) {
-    progressEl.style.display = "flex";
-    progressEl.querySelector(".iso-dl-label").textContent = `Mengunduh ${filename}...`;
-    progressEl.querySelector(".iso-dl-bar-inner").style.width = "0%";
-    progressEl.querySelector(".iso-dl-pct").textContent = "0%";
-  }
-
-  // Listen to progress
-  const unsubProgress = window.electronAPI.virtualOS.onIsoDownloadProgress((data) => {
-    if (data.filename !== filename) return;
-    const pct = data.pct >= 0 ? data.pct : 0;
-    if (progressEl) {
-      progressEl.querySelector(".iso-dl-bar-inner").style.width = pct + "%";
-      progressEl.querySelector(".iso-dl-pct").textContent = data.pct >= 0 ? pct + "%" : "...";
-      const mb = (data.downloaded / 1024 / 1024).toFixed(1);
-      const total = data.total > 0 ? ` / ${(data.total / 1024 / 1024).toFixed(1)} MB` : "";
-      progressEl.querySelector(".iso-dl-label").textContent = `${filename}: ${mb} MB${total}`;
-    }
-  });
-
-  try {
-    const result = await window.electronAPI.virtualOS.downloadIso({ url, filename });
-    unsubProgress();
-    if (progressEl) progressEl.style.display = "none";
-
-    if (!result?.success) {
-      showToast("Gagal download ISO: " + (result?.message || ""), 4000, "error");
-      select.value = "";
-      return;
-    }
-    isoInput.value = result.localPath;
-    showToast(result.cached ? `ISO sudah ada: ${filename}` : `ISO berhasil diunduh: ${filename}`, 2500, "success");
-    select.value = "";
-    populateCachedIsos();
-  } catch (err) {
-    unsubProgress();
-    if (progressEl) progressEl.style.display = "none";
-    showToast("Error download ISO: " + (err?.message || ""), 4000, "error");
-    select.value = "";
-  }
-}
 
 window.openVersionInfoDialog =
   window.openVersionInfoDialog ||
@@ -8476,11 +8291,18 @@ async function submitEmulatorDeviceForm() {
         document.getElementById("addAndroidVersion")?.value,
         10
       );
+      // "google_apis" (Root) gets Play Store auto-installed on its first
+      // boot — see startAndroidEmulatorDevice() in electron-main.js.
+      const androidImageVariant =
+        document.getElementById("addAndroidVariant")?.value === "playstore"
+          ? "playstore"
+          : "google_apis";
       const result = await window.electronAPI.addDevice({
         name,
         service: 'android',
         androidSpec,
         androidVersion: Number.isFinite(androidVersion) ? androidVersion : 30,
+        androidImageVariant,
         androidAutomationService,
         whatsappVariant: isWhatsAppAutomation
           ? document.getElementById("addEmuWhatsAppVariant")?.value || "consumer"
@@ -8577,203 +8399,6 @@ window.submitAndroidDevice = async function () {
     }
   } catch (err) {
     console.error("Error adding Android device:", err);
-    showToast("Error: " + err.message, 4000, "error");
-  }
-};
-
-// ==================== OS Virtual Modal Functions ====================
-
-window.openModalOSVirtual = function () {
-  const modal = document.getElementById("addModalOSVirtual");
-  if (!modal) return;
-
-  // Reset form
-  const nameInput = document.getElementById("osVirtualName");
-  if (nameInput) nameInput.value = "";
-
-  const downloadSelect = document.getElementById("osDownloadSelect");
-  if (downloadSelect) downloadSelect.selectedIndex = 0;
-
-  const isoFile = document.getElementById("osISOFile");
-  if (isoFile) isoFile.value = "";
-
-  // Reset to download method
-  const downloadRadio = document.getElementById("osMethodDownload");
-  if (downloadRadio) downloadRadio.checked = true;
-
-  // Reset sections visibility
-  const downloadSection = document.getElementById("osDownloadSection");
-  const isoSection = document.getElementById("osISOSection");
-  if (downloadSection) downloadSection.style.display = "block";
-  if (isoSection) isoSection.style.display = "none";
-
-  // Reset VM specs to default
-  const ramSelect = document.getElementById("osVMRam");
-  const coresSelect = document.getElementById("osVMCores");
-  const diskSelect = document.getElementById("osVMDisk");
-  const resolutionSelect = document.getElementById("osVMResolution");
-
-  if (ramSelect) ramSelect.value = "2048";
-  if (coresSelect) coresSelect.value = "2";
-  if (diskSelect) diskSelect.value = "40";
-  if (resolutionSelect) resolutionSelect.value = "1920x1080";
-
-  modal.style.display = "flex";
-};
-
-window.closeModalOSVirtual = function () {
-  const modal = document.getElementById("addModalOSVirtual");
-  if (!modal) return;
-  modal.style.display = "none";
-};
-
-window.toggleOSInstallMethod = function () {
-  const downloadRadio = document.getElementById("osMethodDownload");
-  const isoRadio = document.getElementById("osMethodISO");
-  const downloadSection = document.getElementById("osDownloadSection");
-  const isoSection = document.getElementById("osISOSection");
-
-  if (!downloadSection || !isoSection) return;
-
-  if (downloadRadio && downloadRadio.checked) {
-    downloadSection.style.display = "block";
-    isoSection.style.display = "none";
-  } else if (isoRadio && isoRadio.checked) {
-    downloadSection.style.display = "none";
-    isoSection.style.display = "block";
-  }
-};
-
-window.browseISOFile = async function () {
-  try {
-    const result = await window.electronAPI.virtualOS.browseIsoFile();
-
-    if (result.success && result.path) {
-      const isoPathInput = document.getElementById("osISOPath");
-      if (isoPathInput) {
-        isoPathInput.value = result.path;
-      }
-      console.log("📁 ISO file selected:", result.path);
-    } else if (!result.canceled) {
-      showToast(result.message || "Gagal memilih file ISO", 3000, "error");
-    }
-  } catch (err) {
-    console.error("❌ Error browsing ISO file:", err);
-    showToast("Error: " + err.message, 3000, "error");
-  }
-};
-
-window.browseVmIsoFile = async function () {
-  try {
-    const result = await window.electronAPI.virtualOS.browseIsoFile();
-
-    if (result.success && result.path) {
-      const isoInput = document.getElementById("vmIso");
-      if (isoInput) {
-        isoInput.value = result.path;
-      }
-      console.log("📁 ISO file selected for VM:", result.path);
-    } else if (!result.canceled) {
-      showToast(result.message || "Gagal memilih file ISO", 3000, "error");
-    }
-  } catch (err) {
-    console.error("❌ Error browsing ISO file:", err);
-    showToast("Error: " + err.message, 3000, "error");
-  }
-};
-
-window.submitOSVirtual = async function () {
-  const name = document.getElementById("osVirtualName")?.value.trim() || "";
-  const downloadRadio = document.getElementById("osMethodDownload");
-  const isoRadio = document.getElementById("osMethodISO");
-
-  // Validation
-  if (!name) {
-    showToast("Nama device wajib diisi.", 3000, "warning");
-    return;
-  }
-
-  const installMethod = downloadRadio?.checked ? "download" : "iso";
-  let osSource = "";
-  let isoPath = "";
-
-  if (installMethod === "download") {
-    const downloadSelect = document.getElementById("osDownloadSelect");
-    osSource = downloadSelect?.value || "";
-    if (!osSource) {
-      showToast("Pilih OS yang akan didownload.", 3000, "warning");
-      return;
-    }
-  } else {
-    const isoPathInput = document.getElementById("osISOPath");
-    isoPath = isoPathInput?.value.trim() || "";
-    if (!isoPath) {
-      showToast("Pilih file ISO terlebih dahulu.", 3000, "warning");
-      return;
-    }
-  }
-
-  // Get VM specifications
-  const ramMb = parseInt(document.getElementById("osVMRam")?.value || "2048");
-  const cores = parseInt(document.getElementById("osVMCores")?.value || "2");
-  const diskGb = parseInt(document.getElementById("osVMDisk")?.value || "40");
-  const resolution = document.getElementById("osVMResolution")?.value || "1920x1080";
-
-  // Prepare device data
-  const vmData = {
-    name,
-    service: "os-virtual",
-    installMethod,
-    osSource: installMethod === "download" ? osSource : "",
-    isoPath: installMethod === "iso" ? isoPath : "",
-    vmSpec: {
-      ramMb,
-      cores,
-      diskGb,
-      resolution,
-    },
-  };
-
-  try {
-    // TODO: Implement backend handler for OS Virtual
-    // For now, show a message that the feature is in development
-    console.log("VM Data to be saved:", vmData);
-
-    showToast(
-      "✅ Virtual Machine akan segera dibuat. Fitur ini sedang dalam pengembangan.",
-      4000,
-      "info"
-    );
-
-    // TODO: Call backend API to create VM
-    // const result = await window.electronAPI.osVirtual.createVM(vmData);
-
-    closeModalOSVirtual();
-
-    // Show detailed info
-    Swal.fire({
-      title: "OS Virtual - Coming Soon",
-      html: `
-        <div style="text-align: left; font-size: 14px;">
-          <p><strong>Nama:</strong> ${name}</p>
-          <p><strong>Metode:</strong> ${installMethod === "download" ? "Download OS" : "Upload ISO"}</p>
-          ${installMethod === "download" ? `<p><strong>OS:</strong> ${osSource}</p>` : `<p><strong>ISO Path:</strong> ${isoPath}</p>`}
-          <p><strong>RAM:</strong> ${ramMb} MB</p>
-          <p><strong>CPU:</strong> ${cores} Cores</p>
-          <p><strong>Disk:</strong> ${diskGb} GB</p>
-          <p><strong>Resolution:</strong> ${resolution}</p>
-        </div>
-        <hr style="margin: 16px 0;">
-        <p style="font-size: 13px; color: #666;">
-          Fitur OS Virtual akan menggunakan QEMU atau VirtualBox untuk menjalankan VM.
-          Backend sedang dalam pengembangan.
-        </p>
-      `,
-      icon: "info",
-      confirmButtonText: "OK",
-    });
-  } catch (err) {
-    console.error("Error creating OS Virtual:", err);
     showToast("Error: " + err.message, 4000, "error");
   }
 };
@@ -9128,7 +8753,7 @@ window.switchPage = async function (page) {
 
   console.log("🔄 Switching to page:", page);
 
-  const proPages = window.STARBOX_PRO_PAGES || ['remox', 'mikrotik', 'os-virtual', 'cctv', 'mystarbox', 'android-ios', 'cron'];
+  const proPages = window.STARBOX_PRO_PAGES || ['mystarbox', 'android-ios', 'cron'];
   if (proPages.includes(page)) {
     if (typeof window.setProMode === "function") {
       window.setProMode(true);
@@ -9195,7 +8820,7 @@ window.switchPage = async function (page) {
       console.warn("loadWAGatewayPage is not defined.");
     }
   } else if (page === "os-virtual") {
-    await loadVmList();
+    if (typeof loadVmList === "function") await loadVmList();
   } else if (page === "remox") {
     if (typeof window.initRemoxPage === "function") await window.initRemoxPage();
   } else if (page === "resource-monitor") {
@@ -9354,1258 +8979,16 @@ if (document.readyState === "loading") {
   initRemoteStatusUI();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// CCTV Module
-// ═══════════════════════════════════════════════════════════════════════════════
-
-let _cctvCameras    = [];
-let _cctvLayout     = 4;       // 1, 4, 9, 16
-let _cctvStreaming  = new Map(); // uid → { port, type, refreshTimer }
-let _hlsInstances  = new Map(); // uid → Hls instance
-
-let _cctvAutoConnectDone = false;
-
-async function cctvInit() {
-  await cctvCheckFfmpeg();
-  await cctvLoadCameras();
-  cctvRenderGrid();
-  // First access this session: auto-connect all registered cameras
-  if (!_cctvAutoConnectDone && _cctvCameras.length > 0) {
-    _cctvAutoConnectDone = true;
-    for (const cam of _cctvCameras) {
-      if (!_cctvStreaming.has(cam.uid)) {
-        cctvConnect(cam.uid);
-      }
-    }
-  }
-
-  bindAndroidWhatsAppUrlSync(
-    selectId.includes("Emulator") || fieldsId.includes("Emu")
-      ? selectId === "editAndroidAutomationService"
-        ? "editEmuWhatsAppBaseUrl"
-        : "addEmuWhatsAppBaseUrl"
-      : selectId === "editAndroidRemoteService"
-        ? "editWhatsAppBaseUrl"
-        : "addWhatsAppBaseUrl",
-    selectId.includes("Emulator") || fieldsId.includes("Emu")
-      ? selectId === "editAndroidAutomationService"
-        ? "editEmuWhatsAppCallbackUrl"
-        : "addEmuWhatsAppCallbackUrl"
-      : selectId === "editAndroidRemoteService"
-        ? "editWhatsAppCallbackUrl"
-        : "addWhatsAppCallbackUrl"
-  );
-}
-
-function bindAndroidWhatsAppUrlSync(baseInputId, callbackInputId) {
-  const baseInput = document.getElementById(baseInputId);
-  const callbackInput = document.getElementById(callbackInputId);
-  if (!baseInput || !callbackInput) return;
-  if (baseInput.dataset.callbackSyncBound === "true") return;
-  baseInput.dataset.callbackSyncBound = "true";
-
-  const syncCallbackFromBase = () => {
-    const normalizedCallback = getNormalizedCallbackInput(
-      baseInput.value,
-      callbackInput.value
-    );
-    if (!sanitizePendingUrl(callbackInput.value) && normalizedCallback) {
-      callbackInput.value = normalizedCallback;
-    }
-  };
-
-  baseInput.addEventListener("blur", syncCallbackFromBase);
-  baseInput.addEventListener("change", syncCallbackFromBase);
-}
-
-async function cctvCheckFfmpeg() {
-  const dot    = document.getElementById('cctvStatusDot');
-  const text   = document.getElementById('cctvStatusText');
-  const btn        = document.getElementById('cctvInstallFfmpegBtn');
-  const tutorialBtn = document.getElementById('cctvFfmpegTutorialBtn');
-  const banner = document.getElementById('cctvFfmpegMissingBanner');
-  try {
-    const r = await window.electronAPI.cctv.checkFfmpeg();
-    if (r.available) {
-      if (dot)         dot.style.background = '#22c55e';
-      if (text)        text.textContent = 'ffmpeg tersedia';
-      if (btn)         btn.style.display = 'none';
-      if (tutorialBtn) tutorialBtn.style.display = 'none';
-      if (banner)      banner.style.display = 'none';
-    } else {
-      if (dot)         dot.style.background = '#f59e0b';
-      if (text)        text.textContent = 'ffmpeg tidak ditemukan';
-      if (btn)         btn.style.display = 'inline-flex';
-      if (tutorialBtn) tutorialBtn.style.display = 'inline-flex';
-      if (banner)      banner.style.display = 'flex';
-    }
-  } catch {
-    if (dot)         dot.style.background = '#666';
-    if (text)        text.textContent = '';
-    if (btn)         btn.style.display = 'none';
-    if (tutorialBtn) tutorialBtn.style.display = 'none';
-    if (banner)      banner.style.display = 'none';
-  }
-}
-
-async function cctvInstallFfmpeg() {
-  const allBtns = [
-    document.getElementById('cctvInstallFfmpegBtn'),
-    document.getElementById('cctvInstallFfmpegBannerBtn'),
-  ];
-  allBtns.forEach(b => { if (b) { b.disabled = true; b.textContent = 'Menginstall...'; } });
-
-  const plat = process.platform;
-  const desc = plat === 'win32'
-    ? 'Mengunduh FFmpeg portable (~90 MB)...'
-    : plat === 'darwin'
-      ? 'Menginstall FFmpeg via Homebrew...'
-      : 'Menginstall FFmpeg via apt...';
-
-  // Buffer progress messages before Swal DOM is ready
-  const _msgBuffer = [];
-  let _logEl = null, _barEl = null, _pctEl = null;
-
-  const _flushBuffer = () => {
-    if (!_logEl) return;
-    for (const msg of _msgBuffer) {
-      const line = document.createElement('div');
-      line.textContent = msg;
-      _logEl.appendChild(line);
-    }
-    _msgBuffer.length = 0;
-    _logEl.scrollTop = _logEl.scrollHeight;
-  };
-
-  const _appendLog = (msg) => {
-    if (!_logEl) { _msgBuffer.push(msg); return; }
-    const line = document.createElement('div');
-    line.textContent = msg;
-    _logEl.appendChild(line);
-    _logEl.scrollTop = _logEl.scrollHeight;
-  };
-
-  let unsubscribe = null;
-  try {
-    Swal.fire({
-      title: 'Install FFmpeg / RTSP',
-      html: `<p style="margin-bottom:8px;font-size:0.9rem;">${desc}</p>
-             <div style="margin-bottom:8px;">
-               <div style="display:flex;justify-content:space-between;font-size:0.75rem;margin-bottom:3px;">
-                 <span id="ffmpegPhaseLabel">Memulai...</span>
-                 <span id="ffmpegPctLabel">0%</span>
-               </div>
-               <div style="background:#333;border-radius:4px;height:8px;overflow:hidden;">
-                 <div id="ffmpegProgressBar" style="background:#3b82f6;height:100%;width:0%;transition:width 0.3s;"></div>
-               </div>
-             </div>
-             <div style="text-align:left;max-height:160px;overflow-y:auto;font-size:0.75rem;
-                  font-family:monospace;background:#111;padding:8px;border-radius:6px;" id="ffmpegInstallLog">
-             </div>`,
-      allowOutsideClick: false,
-      allowEscapeKey: false,
-      showConfirmButton: false,
-      didOpen: () => {
-        _logEl  = document.getElementById('ffmpegInstallLog');
-        _barEl  = document.getElementById('ffmpegProgressBar');
-        _pctEl  = document.getElementById('ffmpegPctLabel');
-        _flushBuffer();
-      },
-    });
-
-    unsubscribe = window.electronAPI.cctv.onFfmpegInstallProgress((data) => {
-      if (data.message) _appendLog(data.message);
-      if (data.phase === 'download' && data.pct >= 0) {
-        if (_barEl)  _barEl.style.width  = `${data.pct}%`;
-        if (_pctEl)  _pctEl.textContent  = `${data.pct}%`;
-        const phaseEl = document.getElementById('ffmpegPhaseLabel');
-        if (phaseEl) phaseEl.textContent = 'Mengunduh...';
-      } else if (data.phase === 'extract') {
-        if (_barEl)  _barEl.style.width  = '95%';
-        if (_pctEl)  _pctEl.textContent  = '95%';
-        const phaseEl = document.getElementById('ffmpegPhaseLabel');
-        if (phaseEl) phaseEl.textContent = 'Mengekstrak...';
-      } else if (data.phase === 'done') {
-        if (_barEl)  _barEl.style.width  = '100%';
-        if (_barEl)  _barEl.style.background = '#22c55e';
-        if (_pctEl)  _pctEl.textContent  = '100%';
-        const phaseEl = document.getElementById('ffmpegPhaseLabel');
-        if (phaseEl) phaseEl.textContent = 'Selesai!';
-      } else if (data.phase === 'error') {
-        if (_barEl)  _barEl.style.background = '#ef4444';
-        const phaseEl = document.getElementById('ffmpegPhaseLabel');
-        if (phaseEl) phaseEl.textContent = 'Error';
-      } else if (data.phase === 'install') {
-        // brew/apt: indeterminate — animate bar
-        if (_barEl && !_barEl._anim) {
-          _barEl._anim = true;
-          _barEl.style.transition = 'none';
-          _barEl.style.width = '30%';
-          _barEl.style.background = 'linear-gradient(90deg,#3b82f6,#8b5cf6)';
-        }
-        const phaseEl = document.getElementById('ffmpegPhaseLabel');
-        if (phaseEl) phaseEl.textContent = 'Menginstall...';
-      }
-    });
-
-    const result = await window.electronAPI.cctv.installFfmpeg();
-    if (unsubscribe) unsubscribe();
-
-    if (result.success) {
-      await Swal.fire({ icon: 'success', title: 'FFmpeg Terinstall', text: 'FFmpeg / RTSP siap digunakan.', confirmButtonText: 'OK' });
-      await cctvCheckFfmpeg();
-    } else {
-      const opts = { icon: 'error', title: 'Gagal Install FFmpeg', text: result.message || 'Terjadi kesalahan.', confirmButtonText: 'OK' };
-      if (result.manualUrl) opts.footer = `<a href="${result.manualUrl}" target="_blank">Download Manual</a>`;
-      await Swal.fire(opts);
-    }
-  } catch (err) {
-    if (unsubscribe) unsubscribe();
-    Swal.fire({ icon: 'error', title: 'Error', text: err.message, confirmButtonText: 'OK' });
-  } finally {
-    allBtns.forEach(b => { if (b) { b.disabled = false; b.innerHTML = '<i class="bi bi-download"></i> Install FFmpeg'; } });
-  }
-}
-
-async function cctvLoadCameras() {
-  try {
-    const r = await window.electronAPI.cctv.getCameras();
-    _cctvCameras = r.cameras || [];
-  } catch (e) {
-    console.error('[CCTV] load cameras error', e);
-    _cctvCameras = [];
-  }
-}
-
-function cctvSetLayout(n) {
-  _cctvLayout = n;
-  const grid = document.getElementById('cctvGrid');
-  if (grid) {
-    grid.className = `cctv-grid cctv-grid-${n}`;
-  }
-  [1,4,9,16].forEach(x => {
-    const btn = document.getElementById(`cctvLayout${x}`);
-    if (btn) btn.classList.toggle('active', x === n);
-  });
-  cctvRenderGrid();
-}
-
-function cctvRenderGrid() {
-  const grid = document.getElementById('cctvGrid');
-  if (!grid) return;
-  grid.innerHTML = '';
-  grid.className = `cctv-grid cctv-grid-${_cctvLayout}`;
-
-  const totalCells = _cctvLayout;
-  for (let i = 0; i < totalCells; i++) {
-    const cam = _cctvCameras[i] || null;
-    grid.appendChild(cam ? cctvBuildCell(cam) : cctvBuildEmptyCell(i));
-  }
-
-  // If more cameras than cells, show the rest as extra cells below
-  if (_cctvCameras.length > totalCells) {
-    for (let i = totalCells; i < _cctvCameras.length; i++) {
-      grid.appendChild(cctvBuildCell(_cctvCameras[i]));
-    }
-  }
-}
-
-function cctvBuildEmptyCell(idx) {
-  const div = document.createElement('div');
-  div.className = 'cctv-cell';
-  div.innerHTML = `
-    <div class="cctv-empty-cell">
-      <i class="bi bi-camera-video-off"></i>
-      <span>Slot ${idx + 1}</span>
-    </div>`;
-  return div;
-}
-
-function cctvBuildCell(cam) {
-  const div = document.createElement('div');
-  div.className = 'cctv-cell';
-  div.id = `cctvCell_${cam.uid}`;
-  div.setAttribute('data-uid', cam.uid);
-
-  const streamInfo = _cctvStreaming.get(cam.uid);
-  const isStreaming = !!streamInfo;
-
-  if (isStreaming) {
-    div.classList.add('streaming');
-    if (cam.type === 'hls') {
-      div.innerHTML = `
-        <video id="cctvVideo_${cam.uid}" autoplay muted playsinline style="width:100%;height:100%;object-fit:contain;background:#000;"></video>
-        <span class="cctv-live-badge">● LIVE</span>`;
-    } else if (cam.type === 'snapshot') {
-      const src = cam.url + (cam.url.includes('?') ? '&' : '?') + '_t=' + Date.now();
-      div.innerHTML = `
-        <img id="cctvImg_${cam.uid}" src="${src}" style="width:100%;height:100%;object-fit:contain;background:#000;" alt="${cam.name}">
-        <span class="cctv-live-badge">● LIVE</span>`;
-    } else if (cam.type === 'http-mjpeg') {
-      div.innerHTML = `
-        <canvas id="cctvCanvas_${cam.uid}" style="width:100%;height:100%;object-fit:contain;background:#000;display:block;"></canvas>
-        <div id="cctvStreamStatus_${cam.uid}" style="display:none;"></div>
-        <span id="cctvLiveBadge_${cam.uid}" class="cctv-live-badge">● LIVE</span>`;
-    } else {
-      // RTSP proxy via localhost — use canvas reader
-      div.innerHTML = `
-        <canvas id="cctvCanvas_${cam.uid}" style="width:100%;height:100%;object-fit:contain;background:#000;display:block;"></canvas>
-        <div id="cctvStreamStatus_${cam.uid}" style="display:none;"></div>
-        <span id="cctvLiveBadge_${cam.uid}" class="cctv-live-badge">● LIVE</span>`;
-    }
-  } else {
-    div.innerHTML = `
-      <div class="cctv-placeholder">
-        <i class="bi bi-camera-video" style="color:#222;"></i>
-        <span style="font-size:0.8rem;color:#444;">${cam.name}</span>
-        <button onclick="cctvConnect('${cam.uid}')" style="background:var(--color-primary);color:#fff;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.8rem;">
-          <i class="bi bi-play-fill"></i> Hubungkan
-        </button>
-      </div>`;
-  }
-
-  const hasPtz = !!(cam.onvifIp && cam.onvifToken);
-
-  // Overlay
-  div.innerHTML += `
-    <div class="cctv-overlay">
-      <span class="cctv-label">${cam.name}</span>
-      <div class="cctv-actions">
-        ${isStreaming ? `<button onclick="cctvDisconnect('${cam.uid}')">⏹ Stop</button>` : `<button onclick="cctvConnect('${cam.uid}')">▶ Live</button>`}
-        ${isStreaming ? `<button onclick="cctvReload('${cam.uid}')" title="Reload stream">↺</button>` : ''}
-        ${hasPtz ? `<button onclick="cctvOpenPtz('${cam.uid}')" title="PTZ Control" style="background:#7c3aed;">🎮 PTZ</button>` : ''}
-        <button onclick="cctvSnapshot('${cam.uid}')">📷</button>
-        <button onclick="cctvFullscreen('${cam.uid}')">⛶</button>
-        <button onclick="cctvOpenEditModal('${cam.uid}')">✏</button>
-        <button onclick="cctvDeleteCamera('${cam.uid}')" style="color:#fca5a5;">🗑</button>
-      </div>
-    </div>`;
-
-  // Double click → fullscreen
-  div.addEventListener('dblclick', () => cctvFullscreen(cam.uid));
-
-  // If HLS, init after DOM insert
-  if (isStreaming && cam.type === 'hls') {
-    setTimeout(() => cctvInitHls(cam), 50);
-  }
-
-  // If snapshot, start refresh timer
-  if (isStreaming && cam.type === 'snapshot') {
-    cctvStartSnapshotRefresh(cam);
-  }
-
-  // If RTSP proxy or direct MJPEG, start canvas reader
-  if (isStreaming && (cam.type === 'rtsp' || cam.type === 'http-mjpeg')) {
-    setTimeout(() => cctvStartCanvasStream(cam), 50);
-  }
-
-  return div;
-}
-
-// ── Connect / Disconnect ─────────────────────────────────────────────────────
-
-async function cctvConnect(uid) {
-  const cam = _cctvCameras.find(c => c.uid === uid);
-  if (!cam) return;
-
-  const cell = document.getElementById(`cctvCell_${uid}`);
-  if (cell) {
-    cell.innerHTML = `<div class="cctv-placeholder"><i class="bi bi-arrow-repeat" style="color:var(--color-primary);animation:spin 1s linear infinite;font-size:2rem;"></i><span style="font-size:0.8rem;color:#888;">Menghubungkan...</span></div>`;
-  }
-
-  try {
-    if (cam.type === 'http-mjpeg') {
-      // Direct MJPEG — no proxy needed
-      _cctvStreaming.set(uid, { port: null, type: 'http-mjpeg' });
-    } else if (cam.type === 'snapshot') {
-      _cctvStreaming.set(uid, { port: null, type: 'snapshot' });
-    } else if (cam.type === 'hls') {
-      _cctvStreaming.set(uid, { port: null, type: 'hls' });
-    } else {
-      // RTSP → ffmpeg proxy
-      const r = await window.electronAPI.cctv.startStream(cam);
-      if (!r.success) throw new Error(r.message || 'Gagal memulai stream');
-      _cctvStreaming.set(uid, { port: r.port, type: 'rtsp' });
-    }
-    cctvRenderGrid();
-  } catch (err) {
-    _cctvStreaming.delete(uid);
-    if (cell) {
-      cell.innerHTML = `
-        <div class="cctv-placeholder">
-          <i class="bi bi-exclamation-triangle" style="color:#ef4444;font-size:2rem;"></i>
-          <span style="font-size:0.75rem;color:#ef4444;text-align:center;padding:0 10px;">${err.message}</span>
-          <button onclick="cctvConnect('${uid}')" style="background:#ef4444;color:#fff;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:0.78rem;">Coba Lagi</button>
-        </div>`;
-    }
-    console.error('[CCTV] connect error', err);
-  }
-}
-
-async function cctvReload(uid) {
-  const info = _cctvStreaming.get(uid);
-  if (!info) { return cctvConnect(uid); }
-  // Abort current stream so reconnect loop restarts immediately
-  if (info.abortCtrl) { try { info.abortCtrl.abort(); } catch (_e) {} }
-}
-
-async function cctvDisconnect(uid) {
-  const info = _cctvStreaming.get(uid);
-  if (info && info.refreshTimer) clearInterval(info.refreshTimer);
-  if (info && info.abortCtrl) { try { info.abortCtrl.abort(); } catch (_e) {} }
-  // destroy HLS instance
-  const hls = _hlsInstances.get(uid);
-  if (hls) { try { hls.destroy(); } catch (_e) {} _hlsInstances.delete(uid); }
-  _cctvStreaming.delete(uid);
-  await window.electronAPI.cctv.stopStream(uid);
-  cctvRenderGrid();
-}
-
-// ── HLS ──────────────────────────────────────────────────────────────────────
-
-function cctvInitHls(cam) {
-  const video = document.getElementById(`cctvVideo_${cam.uid}`);
-  if (!video) return;
-
-  if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-    const hls = new Hls();
-    hls.loadSource(cam.url);
-    hls.attachMedia(video);
-    _hlsInstances.set(cam.uid, hls);
-  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    video.src = cam.url;
-  }
-}
-
-// ── Snapshot refresh ─────────────────────────────────────────────────────────
-
-function cctvStartSnapshotRefresh(cam) {
-  const info = _cctvStreaming.get(cam.uid);
-  if (!info) return;
-  const intervalSec = cam.refreshSec || 5;
-  const timer = setInterval(() => {
-    const img = document.getElementById(`cctvImg_${cam.uid}`);
-    if (!img) { clearInterval(timer); return; }
-    img.src = cam.url + (cam.url.includes('?') ? '&' : '?') + '_t=' + Date.now();
-  }, intervalSec * 1000);
-  info.refreshTimer = timer;
-}
-
-// ── Canvas MJPEG reader ───────────────────────────────────────────────────────
-
-function _classifyStreamError(err) {
-  if (!err) return 'Stream terputus';
-  const msg = (err.message || '').toLowerCase();
-  if (msg === 'read_timeout')                    return 'Timeout / RTO (tdk ada data)';
-  if (msg.includes('failed to fetch') ||
-      msg.includes('err_connection_refused') ||
-      msg.includes('econnrefused'))              return 'Koneksi ditolak (ECONNREFUSED)';
-  if (msg.includes('timed_out') ||
-      msg.includes('err_connection_timed_out'))  return 'Koneksi timeout (RTO)';
-  if (msg.includes('http 401'))                  return 'Autentikasi gagal (401)';
-  if (msg.includes('http 403'))                  return 'Akses ditolak (403)';
-  if (msg.includes('http 404'))                  return 'Stream tdk ditemukan (404)';
-  if (msg.includes('http 5'))                    return `Error server (${err.message})`;
-  if (msg.includes('network'))                   return 'Jaringan terputus';
-  return (err.message || 'Stream terputus').slice(0, 50);
-}
-
-function cctvSetStreamStatus(uid, msg, type) {
-  const el = document.getElementById(`cctvStreamStatus_${uid}`);
-  if (!el) return;
-  if (!msg) { el.style.display = 'none'; return; }
-  const bg = type === 'error' ? 'rgba(239,68,68,0.88)' : 'rgba(30,27,46,0.88)';
-  const ic = type === 'error' ? '⚠ ' : type === 'connecting' ? '↻ ' : '';
-  el.style.cssText = `position:absolute;bottom:28px;left:0;right:0;text-align:center;padding:4px 8px;background:${bg};color:#fff;font-size:0.68rem;font-weight:600;display:block;z-index:3;pointer-events:none;letter-spacing:0.01em;`;
-  el.textContent = ic + msg;
-}
-
-// Returns { stopped: bool, error? }
-// stopped=true  → AbortError from user disconnect, do NOT reconnect
-// stopped=false → stream ended/error, reconnect is OK
-async function cctvDrawCanvasFromUrl(canvas, url, outerAbortCtrl, uid) {
-  const ctx = canvas.getContext('2d');
-  const JPEG_SOI = 0xFF, JPEG_EOI_BYTE = 0xD9, JPEG_START = 0xD8;
-  const FREEZE_TIMEOUT_MS = 15000; // abort stream if no data for 15s
-
-  let lastFrameTs = Date.now();
-  let frameCount  = 0;
-
-  // Watchdog: if no data for FREEZE_TIMEOUT_MS, abort the fetch
-  let freezeTimer = setTimeout(() => outerAbortCtrl.abort('freeze'), FREEZE_TIMEOUT_MS);
-  const resetFreeze = () => {
-    clearTimeout(freezeTimer);
-    freezeTimer = setTimeout(() => outerAbortCtrl.abort('freeze'), FREEZE_TIMEOUT_MS);
-  };
-
-  // Live badge — update every second
-  const badgeTimer = setInterval(() => {
-    const badge = document.getElementById(`cctvLiveBadge_${uid}`);
-    if (!badge) { clearInterval(badgeTimer); return; }
-    const idle = Math.round((Date.now() - lastFrameTs) / 1000);
-    if (idle < 3) {
-      badge.textContent = '● LIVE';
-      badge.style.color = '#22c55e';
-    } else {
-      badge.textContent = `⚠ ${idle}s idle`;
-      badge.style.color = '#f59e0b';
-    }
-  }, 1000);
-
-  const cleanup = () => {
-    clearInterval(badgeTimer);
-    clearTimeout(freezeTimer);
-  };
-
-  try {
-    const resp = await fetch(url, { signal: outerAbortCtrl.signal });
-    if (!resp.ok) { cleanup(); return { error: new Error(`HTTP ${resp.status}`), stopped: false }; }
-
-    const reader = resp.body.getReader();
-    let buf = new Uint8Array(0);
-
-    const append = (chunk) => {
-      const merged = new Uint8Array(buf.length + chunk.length);
-      merged.set(buf);
-      merged.set(chunk, buf.length);
-      buf = merged;
-    };
-
-    const findFrame = () => {
-      let start = -1;
-      for (let i = 0; i < buf.length - 1; i++) {
-        if (buf[i] === JPEG_SOI && buf[i + 1] === JPEG_START) { start = i; break; }
-      }
-      if (start < 0) { buf = new Uint8Array(0); return null; }
-      for (let i = start + 2; i < buf.length - 1; i++) {
-        if (buf[i] === JPEG_SOI && buf[i + 1] === JPEG_EOI_BYTE) {
-          const frame = buf.slice(start, i + 2);
-          buf = buf.slice(i + 2);
-          return frame;
-        }
-      }
-      if (start > 0) buf = buf.slice(start);
-      return null;
-    };
-
-    while (true) {
-      const { value, done } = await reader.read(); // AbortSignal cancels this properly
-      if (done) { cleanup(); return { error: new Error('Stream terputus oleh server'), stopped: false }; }
-      resetFreeze();
-      append(value);
-      let frame;
-      while ((frame = findFrame()) !== null) {
-        try {
-          const blob = new Blob([frame], { type: 'image/jpeg' });
-          const bmp  = await createImageBitmap(blob);
-          canvas.width  = bmp.width;
-          canvas.height = bmp.height;
-          ctx.drawImage(bmp, 0, 0);
-          bmp.close();
-          frameCount++;
-          lastFrameTs = Date.now();
-          if (frameCount === 1) cctvSetStreamStatus(uid, '', '');
-        } catch (_e) { /* skip bad frame */ }
-      }
-    }
-  } catch (err) {
-    cleanup();
-    if (err.name === 'AbortError') {
-      // Distinguish freeze-abort vs user-disconnect-abort
-      const isFrozen = outerAbortCtrl.signal.reason === 'freeze';
-      if (isFrozen) return { error: new Error('Stream beku (15s tdk ada data)'), stopped: false };
-      return { stopped: true }; // user disconnected
-    }
-    return { error: err, stopped: false };
-  }
-}
-
-async function cctvStartCanvasStream(cam) {
-  const RETRY_DELAYS = [3000, 5000, 8000, 10000, 15000];
-  let attempt = 0;
-
-  while (_cctvStreaming.has(cam.uid)) {
-    const info = _cctvStreaming.get(cam.uid);
-    if (!info) return;
-
-    // ── For RTSP: restart ffmpeg proxy on every attempt ──────────────────────
-    if (cam.type === 'rtsp') {
-      cctvSetStreamStatus(cam.uid, attempt > 0 ? `↻ Memulai ulang stream (${attempt})...` : 'Memulai ffmpeg...', 'connecting');
-      try {
-        const r = await window.electronAPI.cctv.startStream(cam);
-        if (!r.success) throw new Error(r.message || 'Gagal memulai proxy');
-        info.port = r.port; // update port in case it changed
-      } catch (err) {
-        attempt++;
-        const delay = RETRY_DELAYS[Math.min(attempt - 1, RETRY_DELAYS.length - 1)];
-        for (let i = Math.round(delay / 1000); i > 0; i--) {
-          if (!_cctvStreaming.has(cam.uid)) return;
-          cctvSetStreamStatus(cam.uid, `ffmpeg gagal: ${err.message} — retry ${i}s`, 'error');
-          await new Promise(r => setTimeout(r, 1000));
-        }
-        continue;
-      }
-      // Small delay to let ffmpeg initialize before we fetch
-      await new Promise(r => setTimeout(r, 500));
-    }
-
-    const url    = cam.type === 'http-mjpeg' ? cam.url : `http://127.0.0.1:${info.port}/`;
-    const canvas = document.getElementById(`cctvCanvas_${cam.uid}`);
-    if (!canvas) return;
-
-    // Create a fresh AbortController for this attempt
-    const abortCtrl = new AbortController();
-    info.abortCtrl  = abortCtrl;
-
-    cctvSetStreamStatus(cam.uid, attempt > 0 ? `Menghubungkan ulang (${attempt})...` : 'Menghubungkan...', 'connecting');
-
-    const { error, stopped } = await cctvDrawCanvasFromUrl(canvas, url, abortCtrl, cam.uid);
-
-    if (stopped || !_cctvStreaming.has(cam.uid)) return;
-
-    // Stream ended / errored — check ffmpeg log for details, then reconnect
-    attempt++;
-    let errMsg = _classifyStreamError(error);
-
-    // Try to get ffmpeg error log from proxy
-    try {
-      const st = await window.electronAPI.cctv.streamStatus(cam.uid);
-      if (st && st.ffmpegLog) {
-        const log = st.ffmpegLog.slice(-300); // last 300 chars
-        if (log.includes('Connection refused'))      errMsg = 'RTSP: Koneksi ditolak';
-        else if (log.includes('401 Unauthorized'))   errMsg = 'RTSP: Auth gagal (401)';
-        else if (log.includes('No route to host'))   errMsg = 'RTSP: Host tidak terjangkau';
-        else if (log.includes('Connection timed out')) errMsg = 'RTSP: Timeout';
-        else if (log.includes('Invalid data'))       errMsg = 'RTSP: URL/format tidak valid';
-        else if (log.includes('No such file'))       errMsg = 'ffmpeg tidak ditemukan';
-      }
-    } catch {}
-
-    const delay    = RETRY_DELAYS[Math.min(attempt - 1, RETRY_DELAYS.length - 1)];
-    const delaySec = Math.round(delay / 1000);
-    console.warn(`[CCTV] ${cam.name} — ${errMsg}, retry in ${delaySec}s (attempt ${attempt})`);
-
-    for (let i = delaySec; i > 0; i--) {
-      if (!_cctvStreaming.has(cam.uid)) return;
-      cctvSetStreamStatus(cam.uid, `${errMsg} — reconnect ${i}s`, 'error');
-      await new Promise(r => setTimeout(r, 1000));
-    }
-  }
-}
-
-// ── Snapshot save ─────────────────────────────────────────────────────────────
-
-async function cctvSnapshot(uid) {
-  const cam = _cctvCameras.find(c => c.uid === uid);
-  if (!cam) return;
-  try {
-    const r = await window.electronAPI.cctv.snapshot(cam);
-    if (r.success) {
-      cctvToast(`Screenshot disimpan ke: ${r.path}`, 'success');
-    } else if (!r.canceled) {
-      cctvToast(`Gagal: ${r.message}`, 'error');
-    }
-  } catch (err) {
-    cctvToast(`Error: ${err.message}`, 'error');
-  }
-}
-
-// ── Fullscreen ────────────────────────────────────────────────────────────────
-
-function cctvFullscreen(uid) {
-  const cam = _cctvCameras.find(c => c.uid === uid);
-  if (!cam) return;
-  const info = _cctvStreaming.get(uid);
-  const fsEl    = document.getElementById('cctvFullscreen');
-  const fsImg   = document.getElementById('cctvFsImg');
-  const fsVid   = document.getElementById('cctvFsVideo');
-  const fsTitle = document.getElementById('cctvFsTitle');
-
-  if (fsTitle) fsTitle.textContent = cam.name;
-  fsImg.style.display  = 'none';
-  fsVid.style.display  = 'none';
-
-  if (!info) {
-    fsEl.style.display = 'flex';
-    return;
-  }
-
-  if (cam.type === 'hls') {
-    fsVid.style.display = 'block';
-    if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-      const hls = new Hls();
-      hls.loadSource(cam.url);
-      hls.attachMedia(fsVid);
-    } else {
-      fsVid.src = cam.url;
-    }
-  } else if (cam.type === 'snapshot') {
-    fsImg.src = cam.url + (cam.url.includes('?') ? '&' : '?') + '_t=' + Date.now();
-    fsImg.style.display = 'block';
-  } else {
-    // RTSP proxy or direct MJPEG — use canvas
-    let fsCanvas = document.getElementById('cctvFsCanvas');
-    if (!fsCanvas) {
-      fsCanvas = document.createElement('canvas');
-      fsCanvas.id = 'cctvFsCanvas';
-      fsCanvas.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;background:#000;';
-      fsImg.parentNode.insertBefore(fsCanvas, fsImg);
-    }
-    fsCanvas.style.display = 'block';
-    const streamUrl = cam.type === 'http-mjpeg' ? cam.url : `http://127.0.0.1:${info.port}/`;
-    // abort any previous fs stream
-    if (window._cctvFsAbort) { try { window._cctvFsAbort.abort(); } catch (_e) {} }
-    window._cctvFsAbort = new AbortController();
-    cctvDrawCanvasFromUrl(fsCanvas, streamUrl, window._cctvFsAbort.signal, '__fs__');
-  }
-
-  fsEl.style.display = 'flex';
-}
-
-function cctvCloseFullscreen() {
-  const fsEl     = document.getElementById('cctvFullscreen');
-  const fsVid    = document.getElementById('cctvFsVideo');
-  const fsImg    = document.getElementById('cctvFsImg');
-  const fsCanvas = document.getElementById('cctvFsCanvas');
-  if (fsVid) { fsVid.pause(); fsVid.src = ''; }
-  if (fsImg) { fsImg.src = ''; fsImg.style.display = 'none'; }
-  if (fsCanvas)  fsCanvas.style.display = 'none';
-  if (window._cctvFsAbort) { try { window._cctvFsAbort.abort(); } catch (_e) {} window._cctvFsAbort = null; }
-  if (fsEl)  fsEl.style.display = 'none';
-}
-
-// ── Add / Edit Modal ──────────────────────────────────────────────────────────
-
-function cctvOpenAddModal() {
-  document.getElementById('cctvModalTitle').textContent = 'Tambah Kamera';
-  document.getElementById('cctvEditUid').value = '';
-  document.getElementById('cctvName').value     = '';
-  document.getElementById('cctvType').value     = 'rtsp';
-  document.getElementById('cctvUrl').value      = '';
-  document.getElementById('cctvUsername').value = '';
-  document.getElementById('cctvPassword').value = '';
-  document.getElementById('cctvFps').value      = '15';
-  document.getElementById('cctvRefreshSec').value = '5';
-  document.getElementById('cctvNotes').value    = '';
-  const onvifIpEl2 = document.getElementById('cctvOnvifIp');
-  if (onvifIpEl2) onvifIpEl2.value = '';
-  const onvifPortEl2 = document.getElementById('cctvOnvifPort');
-  if (onvifPortEl2) onvifPortEl2.value = '';
-  const onvifTokenEl2 = document.getElementById('cctvOnvifToken');
-  if (onvifTokenEl2) onvifTokenEl2.value = '';
-  cctvOnTypeChange();
-  document.getElementById('cctvModal').style.display = 'flex';
-}
-
-function cctvOpenEditModal(uid) {
-  const cam = _cctvCameras.find(c => c.uid === uid);
-  if (!cam) return;
-  document.getElementById('cctvModalTitle').textContent = 'Edit Kamera';
-  document.getElementById('cctvEditUid').value = cam.uid;
-  document.getElementById('cctvName').value     = cam.name || '';
-  document.getElementById('cctvType').value     = cam.type || 'rtsp';
-  document.getElementById('cctvUrl').value      = cam.url || '';
-  document.getElementById('cctvUsername').value = cam.username || '';
-  document.getElementById('cctvPassword').value = cam.password || '';
-  document.getElementById('cctvFps').value      = String(cam.fps || 15);
-  document.getElementById('cctvRefreshSec').value = String(cam.refreshSec || 5);
-  document.getElementById('cctvNotes').value    = cam.notes || '';
-  const onvifIpEl = document.getElementById('cctvOnvifIp');
-  if (onvifIpEl) onvifIpEl.value = cam.onvifIp || '';
-  const onvifPortEl = document.getElementById('cctvOnvifPort');
-  if (onvifPortEl) onvifPortEl.value = String(cam.onvifPort || '');
-  const onvifTokenEl = document.getElementById('cctvOnvifToken');
-  if (onvifTokenEl) onvifTokenEl.value = cam.onvifToken || '';
-  cctvOnTypeChange();
-  document.getElementById('cctvModal').style.display = 'flex';
-}
-
-function cctvCloseModal() {
-  document.getElementById('cctvModal').style.display = 'none';
-}
-
-// Auto-fill ONVIF IP from stream URL
-function cctvAutoFillOnvif() {
-  const url  = (document.getElementById('cctvUrl') || {}).value || '';
-  const ipEl  = document.getElementById('cctvOnvifIp');
-  const portEl = document.getElementById('cctvOnvifPort');
-  const tokenEl = document.getElementById('cctvOnvifToken');
-
-  // Extract IP from rtsp://user:pass@IP:PORT/... or http://IP:PORT/...
-  const m = url.match(/(?:rtsp|http|https):\/\/(?:[^@]+@)?(\d{1,3}(?:\.\d{1,3}){3})(?::(\d+))?/i);
-  if (m && ipEl) {
-    if (!ipEl.value) ipEl.value = m[1];
-    // Only pre-fill port if ONVIF port field is default 80 (don't overwrite if user set it)
-    if (portEl && (portEl.value === '80' || !portEl.value)) {
-      portEl.value = '80'; // ONVIF port is separate from RTSP port — keep 80 as default
-    }
-  }
-  if (tokenEl && !tokenEl.value) tokenEl.value = 'MainStream';
-  if (ipEl && !ipEl.value) { cctvToast('Tidak bisa deteksi IP dari URL — isi manual', 'error'); }
-}
-
-function cctvOnTypeChange() {
-  const type = document.getElementById('cctvType').value;
-  const brandHelper = document.getElementById('cctvBrandHelper');
-  const credFields  = document.getElementById('cctvCredFields');
-  const fpsField    = document.getElementById('cctvFpsField');
-  const snapField   = document.getElementById('cctvSnapshotInterval');
-  const urlHint     = document.getElementById('cctvUrlHint');
-
-  const hints = {
-    'rtsp':       'Contoh: rtsp://192.168.1.100:554/stream1',
-    'http-mjpeg': 'Contoh: http://192.168.1.100/mjpeg',
-    'hls':        'Contoh: http://192.168.1.100/stream.m3u8',
-    'snapshot':   'Contoh: http://192.168.1.100/snapshot.jpg',
-  };
-  if (urlHint) urlHint.textContent = hints[type] || '';
-
-  if (brandHelper) brandHelper.style.display = type === 'rtsp' ? 'block' : 'none';
-  if (credFields)  credFields.style.display  = (type === 'rtsp' || type === 'http-mjpeg') ? 'flex' : 'none';
-  if (fpsField)    fpsField.style.display    = type === 'rtsp' ? 'block' : 'none';
-  if (snapField)   snapField.style.display   = type === 'snapshot' ? 'block' : 'none';
-}
-
-function cctvApplyTemplate(tpl) {
-  if (!tpl) return;
-  document.getElementById('cctvUrl').value = tpl;
-}
-
-async function cctvSaveCamera() {
-  const name = (document.getElementById('cctvName').value || '').trim();
-  const url  = (document.getElementById('cctvUrl').value  || '').trim();
-  if (!name) { cctvToast('Nama kamera wajib diisi', 'error'); return; }
-  if (!url)  { cctvToast('URL stream wajib diisi', 'error'); return; }
-
-  const existingUid = document.getElementById('cctvEditUid').value;
-  const camera = {
-    uid:          existingUid || crypto.randomUUID(),
-    name,
-    type:         document.getElementById('cctvType').value,
-    url,
-    username:     document.getElementById('cctvUsername').value,
-    password:     document.getElementById('cctvPassword').value,
-    fps:          parseInt(document.getElementById('cctvFps').value) || 15,
-    refreshSec:   parseInt(document.getElementById('cctvRefreshSec').value) || 5,
-    notes:        document.getElementById('cctvNotes').value,
-    onvifIp:      (document.getElementById('cctvOnvifIp')    || {}).value || '',
-    onvifPort:    parseInt((document.getElementById('cctvOnvifPort') || {}).value) || 0,
-    onvifToken:   (document.getElementById('cctvOnvifToken') || {}).value || '',
-  };
-
-  try {
-    await window.electronAPI.cctv.saveCamera(camera);
-    if (existingUid) {
-      const idx = _cctvCameras.findIndex(c => c.uid === existingUid);
-      if (idx >= 0) _cctvCameras[idx] = camera;
-    } else {
-      _cctvCameras.push(camera);
-    }
-    cctvCloseModal();
-    cctvRenderGrid();
-    cctvToast(`Kamera "${name}" disimpan`, 'success');
-  } catch (err) {
-    cctvToast(`Gagal simpan: ${err.message}`, 'error');
-  }
-}
-
-async function cctvDeleteCamera(uid) {
-  const cam = _cctvCameras.find(c => c.uid === uid);
-  if (!cam) return;
-  if (!confirm(`Hapus kamera "${cam.name}"?`)) return;
-  await cctvDisconnect(uid);
-  await window.electronAPI.cctv.deleteCamera(uid);
-  _cctvCameras = _cctvCameras.filter(c => c.uid !== uid);
-  cctvRenderGrid();
-  cctvToast(`Kamera "${cam.name}" dihapus`, 'success');
-}
-
-// ── Toast ─────────────────────────────────────────────────────────────────────
-
-function cctvToast(msg, type = 'info') {
-  const colors = { success: '#22c55e', error: '#ef4444', info: '#6366f1' };
-  const el = document.createElement('div');
-  el.textContent = msg;
-  el.style.cssText = `position:fixed;bottom:24px;right:24px;background:${colors[type]||colors.info};color:#fff;padding:10px 18px;border-radius:8px;font-size:0.85rem;z-index:99999;box-shadow:0 4px 16px rgba(0,0,0,0.3);max-width:340px;`;
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 3500);
-}
-
-// ── Lifecycle ─────────────────────────────────────────────────────────────────
-
-// Hook into switchPage
+// Hook into switchPage (My StarBox)
 (function() {
   const _origSwitchPage = window.switchPage;
   if (typeof _origSwitchPage === 'function') {
     window.switchPage = async function(page, ...args) {
       await _origSwitchPage(page, ...args);
-      if (page === 'cctv') cctvInit();
       if (page === 'mystarbox') msbInit();
     };
   }
 })();
-
-// ── PTZ Panel ─────────────────────────────────────────────────────────────────
-
-let _ptzCam = null;         // current camera for PTZ
-let _ptzPresets = [];       // loaded presets
-
-function cctvOpenPtz(uid) {
-  _ptzCam = _cctvCameras.find(c => c.uid === uid);
-  if (!_ptzCam) return;
-
-  let panel = document.getElementById('cctvPtzPanel');
-  if (!panel) {
-    panel = document.createElement('div');
-    panel.id = 'cctvPtzPanel';
-    panel.style.cssText = `
-      position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
-      z-index:10000;background:#1e1b2e;border:1px solid #4c1d95;
-      border-radius:14px;padding:20px 24px;min-width:320px;
-      box-shadow:0 8px 40px rgba(0,0,0,0.6);color:#fff;font-family:inherit;`;
-    document.body.appendChild(panel);
-  }
-
-  panel.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-      <span style="font-weight:700;font-size:1rem;">🎮 PTZ — ${_ptzCam.name}</span>
-      <button onclick="cctvClosePtz()" style="background:none;border:none;color:#aaa;font-size:1.3rem;cursor:pointer;line-height:1;">✕</button>
-    </div>
-
-    <!-- Speed -->
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:0.8rem;color:#aaa;">
-      <span>Kecepatan:</span>
-      <input id="ptzSpeed" type="range" min="1" max="10" value="5" style="flex:1;">
-      <span id="ptzSpeedVal">0.5</span>
-    </div>
-
-    <!-- D-pad + Zoom -->
-    <div style="display:flex;gap:16px;align-items:center;justify-content:center;margin-bottom:14px;">
-      <!-- D-pad -->
-      <div style="display:grid;grid-template-columns:repeat(3,44px);grid-template-rows:repeat(3,44px);gap:4px;">
-        <button class="ptz-btn" onmousedown="cctvPtzDir('ul')" onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('ul')" ontouchend="cctvPtzHalt()">↖</button>
-        <button class="ptz-btn" onmousedown="cctvPtzDir('u')"  onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('u')"  ontouchend="cctvPtzHalt()">↑</button>
-        <button class="ptz-btn" onmousedown="cctvPtzDir('ur')" onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('ur')" ontouchend="cctvPtzHalt()">↗</button>
-        <button class="ptz-btn" onmousedown="cctvPtzDir('l')"  onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('l')"  ontouchend="cctvPtzHalt()">←</button>
-        <button class="ptz-btn" onclick="cctvPtzHalt()" style="background:#3f3465;font-size:0.7rem;">■</button>
-        <button class="ptz-btn" onmousedown="cctvPtzDir('r')"  onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('r')"  ontouchend="cctvPtzHalt()">→</button>
-        <button class="ptz-btn" onmousedown="cctvPtzDir('dl')" onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('dl')" ontouchend="cctvPtzHalt()">↙</button>
-        <button class="ptz-btn" onmousedown="cctvPtzDir('d')"  onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('d')"  ontouchend="cctvPtzHalt()">↓</button>
-        <button class="ptz-btn" onmousedown="cctvPtzDir('dr')" onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('dr')" ontouchend="cctvPtzHalt()">↘</button>
-      </div>
-      <!-- Zoom -->
-      <div style="display:flex;flex-direction:column;gap:6px;">
-        <button class="ptz-btn" style="height:60px;font-size:1.1rem;" onmousedown="cctvPtzDir('zi')" onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('zi')" ontouchend="cctvPtzHalt()">🔍+</button>
-        <button class="ptz-btn" style="height:60px;font-size:1.1rem;" onmousedown="cctvPtzDir('zo')" onmouseup="cctvPtzHalt()" ontouchstart="cctvPtzDir('zo')" ontouchend="cctvPtzHalt()">🔍−</button>
-      </div>
-    </div>
-
-    <!-- Presets -->
-    <div id="ptzPresetArea" style="border-top:1px solid #3f3465;padding-top:12px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-        <span style="font-size:0.82rem;color:#aaa;">Preset Posisi</span>
-        <button onclick="cctvPtzLoadPresets()" style="background:#4c1d95;border:none;color:#fff;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:0.75rem;">🔄 Muat</button>
-      </div>
-      <div id="ptzPresetList" style="display:flex;flex-wrap:wrap;gap:6px;min-height:30px;">
-        <span style="font-size:0.75rem;color:#666;">Klik "Muat" untuk daftar preset kamera</span>
-      </div>
-      <div style="display:flex;gap:6px;margin-top:8px;">
-        <input id="ptzNewPresetName" type="text" placeholder="Nama preset baru..." style="flex:1;background:#2d2446;border:1px solid #4c1d95;color:#fff;padding:5px 8px;border-radius:6px;font-size:0.78rem;">
-        <button onclick="cctvPtzSavePreset()" style="background:#7c3aed;border:none;color:#fff;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem;white-space:nowrap;">💾 Simpan</button>
-      </div>
-    </div>
-
-    <div id="ptzStatus" style="font-size:0.72rem;color:#aaa;margin-top:8px;text-align:center;min-height:16px;"></div>`;
-
-  // Speed label sync
-  const speedInput = panel.querySelector('#ptzSpeed');
-  if (speedInput) {
-    speedInput.addEventListener('input', () => {
-      document.getElementById('ptzSpeedVal').textContent = (speedInput.value / 10).toFixed(1);
-    });
-  }
-
-  // Add PTZ button styles if not already added
-  if (!document.getElementById('ptzBtnStyle')) {
-    const s = document.createElement('style');
-    s.id = 'ptzBtnStyle';
-    s.textContent = `.ptz-btn{width:44px;height:44px;background:#2d2446;border:1px solid #4c1d95;color:#fff;border-radius:8px;cursor:pointer;font-size:1.1rem;display:flex;align-items:center;justify-content:center;transition:background 0.1s;user-select:none;} .ptz-btn:active,.ptz-btn:hover{background:#6d28d9;}`;
-    document.head.appendChild(s);
-  }
-
-  panel.style.display = 'block';
-}
-
-function cctvClosePtz() {
-  cctvPtzHalt();
-  const panel = document.getElementById('cctvPtzPanel');
-  if (panel) panel.style.display = 'none';
-  _ptzCam = null;
-}
-
-function _ptzParams() {
-  return { ip: _ptzCam.onvifIp, port: _ptzCam.onvifPort || 80, username: _ptzCam.username || '', password: _ptzCam.password || '', profileToken: _ptzCam.onvifToken };
-}
-
-function _ptzStatus(msg) {
-  const el = document.getElementById('ptzStatus');
-  if (el) el.textContent = msg;
-}
-
-async function cctvPtzDir(dir) {
-  if (!_ptzCam) return;
-  const speed = parseFloat((document.getElementById('ptzSpeed') || { value: '5' }).value) / 10;
-  const dirMap = {
-    u:  [0,  speed, 0],  d:  [0, -speed, 0],
-    l:  [-speed, 0, 0],  r:  [speed,  0, 0],
-    ul: [-speed, speed, 0], ur: [speed, speed, 0],
-    dl: [-speed,-speed, 0], dr: [speed,-speed, 0],
-    zi: [0, 0,  speed],  zo: [0, 0, -speed],
-  };
-  const [pan, tilt, zoom] = dirMap[dir] || [0, 0, 0];
-  try {
-    const r = await window.electronAPI.cctv.ptzMove({ ..._ptzParams(), pan, tilt, zoom });
-    if (!r.success) _ptzStatus(`Error: ${r.message}`);
-    else _ptzStatus('');
-  } catch (err) { _ptzStatus(`Error: ${err.message}`); }
-}
-
-async function cctvPtzHalt() {
-  if (!_ptzCam) return;
-  try {
-    await window.electronAPI.cctv.ptzStop(_ptzParams());
-  } catch {}
-}
-
-async function cctvPtzLoadPresets() {
-  if (!_ptzCam) return;
-  _ptzStatus('Memuat preset...');
-  const listEl = document.getElementById('ptzPresetList');
-  if (listEl) listEl.innerHTML = '<span style="font-size:0.75rem;color:#aaa;">Memuat...</span>';
-  try {
-    const r = await window.electronAPI.cctv.ptzPresets(_ptzParams());
-    if (!r.success) { _ptzStatus(`Gagal: ${r.message}`); return; }
-    _ptzPresets = r.presets || [];
-    _ptzStatus(_ptzPresets.length ? `${_ptzPresets.length} preset` : 'Tidak ada preset');
-    if (listEl) {
-      listEl.innerHTML = _ptzPresets.length
-        ? _ptzPresets.map(p => `<button onclick="cctvPtzGoto('${p.token}')" style="padding:4px 10px;background:#2d2446;border:1px solid #4c1d95;color:#fff;border-radius:6px;cursor:pointer;font-size:0.75rem;" title="${p.name}">${p.name}</button>`).join('')
-        : '<span style="font-size:0.75rem;color:#666;">Tidak ada preset tersimpan</span>';
-    }
-  } catch (err) { _ptzStatus(`Error: ${err.message}`); }
-}
-
-async function cctvPtzGoto(presetToken) {
-  if (!_ptzCam) return;
-  _ptzStatus('Bergerak ke preset...');
-  try {
-    const r = await window.electronAPI.cctv.ptzGotoPreset({ ..._ptzParams(), presetToken });
-    _ptzStatus(r.success ? '✓ Posisi preset diterapkan' : `Gagal: ${r.message}`);
-  } catch (err) { _ptzStatus(`Error: ${err.message}`); }
-}
-
-async function cctvPtzSavePreset() {
-  if (!_ptzCam) return;
-  const name = (document.getElementById('ptzNewPresetName') || {}).value || '';
-  _ptzStatus('Menyimpan preset...');
-  try {
-    const r = await window.electronAPI.cctv.ptzSetPreset({ ..._ptzParams(), presetName: name });
-    if (r.success) {
-      _ptzStatus(`✓ Preset "${name || r.token}" disimpan`);
-      if (document.getElementById('ptzNewPresetName')) document.getElementById('ptzNewPresetName').value = '';
-      cctvPtzLoadPresets();
-    } else {
-      _ptzStatus(`Gagal: ${r.message}`);
-    }
-  } catch (err) { _ptzStatus(`Error: ${err.message}`); }
-}
-
-// Expose globally
-window.cctvSetLayout       = cctvSetLayout;
-window.cctvConnect         = cctvConnect;
-window.cctvReload          = cctvReload;
-window.cctvDisconnect      = cctvDisconnect;
-window.cctvSnapshot        = cctvSnapshot;
-window.cctvFullscreen      = cctvFullscreen;
-window.cctvCloseFullscreen = cctvCloseFullscreen;
-window.cctvOpenAddModal    = cctvOpenAddModal;
-window.cctvOpenEditModal   = cctvOpenEditModal;
-window.cctvCloseModal      = cctvCloseModal;
-window.cctvAutoFillOnvif   = cctvAutoFillOnvif;
-window.cctvOnTypeChange    = cctvOnTypeChange;
-window.cctvApplyTemplate   = cctvApplyTemplate;
-window.cctvSaveCamera      = cctvSaveCamera;
-window.cctvDeleteCamera    = cctvDeleteCamera;
-
-// ── ONVIF Scan ────────────────────────────────────────────────────────────────
-
-let _cctvScanUnlisten = null;
-let _cctvScanRunning  = false;
-
-function cctvOpenScanModal() {
-  document.getElementById('cctvScanModal').style.display = 'flex';
-  cctvPopulateSubnetChips();
-}
-
-function cctvPopulateSubnetChips() {
-  const chips = document.getElementById('cctvSubnetChips');
-  if (!chips) return;
-  // Show common subnet quick-pick chips
-  const commonSubnets = ['192.168.0', '192.168.1', '192.168.2', '192.168.10', '192.168.100', '10.0.0', '172.16.0'];
-  chips.innerHTML = commonSubnets.map(s =>
-    `<button onclick="cctvSetSubnet('${s}')"
-      style="padding:3px 10px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:5px;color:var(--color-muted);cursor:pointer;font-size:0.75rem;font-family:monospace;white-space:nowrap;"
-      title="Scan ${s}.1-254">${s}.x</button>`
-  ).join('');
-}
-
-function cctvSetSubnet(subnet) {
-  const input = document.getElementById('cctvScanSubnet');
-  if (input) input.value = subnet;
-  // Highlight active chip
-  document.querySelectorAll('#cctvSubnetChips button').forEach(btn => {
-    const active = btn.textContent.startsWith(subnet);
-    btn.style.background      = active ? 'var(--color-primary)' : 'var(--color-bg)';
-    btn.style.color           = active ? '#fff' : 'var(--color-muted)';
-    btn.style.borderColor     = active ? 'var(--color-primary)' : 'var(--color-border)';
-  });
-}
-
-function cctvCloseScanModal() {
-  document.getElementById('cctvScanModal').style.display = 'none';
-  if (_cctvScanUnlisten) { _cctvScanUnlisten(); _cctvScanUnlisten = null; }
-}
-
-async function cctvStartScan() {
-  if (_cctvScanRunning) return;
-  _cctvScanRunning = true;
-
-  const btn  = document.getElementById('cctvScanBtn');
-  const prog = document.getElementById('cctvScanProgress');
-  const msg  = document.getElementById('cctvScanMsg');
-  const pct  = document.getElementById('cctvScanPct');
-  const bar  = document.getElementById('cctvScanBar');
-  const res  = document.getElementById('cctvScanResults');
-  const empty = document.getElementById('cctvScanEmpty');
-
-  const username    = (document.getElementById('cctvScanUser').value   || '').trim();
-  const password    = document.getElementById('cctvScanPass').value   || '';
-  const subnetInput = (document.getElementById('cctvScanSubnet').value || '').trim();
-
-  if (btn)   { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Scanning...'; }
-  if (prog)  prog.style.display = 'block';
-  if (empty) empty.style.display = 'none';
-  if (res)   res.innerHTML = '';
-
-  // Listen for progress events
-  if (_cctvScanUnlisten) _cctvScanUnlisten();
-  _cctvScanUnlisten = window.electronAPI.cctv.onScanProgress((data) => {
-    if (msg) msg.textContent = data.message || '';
-    if (data.progress != null) {
-      if (pct) pct.textContent = data.progress + '%';
-      if (bar) bar.style.width = data.progress + '%';
-    }
-  });
-
-  try {
-    const r = await window.electronAPI.cctv.scanOnvif({ username, password, subnetInput });
-    const devices = r.devices || [];
-
-    if (devices.length === 0) {
-      if (res) res.innerHTML = `
-        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px;color:var(--color-muted);gap:8px;">
-          <i class="bi bi-camera-video-off" style="font-size:2rem;"></i>
-          <span style="font-size:0.85rem;">Tidak ada perangkat ONVIF ditemukan di jaringan ini</span>
-          <span style="font-size:0.75rem;opacity:.7;">Pastikan kamera dan komputer dalam satu subnet</span>
-        </div>`;
-    } else {
-      if (res) res.innerHTML = devices.map(d => cctvBuildScanResultCard(d, username, password)).join('');
-    }
-  } catch (err) {
-    if (res) res.innerHTML = `<div style="padding:16px;color:#ef4444;font-size:0.85rem;">Error: ${err.message}</div>`;
-  } finally {
-    _cctvScanRunning = false;
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-search"></i> Scan Lagi'; }
-    if (_cctvScanUnlisten) { _cctvScanUnlisten(); _cctvScanUnlisten = null; }
-  }
-}
-
-function cctvBuildScanResultCard(d, username, password) {
-  const info  = d.info || {};
-  const label = [info.manufacturer, info.model].filter(Boolean).join(' ') || 'ONVIF Device';
-  const rtsp  = d.streamUri || '';
-
-  return `<div style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border-radius:8px;background:var(--color-bg);margin-bottom:8px;border:1px solid var(--color-border);">
-    <div style="padding:8px;background:var(--color-primary)22;border-radius:8px;flex-shrink:0;">
-      <i class="bi bi-camera-video-fill" style="color:var(--color-primary);font-size:1.1rem;"></i>
-    </div>
-    <div style="flex:1;min-width:0;">
-      <div style="font-weight:700;font-size:0.9rem;">${label}</div>
-      <div style="font-size:0.75rem;color:var(--color-muted);margin-top:2px;">${d.ip}:${d.port} · ${d.source === 'ws-discovery' ? 'WS-Discovery' : 'TCP Scan'}</div>
-      ${info.firmware ? `<div style="font-size:0.72rem;color:var(--color-muted);">FW: ${info.firmware}${info.serial ? ' · S/N: ' + info.serial : ''}</div>` : ''}
-      ${rtsp ? `<div style="font-size:0.72rem;color:#22c55e;margin-top:3px;font-family:monospace;word-break:break-all;">${rtsp}</div>` : '<div style="font-size:0.72rem;color:#f59e0b;margin-top:3px;">Stream URI tidak tersedia (coba dengan credentials)</div>'}
-    </div>
-    <button onclick="cctvAddFromScan('${d.ip}',${d.port},'${encodeURIComponent(rtsp)}','${encodeURIComponent(label)}','${encodeURIComponent(username)}','${encodeURIComponent(password)}','${encodeURIComponent(d.profileToken||'')}')"
-      style="flex-shrink:0;padding:6px 14px;background:var(--color-primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.8rem;font-weight:600;">
-      + Tambah
-    </button>
-  </div>`;
-}
-
-function cctvAddFromScan(ip, port, rtspEnc, labelEnc, userEnc, passEnc, profileTokenEnc) {
-  const rtsp  = decodeURIComponent(rtspEnc);
-  const label = decodeURIComponent(labelEnc);
-  const user  = decodeURIComponent(userEnc);
-  const pass  = decodeURIComponent(passEnc);
-  const token = profileTokenEnc ? decodeURIComponent(profileTokenEnc) : '';
-
-  // Pre-fill add modal
-  document.getElementById('cctvModalTitle').textContent = 'Tambah Kamera ONVIF';
-  document.getElementById('cctvEditUid').value       = '';
-  document.getElementById('cctvName').value          = label || `Kamera ${ip}`;
-  document.getElementById('cctvType').value          = 'rtsp';
-  document.getElementById('cctvUrl').value           = rtsp || `rtsp://${ip}:554/stream1`;
-  document.getElementById('cctvUsername').value      = user;
-  document.getElementById('cctvPassword').value      = pass;
-  document.getElementById('cctvFps').value           = '15';
-  document.getElementById('cctvRefreshSec').value    = '5';
-  document.getElementById('cctvNotes').value         = `ONVIF ${ip}:${port}`;
-  // Store ONVIF metadata for PTZ
-  const onvifIpEl = document.getElementById('cctvOnvifIp');
-  if (onvifIpEl) { onvifIpEl.value = ip; }
-  const onvifPortEl = document.getElementById('cctvOnvifPort');
-  if (onvifPortEl) { onvifPortEl.value = port; }
-  const onvifTokenEl = document.getElementById('cctvOnvifToken');
-  if (onvifTokenEl) { onvifTokenEl.value = token; }
-  cctvOnTypeChange();
-
-  // Close scan modal, open add modal
-  cctvCloseScanModal();
-  document.getElementById('cctvModal').style.display = 'flex';
-}
-
-window.cctvOpenScanModal   = cctvOpenScanModal;
-window.cctvCloseScanModal  = cctvCloseScanModal;
-window.cctvStartScan       = cctvStartScan;
-window.cctvAddFromScan     = cctvAddFromScan;
-window.cctvSetSubnet       = cctvSetSubnet;
-
-function cctvToggleScanPass(btn) {
-  const input = document.getElementById('cctvScanPass');
-  if (!input) return;
-  const show = input.type === 'password';
-  input.type = show ? 'text' : 'password';
-  const icon = btn.querySelector('i');
-  if (icon) { icon.className = show ? 'bi bi-eye-slash' : 'bi bi-eye'; }
-}
-window.cctvToggleScanPass  = cctvToggleScanPass;
-window.cctvOpenPtz         = cctvOpenPtz;
-window.cctvClosePtz        = cctvClosePtz;
-window.cctvPtzDir          = cctvPtzDir;
-window.cctvPtzHalt         = cctvPtzHalt;
-window.cctvPtzLoadPresets  = cctvPtzLoadPresets;
-window.cctvPtzGoto         = cctvPtzGoto;
-window.cctvPtzSavePreset   = cctvPtzSavePreset;
 
 // ════════════════════════════════════════════════════════════════
 // CRON JOB MANAGER – UI Logic
@@ -12610,7 +10993,7 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
 // ─── Pro Mode Toggle ──────────────────────────────────────────────────────────
 (function initProMode() {
   const LS_KEY = 'starbox-pro-mode';
-  const PRO_PAGES = ['remox', 'mikrotik', 'os-virtual', 'cctv', 'mystarbox', 'android-ios', 'cron'];
+  const PRO_PAGES = ['mystarbox', 'android-ios', 'cron', ...(window.STARBOX_MODULE_PRO_PAGES || [])];
   window.STARBOX_PRO_PAGES = PRO_PAGES;
 
   function isProMode() {
@@ -12931,14 +11314,11 @@ window.cctvPtzSavePreset   = cctvPtzSavePreset;
       'web-emulator':    '🌐 Web Emulator',
       'whatsapp-gateway':'💬 WhatsApp Gateway',
       'android-ios':     '📱 Android / iOS',
-      'remox':           '💻 Remox',
-      'mikrotik':        '🔧 MikroTik',
-      'os-virtual':      '🖥️ OS Virtual',
-      'cctv':            '📷 CCTV',
       'cron':            '⏰ Jadwal',
       'resource-monitor':'📊 Resource Monitor',
       'starcapture':     '📸 StarCapture',
       'mystarbox':       '🖱️ StarDesk',
+      ...(window.STARBOX_MODULE_PAGE_LABELS || {}),
     };
 
     const sorted = Object.entries(data).sort((a, b) => b[1] - a[1]);

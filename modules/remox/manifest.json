@@ -1,0 +1,72 @@
+{
+  "id": "remox",
+  "name": "Remox",
+  "version": "1.0.0",
+  "description": "Terminal SSH / Telnet dengan tab (xterm.js), peluncur RDP, cek ping port, dan sinkron koneksi ke cloud StarBox.",
+  "author": "StarBox",
+  "license": "MIT",
+  "icon": "bi-terminal",
+  "engine": {
+    "starbox": ">=2.1.0"
+  },
+  "distribution": "download",
+  "main": "main.js",
+  "renderer": "renderer.js",
+  "page": "page.html",
+  "i18n": "i18n.json",
+  "pageAfter": [
+    "android-ios"
+  ],
+  "sidebar": {
+    "page": "remox",
+    "label": "Remox",
+    "labelKey": "sidebar.remox",
+    "icon": "bi-terminal",
+    "pro": true,
+    "after": [
+      "android-ios"
+    ],
+    "statsLabel": "💻 Remox",
+    "order": 10
+  },
+  "rendererDeps": [
+    "https://cdn.jsdelivr.net/npm/xterm@4.19.0/lib/xterm.min.js",
+    "https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.5.0/lib/xterm-addon-fit.min.js"
+  ],
+  "styleDeps": [
+    "https://cdn.jsdelivr.net/npm/xterm@4.19.0/css/xterm.min.css"
+  ],
+  "permissions": [
+    "network",
+    "child_process",
+    "filesystem"
+  ],
+  "sharedDependencies": [
+    "uuid"
+  ],
+  "coreServices": [
+    "getAuthSession",
+    "getApiBaseUrl"
+  ],
+  "ipc": {
+    "invoke": [
+      "remox:load-connections",
+      "remox:save-connection",
+      "remox:delete-connection",
+      "remox:pull-from-cloud",
+      "remox:cloud-sync",
+      "remox:connect",
+      "remox:disconnect",
+      "remox:launch-rdp",
+      "remox:ping"
+    ],
+    "send": [
+      "remox:send-data",
+      "remox:resize"
+    ],
+    "events": [
+      "remox:data",
+      "remox:status"
+    ]
+  }
+}

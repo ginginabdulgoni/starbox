@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
-const { v4: uuidv4 } = require("uuid");
+// uuid v4 bawaan Node (crypto.randomUUID) — modul ini tidak butuh paket npm
+const { randomUUID: uuidv4 } = require("crypto");
 
 const DEFAULT_VM_FIELDS = {
   name: "New VM",

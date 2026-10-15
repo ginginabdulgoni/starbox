@@ -1,5 +1,10 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+let moduleBridge = { invoke: [], send: [], events: [] };
+try {
+  moduleBridge = ipcRenderer.sendSync('modules-get-bridge') || moduleBridge;
+} catch (_) {}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   check: () => '✅ Preload berhasil',
   loadDevices: (dbType) => ipcRenderer.invoke('load-devices', dbType),
@@ -186,87 +191,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
 
-  // WhatsApp Gateway APIs
-  whatsappGateway: {
-    getDevices: () => ipcRenderer.invoke('wa-get-devices'),
-    createDevice: (deviceId, name) => ipcRenderer.invoke('wa-create-device', deviceId, name),
-    startDevice: (deviceId) => ipcRenderer.invoke('wa-start-device', deviceId),
-    stopDevice: (deviceId, options = {}) =>
-      ipcRenderer.invoke('wa-stop-device', deviceId, options),
-    deleteDevice: (deviceId) => ipcRenderer.invoke('wa-delete-device', deviceId),
-    sendMessage: (deviceId, phone, message, options = {}) =>
-      ipcRenderer.invoke('wa-send-message', deviceId, phone, message, options),
-    getStatus: (deviceId) => ipcRenderer.invoke('wa-get-status', deviceId),
-    getDeviceProfile: (deviceId) => ipcRenderer.invoke('wa-get-profile', deviceId),
-
-    // Auto-reply
-    getAutoReplies: (deviceId) => ipcRenderer.invoke('wa-get-auto-replies', deviceId),
-    addAutoReply: (deviceId, keyword, replyMessage, scope, matchType) => ipcRenderer.invoke('wa-add-auto-reply', deviceId, keyword, replyMessage, scope, matchType),
-    deleteAutoReply: (replyId) => ipcRenderer.invoke('wa-delete-auto-reply', replyId),
-    toggleAutoReply: (replyId, isActive) => ipcRenderer.invoke('wa-toggle-auto-reply', replyId, isActive),
-    setAutoReplyEnabled: (deviceId, enabled) => ipcRenderer.invoke('wa-set-auto-reply-enabled', deviceId, enabled),
-    setAutoRejectCalls: (deviceId, enabled) => ipcRenderer.invoke('wa-set-auto-reject-calls', deviceId, enabled),
-
-    // Schedule
-    getSchedules: (deviceId) => ipcRenderer.invoke('wa-get-schedules', deviceId),
-    addSchedule: (deviceId, scheduleName, cronExpression, message, recipients) =>
-      ipcRenderer.invoke('wa-add-schedule', deviceId, scheduleName, cronExpression, message, recipients),
-    deleteSchedule: (scheduleId) => ipcRenderer.invoke('wa-delete-schedule', scheduleId),
-
-    // Logs
-    getMessageLogs: (deviceId, limit) => ipcRenderer.invoke('wa-get-message-logs', deviceId, limit),
-    clearLogs: (deviceId, days) => ipcRenderer.invoke('wa-clear-logs', deviceId, days),
-    openWhatsAppWeb: (deviceId) => ipcRenderer.invoke('wa-open-web', deviceId),
-    sendTyping: (deviceId, phone) => ipcRenderer.invoke('wa-send-typing', deviceId, phone),
-
-    // Event listeners
-    onQRCode: (callback) => {
-      if (typeof callback !== 'function') return;
-      ipcRenderer.on('wa-qr-code', (_event, deviceId, qr) => callback(deviceId, qr));
-    },
-    onConnected: (callback) => {
-      if (typeof callback !== 'function') return;
-      ipcRenderer.on('wa-connected', (_event, deviceId, phone) => callback(deviceId, phone));
-    },
-    onStatusChange: (callback) => {
-      if (typeof callback !== 'function') return;
-      ipcRenderer.on('wa-status-change', (_event, deviceId, status) => callback(deviceId, status));
-    },
-    onScheduleStatus: (callback) => {
-      if (typeof callback !== 'function') return;
-      ipcRenderer.on('wa-schedule-status', (_event, scheduleId, status) => callback(scheduleId, status));
-    },
-    onMessageReceived: (callback) => {
-      if (typeof callback !== 'function') return;
-      ipcRenderer.on('wa-message-received', (_event, deviceId, from, message) => callback(deviceId, from, message));
-    }
-  },
-
   // Remox – SSH / Telnet Terminal Manager
-  remox: {
-    loadConnections: () => ipcRenderer.invoke('remox:load-connections'),
-    saveConnection: (conn) => ipcRenderer.invoke('remox:save-connection', conn),
-    deleteConnection: (id) => ipcRenderer.invoke('remox:delete-connection', id),
-    connect: (opts) => ipcRenderer.invoke('remox:connect', opts),
-    sendData: (opts) => ipcRenderer.send('remox:send-data', opts),
-    resize: (opts) => ipcRenderer.send('remox:resize', opts),
-    disconnect: (sessionId) => ipcRenderer.invoke('remox:disconnect', sessionId),
-    ping: (opts) => ipcRenderer.invoke('remox:ping', opts),
-    launchRdp: (opts) => ipcRenderer.invoke('remox:launch-rdp', opts),
-    cloudSync: () => ipcRenderer.invoke('remox:cloud-sync'),
-    pullFromCloud: () => ipcRenderer.invoke('remox:pull-from-cloud'),
-    onData: (cb) => {
-      const listener = (_e, d) => cb(d);
-      ipcRenderer.on('remox:data', listener);
-      return () => ipcRenderer.removeListener('remox:data', listener);
-    },
-    onStatus: (cb) => {
-      const listener = (_e, d) => cb(d);
-      ipcRenderer.on('remox:status', listener);
-      return () => ipcRenderer.removeListener('remox:status', listener);
-    },
-  },
-
   resourceMonitor: {
     get: () => ipcRenderer.invoke('resource-monitor-get'),
     getProcesses: (limit) => ipcRenderer.invoke('resource-monitor-processes', limit),
@@ -276,23 +201,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // MikroTik Manager
-  mikrotik: {
-    loadDevices:         ()       => ipcRenderer.invoke('mikrotik:load-devices'),
-    saveDevice:          (device) => ipcRenderer.invoke('mikrotik:save-device', device),
-    deleteDevice:        (id)     => ipcRenderer.invoke('mikrotik:delete-device', id),
-    scanNetwork:         ()       => ipcRenderer.invoke('mikrotik:scan-network'),
-    openWebUI:           (opts)   => ipcRenderer.invoke('mikrotik:open-webui', opts),
-    openWebUIProxy:      (opts)   => ipcRenderer.invoke('mikrotik:open-webui-proxy', opts),
-    openSSH:             (opts)   => ipcRenderer.invoke('mikrotik:open-ssh', opts),
-    launchWinbox:        (opts)   => ipcRenderer.invoke('mikrotik:launch-winbox', opts),
-    startProxy:          (opts)   => ipcRenderer.invoke('mikrotik:start-proxy', opts),
-    stopProxy:           (opts)   => ipcRenderer.invoke('mikrotik:stop-proxy', opts),
-    startWinboxTunnel:   (opts)   => ipcRenderer.invoke('mikrotik:start-winbox-tunnel', opts),
-    stopWinboxTunnel:    (opts)   => ipcRenderer.invoke('mikrotik:stop-winbox-tunnel', opts),
-    getWinboxTunnelPort: (opts)   => ipcRenderer.invoke('mikrotik:get-winbox-tunnel-port', opts),
-    syncToServer:        ()       => ipcRenderer.invoke('mikrotik:sync-to-server'),
-  },
-
   resolveAssetUrl: (assetName) =>
     ipcRenderer.invoke('resolve-asset-url', assetName),
   getCountryCodes: () => ipcRenderer.invoke('get-country-codes'),
@@ -307,40 +215,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('version-download-progress', (_event, data) =>
       callback(data)
     );
-  },
-
-  virtualOS: {
-    list: () => ipcRenderer.invoke('os-vm-list'),
-    save: (payload) => ipcRenderer.invoke('os-vm-upsert', payload),
-    delete: (id) => ipcRenderer.invoke('os-vm-delete', id),
-    start: (id) => ipcRenderer.invoke('os-vm-start', id),
-    stop: (id) => ipcRenderer.invoke('os-vm-stop', id),
-    restart: (id) => ipcRenderer.invoke('os-vm-restart', id),
-    snapshot: (id, name) => ipcRenderer.invoke('os-vm-snapshot', id, name),
-    snapshotRestore: (id, snapshotId) => ipcRenderer.invoke('os-vm-snapshot-restore', id, snapshotId),
-    snapshotDelete: (id, snapshotId) => ipcRenderer.invoke('os-vm-snapshot-delete', id, snapshotId),
-    pause: (id) => ipcRenderer.invoke('os-vm-pause', id),
-    resume: (id) => ipcRenderer.invoke('os-vm-resume', id),
-    browseIsoFile: () => ipcRenderer.invoke('browse-iso-file'),
-    downloadIso: (opts) => ipcRenderer.invoke('download-iso', opts),
-    listCachedIsos: () => ipcRenderer.invoke('list-cached-isos'),
-    onIsoDownloadProgress: (cb) => {
-      const l = (_e, d) => cb(d);
-      ipcRenderer.on('iso-download-progress', l);
-      return () => ipcRenderer.removeListener('iso-download-progress', l);
-    },
-    forceStop: (id) => ipcRenderer.invoke('os-vm-force-stop', id),
-    killAllQemu: () => ipcRenderer.invoke('os-vm-kill-all-qemu'),
-    checkQemu: () => ipcRenderer.invoke('os-vm-check-qemu'),
-    installQemu: () => ipcRenderer.invoke('os-vm-install-qemu'),
-    onQemuInstallProgress: (cb) => {
-      if (typeof cb !== 'function') return () => {};
-      const fn = (_e, data) => cb(data);
-      ipcRenderer.on('qemu-install-progress', fn);
-      return () => ipcRenderer.removeListener('qemu-install-progress', fn);
-    },
-    openVncWindow: (opts) => ipcRenderer.invoke('open-vnc-window', opts),
-    focusVncWindow: (vmId) => ipcRenderer.invoke('focus-vnc-window', vmId),
   },
 
   // Logs API
@@ -396,35 +270,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Remote Control API – kontrol StarBox di komputer lain
-  cctv: {
-    getCameras:   ()         => ipcRenderer.invoke('cctv-get-cameras'),
-    saveCamera:   (camera)   => ipcRenderer.invoke('cctv-save-camera', camera),
-    deleteCamera: (uid)      => ipcRenderer.invoke('cctv-delete-camera', uid),
-    startStream:  (camera)   => ipcRenderer.invoke('cctv-start-stream', camera),
-    stopStream:   (uid)      => ipcRenderer.invoke('cctv-stop-stream', uid),
-    streamStatus: (uid)      => ipcRenderer.invoke('cctv-stream-status', uid),
-    snapshot:     (camera)   => ipcRenderer.invoke('cctv-snapshot', camera),
-    checkFfmpeg:  ()         => ipcRenderer.invoke('cctv-check-ffmpeg'),
-    installFfmpeg: ()        => ipcRenderer.invoke('cctv-install-ffmpeg'),
-    onFfmpegInstallProgress: (cb) => {
+  // Modul (CCTV, dst.) – channel hanya diteruskan bila dideklarasikan di
+  // manifest modul yang sedang aktif (lihat module-loader.js).
+  modules: {
+    getRendererConfigSync: () => ipcRenderer.sendSync('modules-get-renderer-config'),
+    list: () => ipcRenderer.invoke('modules-list'),
+    setEnabled: (id, enabled) => ipcRenderer.invoke('modules-set-enabled', id, enabled),
+    relaunch: () => ipcRenderer.invoke('restart-app'),
+    catalog: () => ipcRenderer.invoke('modules-catalog'),
+    install: (id) => ipcRenderer.invoke('modules-install', id),
+    uninstall: (id) => ipcRenderer.invoke('modules-uninstall', id),
+    onInstallProgress: (cb) => {
       if (typeof cb !== 'function') return () => {};
       const fn = (_e, data) => cb(data);
-      ipcRenderer.on('cctv-ffmpeg-install-progress', fn);
-      return () => ipcRenderer.removeListener('cctv-ffmpeg-install-progress', fn);
+      ipcRenderer.on('modules-install-progress', fn);
+      return () => ipcRenderer.removeListener('modules-install-progress', fn);
     },
-    scanOnvif:    (opts)     => ipcRenderer.invoke('cctv-scan-onvif', opts),
-    probeOnvif:   (ip, port, user, pass) => ipcRenderer.invoke('cctv-probe-onvif', ip, port, user, pass),
-    onScanProgress: (cb) => {
-      if (typeof cb !== 'function') return () => {};
-      const fn = (_e, data) => cb(data);
-      ipcRenderer.on('cctv-scan-progress', fn);
-      return () => ipcRenderer.removeListener('cctv-scan-progress', fn);
+    invoke: (channel, ...args) => {
+      if (!moduleBridge.invoke.includes(channel)) {
+        return Promise.reject(new Error(`Channel modul tidak diizinkan: ${channel}`));
+      }
+      return ipcRenderer.invoke(channel, ...args);
     },
-    ptzMove:      (opts) => ipcRenderer.invoke('cctv-ptz-move', opts),
-    ptzStop:      (opts) => ipcRenderer.invoke('cctv-ptz-stop', opts),
-    ptzPresets:   (opts) => ipcRenderer.invoke('cctv-ptz-presets', opts),
-    ptzGotoPreset:(opts) => ipcRenderer.invoke('cctv-ptz-goto-preset', opts),
-    ptzSetPreset: (opts) => ipcRenderer.invoke('cctv-ptz-set-preset', opts),
+    send: (channel, ...args) => {
+      if (!(moduleBridge.send || []).includes(channel)) return;
+      ipcRenderer.send(channel, ...args);
+    },
+    on: (channel, cb) => {
+      if (typeof cb !== 'function' || !moduleBridge.events.includes(channel)) return () => {};
+      const fn = (_e, ...args) => cb(...args);
+      ipcRenderer.on(channel, fn);
+      return () => ipcRenderer.removeListener(channel, fn);
+    },
   },
 
   remote: {

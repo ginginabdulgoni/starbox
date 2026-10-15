@@ -12,9 +12,11 @@ const os        = require("os");
 const net       = require("net");
 const logger    = require("./utils/logger");
 
-// ssh2 opsional — hanya digunakan untuk relay lokal
-let SshClient = null;
-try { SshClient = require("ssh2").Client; } catch (_) {}
+// ssh2 opsional — hanya digunakan untuk relay lokal. Sejak Remox jadi modul,
+// ssh2 disediakan modul Remox lewat setSshClientResolver() (lihat electron-main.js).
+let resolveSshClient = () => {
+  try { return require("ssh2").Client; } catch (_) { return null; }
+};
 
 const DEFAULT_REMOTE_URL = process.env.STARBOX_REMOTE_URL || "https://starbox.weagate.com:4200";
 
@@ -284,8 +286,9 @@ class RemoteSocketClient {
 
       // ── SSH ────────────────────────────────────────────────────────────────
       if (conn.type === "ssh") {
+        const SshClient = resolveSshClient();
         if (!SshClient) {
-          return sendStatus("error", "ssh2 tidak tersedia di Electron ini.");
+          return sendStatus("error", "Modul Remox belum terpasang di StarBox ini (dibutuhkan untuk SSH).");
         }
         const ssh = new SshClient();
 
@@ -570,5 +573,9 @@ class RemoteSocketClient {
     });
   }
 }
+
+RemoteSocketClient.setSshClientResolver = (fn) => {
+  if (typeof fn === "function") resolveSshClient = fn;
+};
 
 module.exports = RemoteSocketClient;

@@ -1,0 +1,10 @@
+{
+  "name": "starbox-module-remox",
+  "version": "1.0.0",
+  "private": true,
+  "description": "StarBox module: Remox (SSH / Telnet / RDP)",
+  "license": "MIT",
+  "dependencies": {
+    "ssh2": "1.17.0"
+  }
+}

@@ -1,0 +1,347 @@
+      <!-- Page: OS Virtual -->
+      <div id="page-os-virtual" class="page-content">
+        <main class="page-main osv-page-main">
+          <!-- Hero Card: OS Virtual & Hypervisor Hub -->
+          <div class="osv-hero-card">
+            <div class="osv-hero-top">
+              <div class="osv-badge-wrap">
+                <span class="osv-hero-badge"><i class="bi bi-display"></i> QEMU Hypervisor</span>
+                <span class="osv-hero-badge-sub"><i class="bi bi-cpu"></i> Hardware Acceleration (KVM/WHPX/HVF)</span>
+                <span class="osv-hero-badge-vnc"><i class="bi bi-display-fill"></i> VNC & Spice Remote</span>
+              </div>
+            </div>
+            <div class="osv-hero-body">
+              <h1 class="osv-hero-title">
+                <i class="bi bi-cpu-fill osv-hero-icon"></i>
+                <span>OS Virtual & Hypervisor Hub</span>
+              </h1>
+              <p class="osv-hero-desc">
+                Pusat orkestrasi mesin virtual mandiri berbasis QEMU untuk menjalankan Linux, Windows, macOS, Android x86, dan sistem operasi kustom dengan akselerasi perangkat keras, snapshot point-in-time, dan konsol remote interaktif.
+              </p>
+            </div>
+            <div class="osv-hero-highlights">
+              <div class="osv-hl-item"><i class="bi bi-lightning-charge-fill" style="color:#fbbf24;"></i> Native Hypervisor Acceleration</div>
+              <div class="osv-hl-item"><i class="bi bi-camera-fill" style="color:#34d399;"></i> Instant Snapshot & Rollback</div>
+              <div class="osv-hl-item"><i class="bi bi-display" style="color:#60a5fa;"></i> Integrated VNC Web Client</div>
+              <div class="osv-hl-item"><i class="bi bi-diagram-3-fill" style="color:#a78bfa;"></i> NAT, Host-Only & Bridge Network</div>
+            </div>
+          </div>
+
+          <!-- Dashboard Summary Metrics -->
+          <div class="osv-dashboard-metrics" id="osvDashboardMetrics">
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(139, 92, 246, 0.15); color: #a78bfa;">
+                <i class="bi bi-pc-display"></i>
+              </div>
+              <div class="metric-content">
+                <span class="metric-label">Total VMs</span>
+                <span class="metric-value" id="metricOsvTotal">0</span>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(16, 185, 129, 0.15); color: #34d399;">
+                <i class="bi bi-play-circle-fill"></i>
+              </div>
+              <div class="metric-content">
+                <span class="metric-label">Running</span>
+                <span class="metric-value" id="metricOsvRunning">0</span>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24;">
+                <i class="bi bi-cpu"></i>
+              </div>
+              <div class="metric-content">
+                <span class="metric-label">Allocated vCPU</span>
+                <span class="metric-value" id="metricOsvCpu">0</span>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa;">
+                <i class="bi bi-memory"></i>
+              </div>
+              <div class="metric-content">
+                <span class="metric-label">RAM Allocated</span>
+                <span class="metric-value" id="metricOsvRam">0 MB</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Modern Toolbar -->
+          <div class="toolbar osv-toolbar">
+            <div class="search-box osv-search-box">
+              <i class="bi bi-search"></i>
+              <input type="text" id="osvSearchInput" placeholder="Cari mesin virtual berdasarkan nama, OS, atau port..." oninput="filterOsvList()" />
+            </div>
+
+            <div class="filter-chips osv-filter-chips">
+              <button class="filter-chip active" data-filter="all" onclick="setOsvFilter('all')">
+                Semua (<span id="osvFilterAllCount">0</span>)
+              </button>
+              <button class="filter-chip" data-filter="running" onclick="setOsvFilter('running')">
+                <span class="status-indicator online"></span> Running (<span id="osvFilterRunningCount">0</span>)
+              </button>
+              <button class="filter-chip" data-filter="linux" onclick="setOsvFilter('linux')">
+                <i class="bi bi-ubuntu" style="color:#e95420"></i> Linux (<span id="osvFilterLinuxCount">0</span>)
+              </button>
+              <button class="filter-chip" data-filter="windows" onclick="setOsvFilter('windows')">
+                <i class="bi bi-windows" style="color:#0078d7"></i> Windows (<span id="osvFilterWindowsCount">0</span>)
+              </button>
+              <button class="filter-chip" data-filter="stopped" onclick="setOsvFilter('stopped')">
+                <span class="status-indicator offline"></span> Stopped (<span id="osvFilterStoppedCount">0</span>)
+              </button>
+            </div>
+
+            <div class="toolbar-actions osv-toolbar-actions">
+              <button class="btn-icon" onclick="loadVmList()" data-i18n-title="osv.refresh.title" title="Refresh VM list">
+                <i class="bi bi-arrow-clockwise"></i>
+              </button>
+              <button class="btn-icon danger-outline" onclick="killAllQemu()" data-i18n-title="osv.killqemu.title" title="Kill all QEMU processes (Hentikan proses QEMU zombie / terkunci)">
+                <i class="bi bi-exclamation-triangle"></i>
+              </button>
+              <button class="btn-primary" onclick="openVmModal()">
+                <i class="bi bi-plus-lg"></i> <span data-i18n="osv.add_vm">Tambah VM</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- QEMU missing banner -->
+          <div id="qemuMissingBanner" class="osv-missing-banner" style="display:none;">
+            <div class="osv-missing-banner-icon">
+              <i class="bi bi-exclamation-triangle-fill"></i>
+            </div>
+            <div class="osv-missing-banner-text">
+              <strong>QEMU Engine tidak terdeteksi</strong>
+              <span>Install QEMU hypervisor pada sistem Anda untuk menjalankan OS Virtual secara lancar.</span>
+            </div>
+            <div class="osv-missing-banner-actions">
+              <button id="installQemuBtn" onclick="installQemu()" class="btn-primary btn-sm">
+                <i class="bi bi-download"></i> Install QEMU
+              </button>
+              <button onclick="showQemuTutorial()" class="btn-secondary btn-sm">
+                <i class="bi bi-book"></i> Tutorial Install
+              </button>
+            </div>
+          </div>
+
+          <!-- VM List Grid -->
+          <div class="osv-grid" id="vm-list">
+            <div class="osv-empty">
+              <i class="bi bi-display"></i>
+              <h3>Memuat daftar VM...</h3>
+            </div>
+          </div>
+        </main>
+      </div>
+      <!-- End Page: OS Virtual -->
+
+      <!-- Modal: OS Virtual (VM) -->
+      <div id="vmModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.65);align-items:center;justify-content:center;overflow-y:auto;padding:20px 0">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:14px;width:560px;max-width:95vw;box-shadow:0 24px 64px rgba(0,0,0,0.5);display:flex;flex-direction:column;max-height:90vh">
+
+          <!-- Modal header -->
+          <div style="display:flex;align-items:center;gap:10px;padding:18px 20px;border-bottom:1px solid #30363d;flex-shrink:0">
+            <i class="bi bi-display" style="font-size:18px;color:#7c6fe0"></i>
+            <h3 id="vmModalTitle" data-i18n="osv.modal.add" style="margin:0;font-size:16px;font-weight:600;color:#e0e0e0;flex:1">Tambah VM</h3>
+            <button onclick="closeVmModal()" style="background:none;border:none;color:#666;cursor:pointer;font-size:18px;line-height:1;padding:2px 6px;border-radius:4px">×</button>
+          </div>
+
+          <!-- Scrollable body -->
+          <div style="overflow-y:auto;padding:0 20px;flex:1">
+            <input type="hidden" id="vmId" />
+
+            <!-- Tab bar -->
+            <div style="display:flex;gap:0;border-bottom:1px solid #30363d;margin:0 -20px;padding:0 20px">
+              <button class="osv-tab active" onclick="osvTab(this,'osv-tab-basic')" style="padding:10px 16px;background:none;border:none;border-bottom:2px solid #7c6fe0;color:#e0e0e0;cursor:pointer;font-size:13px;font-weight:500" data-i18n="osv.tab.basic">Dasar</button>
+              <button class="osv-tab" onclick="osvTab(this,'osv-tab-storage')" style="padding:10px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#666;cursor:pointer;font-size:13px" data-i18n="osv.tab.storage">Storage</button>
+              <button class="osv-tab" onclick="osvTab(this,'osv-tab-network')" style="padding:10px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#666;cursor:pointer;font-size:13px" data-i18n="osv.tab.network">Jaringan</button>
+              <button class="osv-tab" onclick="osvTab(this,'osv-tab-advanced')" style="padding:10px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#666;cursor:pointer;font-size:13px" data-i18n="osv.tab.advanced">Lanjutan</button>
+            </div>
+
+            <!-- Tab: Dasar -->
+            <div id="osv-tab-basic" class="osv-tab-panel" style="padding:16px 0">
+              <div style="display:grid;grid-template-columns:1fr 160px;gap:12px;margin-bottom:12px">
+                <div>
+                  <label data-i18n="osv.form.name" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Nama VM</label>
+                  <input type="text" id="vmName" placeholder="Contoh: Ubuntu 22.04" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+                </div>
+                <div>
+                  <label data-i18n="osv.form.os_type" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Jenis OS</label>
+                  <select id="vmOsType" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px">
+                    <option value="linux">🐧 Linux</option>
+                    <option value="windows">🪟 Windows</option>
+                    <option value="other">💻 Other</option>
+                  </select>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">CPU (core)</label>
+                  <input type="number" id="vmCpu" min="1" max="16" value="2" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+                </div>
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">RAM (MB)</label>
+                  <input type="number" id="vmMemory" min="512" max="32768" value="2048" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+                </div>
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Storage (GB)</label>
+                  <input type="number" id="vmStorage" min="5" max="2048" value="20" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+                </div>
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">VNC Port</label>
+                  <input type="number" id="vmVncPort" min="5900" max="65535" value="5901" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+                </div>
+              </div>
+              <!-- RAM presets -->
+              <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+                <span style="font-size:11px;color:#555;align-self:center">RAM cepat:</span>
+                <button type="button" onclick="document.getElementById('vmMemory').value=512" style="padding:3px 10px;background:rgba(255,255,255,0.05);border:1px solid #30363d;border-radius:5px;color:#888;font-size:11px;cursor:pointer">512MB</button>
+                <button type="button" onclick="document.getElementById('vmMemory').value=1024" style="padding:3px 10px;background:rgba(255,255,255,0.05);border:1px solid #30363d;border-radius:5px;color:#888;font-size:11px;cursor:pointer">1GB</button>
+                <button type="button" onclick="document.getElementById('vmMemory').value=2048" style="padding:3px 10px;background:rgba(255,255,255,0.05);border:1px solid #30363d;border-radius:5px;color:#888;font-size:11px;cursor:pointer">2GB</button>
+                <button type="button" onclick="document.getElementById('vmMemory').value=4096" style="padding:3px 10px;background:rgba(255,255,255,0.05);border:1px solid #30363d;border-radius:5px;color:#888;font-size:11px;cursor:pointer">4GB</button>
+                <button type="button" onclick="document.getElementById('vmMemory').value=8192" style="padding:3px 10px;background:rgba(255,255,255,0.05);border:1px solid #30363d;border-radius:5px;color:#888;font-size:11px;cursor:pointer">8GB</button>
+              </div>
+            </div>
+
+            <!-- Tab: Storage -->
+            <div id="osv-tab-storage" class="osv-tab-panel" style="padding:16px 0;display:none">
+              <div style="margin-bottom:14px">
+                <label data-i18n="osv.form.iso" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">File ISO</label>
+                <div style="display:flex;gap:8px">
+                  <input type="text" id="vmIso" placeholder="/path/to/ubuntu.iso atau URL" style="flex:1;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px">
+                  <button type="button" onclick="browseVmIsoFile()" title="Browse file" style="padding:8px 12px;background:rgba(255,255,255,0.06);border:1px solid #30363d;border-radius:6px;color:#aaa;cursor:pointer">
+                    <i class="bi bi-folder2-open"></i>
+                  </button>
+                </div>
+              </div>
+              <div style="margin-bottom:14px">
+                <label data-i18n="osv.form.iso_quick" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">OS Ringan (isi otomatis)</label>
+                <select id="vmQuickIso" onchange="applyQuickIso()" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px">
+                  <option value="">-- Pilih &amp; unduh otomatis --</option>
+                  <optgroup label="── Sudah Diunduh ──" id="vmCachedIsoGroup"></optgroup>
+                  <optgroup label="── Super Ringan (&lt;50MB) ──">
+                    <option value="http://distro.ibiblio.org/tinycorelinux/14.x/x86/release/Core-current.iso">TinyCore Linux 14 (~17MB)</option>
+                    <option value="http://distro.ibiblio.org/tinycorelinux/14.x/x86/release/TinyCore-current.iso">TinyCore+ (GUI) 14 (~23MB)</option>
+                    <option value="https://builds.kolibrios.org/eng/latest-unstable.iso">KolibriOS (~4MB)</option>
+                  </optgroup>
+                  <optgroup label="── Ringan (50–500MB) ──">
+                    <option value="https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/alpine-standard-3.20.3-x86_64.iso">Alpine Linux 3.20 (~209MB)</option>
+                    <option value="https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/distributions/1.3/official/FD13-LiveCD.iso">FreeDOS 1.3 LiveCD (~180MB)</option>
+                    <option value="http://distro.ibiblio.org/puppylinux/puppy-9.5/fossapup64-9.5.iso">Puppy Linux 9.5 (~410MB)</option>
+                  </optgroup>
+                  <optgroup label="── Sedang (300MB–1GB) ──">
+                    <option value="https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.9.0-amd64-netinst.iso">Debian 12 Netinst (~660MB)</option>
+                    <option value="https://releases.ubuntu.com/24.04/ubuntu-24.04.2-live-server-amd64.iso">Ubuntu Server 24.04 (~2.6GB)</option>
+                  </optgroup>
+                </select>
+                <div id="vmIsoDownloadProgress" style="display:none;flex-direction:column;gap:4px;margin-top:6px">
+                  <div style="display:flex;justify-content:space-between;font-size:11px;color:#888">
+                    <span class="iso-dl-label">Mengunduh...</span>
+                    <span class="iso-dl-pct">0%</span>
+                  </div>
+                  <div style="background:#1a1a2e;border-radius:4px;height:6px;overflow:hidden">
+                    <div class="iso-dl-bar-inner" style="height:100%;width:0%;background:linear-gradient(90deg,#7c6fe0,#a78bfa);transition:width 0.3s"></div>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label data-i18n="osv.form.disk" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Disk Virtual (path, dibuat otomatis jika kosong)</label>
+                <input type="text" id="vmDisk" placeholder="/path/to/disk.qcow2" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+                <p data-i18n="osv.form.disk_hint" style="margin:4px 0 0;font-size:11px;color:#555">Kosongkan untuk membuat disk otomatis di folder userData.</p>
+              </div>
+            </div>
+
+            <!-- Tab: Jaringan -->
+            <div id="osv-tab-network" class="osv-tab-panel" style="padding:16px 0;display:none">
+              <div style="margin-bottom:14px">
+                <label data-i18n="osv.form.network" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Mode Jaringan</label>
+                <select id="vmNetwork" onchange="osvNetworkChange()" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px">
+                  <option value="nat">NAT (default, akses internet via host)</option>
+                  <option value="bridge">Bridge (VM dapat IP jaringan lokal)</option>
+                  <option value="none">None (tanpa jaringan)</option>
+                </select>
+              </div>
+              <div id="vmBridgeGroup" style="display:none;margin-bottom:14px">
+                <label data-i18n="osv.form.bridge_iface" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Interface Bridge</label>
+                <input type="text" id="vmBridge" placeholder="eth0 / en0 / br0" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+              </div>
+              <div>
+                <label data-i18n="osv.form.mac" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">MAC Address (opsional)</label>
+                <input type="text" id="vmMac" placeholder="52:54:00:xx:xx:xx (kosong = acak)" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+              </div>
+            </div>
+
+            <!-- Tab: Lanjutan -->
+            <div id="osv-tab-advanced" class="osv-tab-panel" style="padding:16px 0;display:none">
+              <div style="margin-bottom:14px">
+                <label data-i18n="osv.form.qemu_bin" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">QEMU Binary</label>
+                <input type="text" id="vmQemuBin" value="qemu-system-x86_64" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;box-sizing:border-box">
+                <p style="margin:4px 0 0;font-size:11px;color:#555">Ubah ke <code style="color:#a78bfa">qemu-system-aarch64</code> untuk ARM.</p>
+              </div>
+              <div style="margin-bottom:14px">
+                <label data-i18n="osv.form.boot_order" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Boot Order</label>
+                <select id="vmBootOrder" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px">
+                  <option value="cd">CD dulu → Disk (instalasi)</option>
+                  <option value="dc">Disk dulu → CD (setelah instal)</option>
+                  <option value="c">Disk saja</option>
+                  <option value="d">CD saja</option>
+                </select>
+              </div>
+              <div style="margin-bottom:14px">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                  <input type="checkbox" id="vmAutostart" style="width:16px;height:16px;accent-color:#7c6fe0">
+                  <span data-i18n="osv.form.autostart" style="font-size:13px;color:#ccc">Autostart — jalankan VM otomatis saat StarBox dibuka</span>
+                </label>
+              </div>
+              <div>
+                <label data-i18n="osv.form.notes" style="display:block;font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px">Catatan</label>
+                <textarea id="vmNotes" rows="3" data-i18n-placeholder="osv.form.notes_placeholder" placeholder="Catatan atau deskripsi VM..." style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e0e0e0;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <!-- Modal footer -->
+          <div style="display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:1px solid #30363d;flex-shrink:0">
+            <button onclick="closeVmModal()" data-i18n="osv.form.cancel" style="padding:8px 20px;background:rgba(255,255,255,0.06);border:1px solid #30363d;border-radius:8px;color:#aaa;cursor:pointer;font-size:13px">Batal</button>
+            <button onclick="saveVm()" style="padding:8px 20px;background:linear-gradient(135deg,#7c6fe0,#a78bfa);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600">
+              <i class="bi bi-floppy" style="margin-right:5px"></i><span data-i18n="osv.form.save">Simpan VM</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tutorial Install QEMU Modal -->
+      <div id="qemuTutorialModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9500;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+        <div style="background:var(--color-card,#1e2540);border-radius:14px;padding:28px;width:520px;max-width:95vw;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.08);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+            <h3 style="margin:0;font-size:1.1rem;display:flex;align-items:center;gap:8px;"><i class="bi bi-display" style="color:#7c6fe0;"></i> Tutorial Install QEMU</h3>
+            <button onclick="document.getElementById('qemuTutorialModal').style.display='none'" style="background:none;border:none;color:var(--color-muted);font-size:1.3rem;cursor:pointer;line-height:1;">&times;</button>
+          </div>
+          <p style="font-size:0.85rem;color:var(--color-muted);margin:0 0 16px;">QEMU diperlukan untuk menjalankan OS Virtual. Ikuti langkah instalasi sesuai sistem operasi Anda:</p>
+
+          <div style="margin-bottom:14px;">
+            <div style="font-weight:700;font-size:0.85rem;color:#7c6fe0;margin-bottom:6px;"><i class="bi bi-apple"></i> macOS</div>
+            <div style="background:#0d1117;border-radius:8px;padding:10px 14px;font-family:monospace;font-size:0.82rem;color:#e6edf3;border:1px solid #30363d;">brew install qemu</div>
+            <div style="font-size:0.75rem;color:var(--color-muted);margin-top:4px;">Butuh Homebrew: <span style="color:#7c6fe0;">brew.sh</span></div>
+          </div>
+
+          <div style="margin-bottom:14px;">
+            <div style="font-weight:700;font-size:0.85rem;color:#3b82f6;margin-bottom:6px;"><i class="bi bi-windows"></i> Windows</div>
+            <div style="background:#0d1117;border-radius:8px;padding:10px 14px;font-family:monospace;font-size:0.82rem;color:#e6edf3;border:1px solid #30363d;">winget install --id=SoftwareFreedomConservancy.QEMU -e</div>
+            <div style="font-size:0.75rem;color:var(--color-muted);margin-top:4px;">Atau download installer dari <span style="color:#3b82f6;">qemu.weilnetz.de</span></div>
+          </div>
+
+          <div style="margin-bottom:20px;">
+            <div style="font-weight:700;font-size:0.85rem;color:#22c55e;margin-bottom:6px;"><i class="bi bi-ubuntu"></i> Linux (Ubuntu/Debian)</div>
+            <div style="background:#0d1117;border-radius:8px;padding:10px 14px;font-family:monospace;font-size:0.82rem;color:#e6edf3;border:1px solid #30363d;">sudo apt update && sudo apt install -y qemu-system-x86 qemu-kvm</div>
+          </div>
+
+          <div style="background:rgba(124,111,224,0.1);border:1px solid rgba(124,111,224,0.3);border-radius:8px;padding:10px 14px;font-size:0.8rem;color:var(--color-muted);margin-bottom:20px;">
+            <i class="bi bi-info-circle" style="color:#7c6fe0;"></i> Setelah install, klik <b>Install QEMU</b> di banner atau restart StarBox agar terdeteksi.
+          </div>
+
+          <div style="text-align:right;">
+            <button onclick="document.getElementById('qemuTutorialModal').style.display='none'" style="padding:8px 20px;border-radius:8px;border:none;background:#7c6fe0;color:#fff;cursor:pointer;font-size:0.85rem;">Tutup</button>
+          </div>
+        </div>
+      </div>

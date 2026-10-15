@@ -172,84 +172,17 @@ function getBaileysEntryPath() {
     return baileysEntryPath;
   }
 
-  const electronAppInstance = getElectronApp();
-  const isPackaged = electronAppInstance?.isPackaged;
-  const resources = process.resourcesPath;
-
-  const candidatePaths = [];
-  if (isPackaged) {
-    // Universal build: asar terpisah per arsitektur
-    candidatePaths.push(
-      path.join(
-        resources,
-        "app-arm64.asar.unpacked",
-        "node_modules",
-        "@whiskeysockets",
-        "baileys",
-        "lib",
-        "index.js"
-      )
-    );
-    candidatePaths.push(
-      path.join(
-        resources,
-        "app-x64.asar.unpacked",
-        "node_modules",
-        "@whiskeysockets",
-        "baileys",
-        "lib",
-        "index.js"
-      )
-    );
-    candidatePaths.push(
-      path.join(
-        resources,
-        "app.asar.unpacked",
-        "node_modules",
-        "@whiskeysockets",
-        "baileys",
-        "lib",
-        "index.js"
-      )
-    );
-    candidatePaths.push(
-      path.join(
-        resources,
-        "app",
-        "node_modules",
-        "@whiskeysockets",
-        "baileys",
-        "lib",
-        "index.js"
-      )
-    );
-    candidatePaths.push(
-      path.join(
-        resources,
-        "app.asar",
-        "node_modules",
-        "@whiskeysockets",
-        "baileys",
-        "lib",
-        "index.js"
-      )
-    );
-  }
-
+  // Baileys terpasang di node_modules milik modul ini (bukan di app.asar)
   try {
-    candidatePaths.push(require.resolve("@whiskeysockets/baileys/lib/index.js"));
+    baileysEntryPath = require.resolve("@whiskeysockets/baileys/lib/index.js", {
+      paths: [__dirname],
+    });
   } catch (err) {
-    console.warn("⚠️ Tidak bisa resolve Baileys via require.resolve:", err?.message);
-  }
-
-  const found = candidatePaths.find((candidate) => fs.existsSync(candidate));
-  if (!found) {
     throw new Error(
-      `Baileys entry not found; paths tried: ${candidatePaths.join(", ")}`
+      `Baileys tidak ditemukan di modul WhatsApp Gateway (${__dirname}). ` +
+        `Pasang ulang modul dari halaman Modul. Detail: ${err?.message || err}`
     );
   }
-
-  baileysEntryPath = found;
   return baileysEntryPath;
 }
 

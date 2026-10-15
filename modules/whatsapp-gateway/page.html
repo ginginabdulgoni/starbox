@@ -1,0 +1,1226 @@
+      <!-- Page: WhatsApp Gateway -->
+      <div id="page-whatsapp-gateway" class="page-content">
+        <style>
+          #page-whatsapp-gateway {
+            display: none;
+            flex-direction: column;
+            overflow-y: auto;
+            padding: 24px;
+            background: radial-gradient(circle at 90% 10%, rgba(34, 197, 94, 0.12), transparent 45%),
+                        radial-gradient(circle at 10% 85%, rgba(139, 92, 246, 0.12), transparent 40%),
+                        var(--color-dark-purple);
+            color: var(--color-text-light);
+            gap: 20px;
+          }
+          #page-whatsapp-gateway.active { display: flex; }
+
+          #page-whatsapp-gateway .page-main {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            min-height: auto;
+            flex: none;
+            width: 100%;
+          }
+
+          /* Hero Card */
+          .wag-hero-card {
+            background: linear-gradient(135deg, rgba(20, 32, 48, 0.95), rgba(15, 23, 42, 0.95));
+            border: 1px solid rgba(34, 197, 94, 0.25);
+            border-radius: 20px;
+            padding: 24px 28px;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            flex-shrink: 0 !important;
+            width: 100%;
+            box-sizing: border-box;
+          }
+          .wag-hero-card::after {
+            content: "";
+            position: absolute;
+            top: -40px;
+            right: -40px;
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(34, 197, 94, 0.18), transparent 70%);
+            pointer-events: none;
+          }
+
+          .wag-hero-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+          }
+
+          .wag-badge-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+          }
+
+          .wag-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.22), rgba(16, 185, 129, 0.15));
+            border: 1px solid rgba(34, 197, 94, 0.4);
+            color: #86efac;
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+          }
+
+          .wag-badge-sub {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 999px;
+            background: rgba(139, 92, 246, 0.15);
+            border: 1px solid rgba(139, 92, 246, 0.35);
+            color: #c4b5fd;
+            font-size: 0.8rem;
+            font-weight: 600;
+          }
+
+          .wag-hero-title {
+            font-size: clamp(1.45rem, 2.3vw, 1.95rem);
+            font-weight: 800;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #ffffff;
+            letter-spacing: -0.01em;
+          }
+
+          .wag-hero-icon {
+            color: #22c55e;
+            filter: drop-shadow(0 0 10px rgba(34, 197, 94, 0.5));
+          }
+
+          .wag-hero-desc {
+            font-size: 0.94rem;
+            color: #cbd5e1;
+            line-height: 1.65;
+            margin: 0;
+            max-width: 950px;
+            font-weight: 500;
+          }
+
+          .wag-hero-highlights {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 4px;
+          }
+
+          .wag-hl-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 13px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 9px;
+            font-size: 0.82rem;
+            color: #e2e8f0;
+            font-weight: 600;
+          }
+
+          /* Main Layout */
+          .wag-layout {
+            display: flex;
+            gap: 22px;
+            align-items: flex-start;
+          }
+          .wag-main {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+          }
+          .wag-info {
+            width: 340px;
+            flex-shrink: 0;
+            position: sticky;
+            top: 16px;
+          }
+          @media (max-width: 1050px) {
+            .wag-layout { flex-direction: column-reverse; }
+            .wag-info { width: 100%; position: static; }
+          }
+
+          /* Toolbar */
+          .wag-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            padding: 12px 16px;
+            backdrop-filter: blur(8px);
+          }
+
+          .wag-toolbar-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+          }
+
+          .wag-toolbar-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+          }
+
+          .wag-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            padding: 8px 16px;
+            border-radius: 10px;
+            font-size: 0.84rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            border: none;
+            text-decoration: none;
+            white-space: nowrap;
+          }
+          .wag-btn:hover {
+            transform: translateY(-2px);
+          }
+
+          .wag-btn-primary {
+            background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+            color: #ffffff;
+            box-shadow: 0 4px 14px rgba(22, 163, 74, 0.35);
+          }
+          .wag-btn-primary:hover {
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            box-shadow: 0 6px 18px rgba(34, 197, 94, 0.45);
+            color: #ffffff;
+          }
+
+          .wag-btn-secondary {
+            background: rgba(148, 163, 184, 0.12);
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            color: #e2e8f0;
+          }
+          .wag-btn-secondary:hover {
+            background: rgba(148, 163, 184, 0.22);
+            color: #ffffff;
+          }
+
+          .wag-btn-outline {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.35);
+            color: #86efac;
+          }
+          .wag-btn-outline:hover {
+            background: rgba(34, 197, 94, 0.2);
+            border-color: rgba(34, 197, 94, 0.55);
+            color: #ffffff;
+          }
+
+          .wag-btn-warning {
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.35);
+            color: #fde68a;
+          }
+          .wag-btn-warning:hover {
+            background: rgba(245, 158, 11, 0.25);
+            color: #ffffff;
+          }
+
+          .wag-btn-ghost {
+            background: transparent;
+            color: #94a3b8;
+            border: 1px solid transparent;
+          }
+          .wag-btn-ghost:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.06);
+          }
+
+          /* Guide Panel (Info Kanan) */
+          .wag-panel {
+            border-radius: 18px;
+            overflow: hidden;
+            border: 1px solid rgba(16, 185, 129, 0.25);
+            background: linear-gradient(180deg, rgba(16, 185, 129, 0.05) 0%, rgba(15, 23, 42, 0.95) 40%);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+            backdrop-filter: blur(12px);
+          }
+
+          .wag-panel-head {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 18px;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(15, 23, 42, 0.8));
+            border-bottom: 1px solid rgba(16, 185, 129, 0.2);
+          }
+
+          .wag-guide-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #34d399;
+            font-size: 1.15rem;
+            flex-shrink: 0;
+          }
+
+          .wag-panel-title {
+            font-weight: 700;
+            font-size: 0.9rem;
+            color: #f8fafc;
+          }
+          .wag-panel-sub {
+            font-size: 0.74rem;
+            color: rgba(226, 232, 240, 0.65);
+            margin-top: 2px;
+          }
+
+          .wag-panel-body {
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+          }
+
+          .wag-risk-label {
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: #a7f3d0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+          }
+
+          .wag-risk-list {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+          }
+
+          .wag-risk-list li {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            font-size: 0.77rem;
+            line-height: 1.5;
+            padding: 8px 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            color: rgba(226, 232, 240, 0.85);
+          }
+
+          .wag-risk-list li .ico {
+            font-size: 0.95rem;
+            line-height: 1;
+            flex-shrink: 0;
+            margin-top: 1px;
+          }
+
+          .wag-risk-list li b {
+            color: #f1f5f9;
+            font-weight: 600;
+          }
+
+          .wag-rec {
+            border-radius: 14px;
+            padding: 14px 16px;
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(5, 150, 105, 0.05));
+            border: 1px solid rgba(16, 185, 129, 0.3);
+          }
+
+          .wag-rec-title {
+            font-weight: 700;
+            font-size: 0.84rem;
+            color: #6ee7b7;
+            margin-bottom: 4px;
+          }
+
+          .wag-rec-desc {
+            font-size: 0.76rem;
+            line-height: 1.55;
+            color: rgba(226, 232, 240, 0.8);
+          }
+
+          .wag-rec-btn {
+            margin-top: 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            border-radius: 8px;
+            cursor: pointer;
+            border: 1px solid rgba(16, 185, 129, 0.45);
+            background: rgba(16, 185, 129, 0.15);
+            color: #a7f3d0;
+            transition: all 0.2s ease;
+          }
+          .wag-rec-btn:hover {
+            background: rgba(16, 185, 129, 0.3);
+            color: #ffffff;
+            transform: translateY(-1px);
+          }
+
+          .wag-dismiss {
+            color: #94a3b8;
+            font-size: 0.75rem;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: color 0.15s ease;
+          }
+          .wag-dismiss:hover {
+            color: #f8fafc;
+            text-decoration: underline;
+          }
+
+          /* Restyle Device List Grid */
+          #wa-device-list {
+            margin: 0 !important;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 16px;
+            width: 100%;
+          }
+
+          /* Light mode */
+          body.theme-mode-light #page-whatsapp-gateway {
+            background: radial-gradient(circle at 90% 10%, rgba(34, 197, 94, 0.08), transparent 45%),
+                        radial-gradient(circle at 10% 85%, rgba(139, 92, 246, 0.06), transparent 40%),
+                        #f8fafc;
+            color: #0f172a;
+          }
+          body.theme-mode-light .wag-hero-card {
+            background: #ffffff;
+            border-color: #cbd5e1;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+          }
+          body.theme-mode-light .wag-badge {
+            background: rgba(34, 197, 94, 0.15);
+            border-color: rgba(34, 197, 94, 0.4);
+            color: #15803d;
+          }
+          body.theme-mode-light .wag-badge-sub {
+            background: rgba(139, 92, 246, 0.12);
+            border-color: rgba(139, 92, 246, 0.35);
+            color: #6d28d9;
+          }
+          body.theme-mode-light .wag-hero-title {
+            color: #0f172a;
+          }
+          body.theme-mode-light .wag-hero-desc {
+            color: #334155 !important;
+            font-weight: 500;
+          }
+          body.theme-mode-light .wag-hl-item {
+            background: #f1f5f9;
+            border-color: #cbd5e1;
+            color: #0f172a !important;
+            font-weight: 600;
+          }
+          body.theme-mode-light .wag-toolbar {
+            background: #ffffff;
+            border-color: #e2e8f0;
+          }
+          body.theme-mode-light .wag-btn-secondary {
+            background: #f1f5f9;
+            border-color: #cbd5e1;
+            color: #334155;
+          }
+          body.theme-mode-light .wag-btn-ghost {
+            color: #64748b;
+          }
+          body.theme-mode-light .wag-panel {
+            background: #ffffff;
+            border-color: #e2e8f0;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+          }
+          body.theme-mode-light .wag-panel-head {
+            background: #f0fdf4;
+            border-color: #dcfce7;
+          }
+          body.theme-mode-light .wag-panel-title {
+            color: #14532d;
+          }
+          body.theme-mode-light .wag-panel-sub {
+            color: #166534;
+          }
+          body.theme-mode-light .wag-risk-label {
+            color: #166534;
+          }
+          body.theme-mode-light .wag-risk-list li {
+            background: #f8fafc;
+            border-color: #e2e8f0;
+            color: #334155;
+          }
+          body.theme-mode-light .wag-risk-list li b {
+            color: #0f172a;
+          }
+          body.theme-mode-light .wag-rec {
+            background: #f0fdf4;
+            border-color: #bbf7d0;
+          }
+          body.theme-mode-light .wag-rec-title {
+            color: #15803d;
+          }
+          body.theme-mode-light .wag-rec-desc {
+            color: #166534;
+          }
+          body.theme-mode-light .wag-rec-btn {
+            background: #dcfce7;
+            border-color: #86efac;
+            color: #15803d;
+          }
+          body.theme-mode-light .wag-dismiss {
+            color: #64748b;
+          }
+          body.theme-mode-light .wa-device-card {
+            background: #ffffff !important;
+            border-color: #cbd5e1 !important;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06) !important;
+          }
+          body.theme-mode-light .wa-device-name {
+            color: #0f172a !important;
+          }
+          body.theme-mode-light .wa-device-phone {
+            color: #0f172a !important;
+            background: #f8fafc !important;
+            border-color: #cbd5e1 !important;
+            font-weight: 600 !important;
+          }
+          body.theme-mode-light .wa-device-actions button {
+            background: #f8fafc;
+            border-color: #cbd5e1;
+            color: #1e293b;
+          }
+          body.theme-mode-light .wa-device-actions button:hover {
+            background: #e2e8f0;
+          }
+          body.theme-mode-light .wa-device-status.disconnected {
+            background: #f1f5f9;
+            border-color: #cbd5e1;
+            color: #475569;
+          }
+        </style>
+
+        <main class="page-main">
+          <!-- Hero Banner -->
+          <section class="wag-hero-card">
+            <div class="wag-hero-top">
+              <div class="wag-badge-wrap">
+                <span class="wag-badge"><i class="bi bi-whatsapp"></i> Multi-Device API Engine</span>
+                <span class="wag-badge-sub"><i class="bi bi-shield-lock-fill"></i> Local Socket & Webhook</span>
+              </div>
+            </div>
+
+            <h1 class="wag-hero-title">
+              <i class="bi bi-whatsapp wag-hero-icon"></i> WhatsApp Gateway Center
+            </h1>
+
+            <p class="wag-hero-desc">
+              Kelola integrasi multi-device WhatsApp untuk kebutuhan otomatisasi perpesanan, respon cerdas (auto-reply), penyiaran notifikasi (broadcast campaign), dan sinkronisasi alur kerja operasional bisnis Anda secara real-time.
+            </p>
+
+            <div class="wag-hero-highlights">
+              <span class="wag-hl-item"><i class="bi bi-check-circle-fill text-success"></i> Multi-Device Pairing</span>
+              <span class="wag-hl-item"><i class="bi bi-robot text-primary"></i> Auto-Reply & Trigger</span>
+              <span class="wag-hl-item"><i class="bi bi-clock-history text-warning"></i> Campaign Scheduler</span>
+              <span class="wag-hl-item"><i class="bi bi-shield-check text-info"></i> Enkripsi Sesi Lokal</span>
+            </div>
+          </section>
+
+          <!-- Layout Utama -->
+          <div class="wag-layout">
+
+            <!-- ── Kolom Kiri: Toolbar + Device List ── -->
+            <div class="wag-main">
+              <div class="wag-toolbar">
+                <div class="wag-toolbar-left">
+                  <button class="wag-btn wag-btn-primary" onclick="openWAGatewayModal()">
+                    <i class="bi bi-plus-circle-fill"></i> <span data-i18n="toolbar.add_device_wa">Tambah Device WA</span>
+                  </button>
+                  <button class="wag-btn wag-btn-secondary" onclick="loadWADevices()" title="Segarkan status seluruh koneksi device">
+                    <i class="bi bi-arrow-clockwise"></i> Segarkan
+                  </button>
+                  <button
+                    id="fixWAGatewayButton"
+                    class="wag-btn wag-btn-warning"
+                    onclick="openFixWADepsModal()"
+                    style="display: none"
+                  >
+                    <i class="bi bi-tools"></i> Fix Dependensi
+                  </button>
+                </div>
+
+                <div class="wag-toolbar-right">
+                  <button class="wag-btn wag-btn-outline" onclick="switchPage('web-emulator')" title="Gunakan WhatsApp Web resmi via browser sandbox">
+                    <i class="bi bi-browser-chrome"></i> Buka Web Emulator
+                  </button>
+                  <button id="wagToggleGuideBtn" class="wag-btn wag-btn-ghost" onclick="toggleWAGuidePanel()" title="Tampilkan/sembunyikan panduan operasional">
+                    <i class="bi bi-journal-bookmark"></i> Panduan
+                  </button>
+                </div>
+              </div>
+
+              <!-- Container Kartu Device -->
+              <div id="wa-device-list">Loading...</div>
+            </div>
+
+            <!-- ── Kolom Kanan: Panel Panduan & Best Practices ── -->
+            <div class="wag-info" id="wagUnofficialBanner">
+              <div class="wag-panel">
+
+                <div class="wag-panel-head">
+                  <div class="wag-guide-avatar">
+                    <i class="bi bi-shield-check"></i>
+                  </div>
+                  <div>
+                    <div class="wag-panel-title">Panduan Operasional & Kepatuhan</div>
+                    <div class="wag-panel-sub">Arsitektur Multi-Device Socket (Baileys Engine)</div>
+                  </div>
+                </div>
+
+                <div class="wag-panel-body">
+                  <div class="wag-risk-label">
+                    <i class="bi bi-lightbulb-fill text-warning"></i> Rekomendasi Penggunaan Aman:
+                  </div>
+
+                  <ul class="wag-risk-list">
+                    <li>
+                      <span class="ico">🛡️</span>
+                      <div><b>Gunakan Nomor Operasional Khusus</b> — Disarankan menggunakan nomor dedicated untuk layanan pelanggan/otomasi agar percakapan pribadi tetap terpisah.</div>
+                    </li>
+                    <li>
+                      <span class="ico">⏱️</span>
+                      <div><b>Manajemen Jeda Pesan (Rate Limiting)</b> — Terapkan jeda berkala (3–5 detik per pesan) saat penyiaran massal untuk menjaga kelancaran antrean pesan.</div>
+                    </li>
+                    <li>
+                      <span class="ico">👥</span>
+                      <div><b>Interaksi Berbasis Izin (Opt-in)</b> — Prioritaskan pengiriman kepada kontak yang telah terdaftar atau menyetujui penerimaan notifikasi.</div>
+                    </li>
+                    <li>
+                      <span class="ico">🔐</span>
+                      <div><b>Penyimpanan Sesi Mandiri</b> — Token autentikasi tersimpan aman secara lokal di perangkat Anda (self-hosted storage).</div>
+                    </li>
+                  </ul>
+
+                  <!-- Rekomendasi Web Emulator Resmi -->
+                  <div class="wag-rec">
+                    <i class="bi bi-patch-check-fill" style="color:#10b981;font-size:1.3rem;flex-shrink:0;margin-top:2px;"></i>
+                    <div>
+                      <div class="wag-rec-title">Opsi WhatsApp Web Resmi</div>
+                      <div class="wag-rec-desc">
+                        Untuk aktivitas yang mengutamakan lingkungan resmi WhatsApp Web dengan perlindungan browser sandbox penuh, gunakan modul <strong>Web Emulator</strong> StarBox.
+                      </div>
+                      <button class="wag-rec-btn" onclick="switchPage('web-emulator')">
+                        <i class="bi bi-arrow-right-circle"></i> Buka Web Emulator
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style="display:flex;justify-content:flex-end;margin-top:2px;">
+                    <span class="wag-dismiss" onclick="toggleWAGuidePanel()">
+                      <i class="bi bi-eye-slash"></i> Sembunyikan Panduan
+                    </span>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+            <!-- ── End info panel ── -->
+
+          </div>
+        </main>
+      </div>
+      <!-- End Page: WhatsApp Gateway -->
+
+      <!-- Modal: Add WhatsApp Gateway Device -->
+      <div id="addModalWAGateway" class="modal">
+        <div class="modal-content" style="max-width: 500px">
+          <span class="close" onclick="closeWAGatewayModal()">&times;</span>
+          <h3><i class="bi bi-whatsapp"></i> Tambah Device WhatsApp Gateway</h3>
+
+          <label for="deviceNameWA">Nama Device</label>
+          <input
+            type="text"
+            id="deviceNameWA"
+            placeholder="Misal: WA Customer Service, WA Marketing"
+          />
+
+          <div
+            class="modal-buttons"
+            style="margin-top: 1rem; text-align: right"
+          >
+            <button onclick="submitWAGatewayDevice()">
+              <i class="bi bi-plus-circle"></i> Tambah & Scan QR
+            </button>
+            <button onclick="closeWAGatewayModal()" class="ghost">Batal</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal: QR Code WhatsApp -->
+      <div id="qrModalWA" class="modal">
+        <div class="modal-content" style="max-width: 400px; text-align: center">
+          <span class="close" onclick="closeQRModal()">&times;</span>
+          <h3><i class="bi bi-qr-code"></i> Scan QR Code</h3>
+          <p id="qrDeviceNameLabel" style="color: #6b7280; margin-bottom: 1rem">
+            Scan menggunakan WhatsApp Anda
+          </p>
+
+          <div
+            id="qrCodeContainer"
+            style="
+              margin: 1rem auto;
+              padding: 1rem;
+              background: white;
+              border-radius: 8px;
+              display: inline-block;
+            "
+          >
+            <img
+              id="qrImage"
+              style="width: 300px; height: 300px; display: none"
+            />
+            <canvas id="qrCanvas" style="display: block"></canvas>
+          </div>
+
+          <p style="color: #6b7280; font-size: 0.9rem; margin-top: 1rem">
+            Buka WhatsApp → Linked Devices → Link a Device
+          </p>
+
+          <div id="qrProfileStatus" class="qr-profile-status">
+            <!-- status details -->
+          </div>
+
+          <div
+            id="qrStatusMessage"
+            style="
+              margin-top: 1rem;
+              padding: 0.75rem;
+              background: #f3f4f6;
+              border-radius: 6px;
+              display: none;
+            "
+          >
+            <i class="bi bi-info-circle"></i>
+            <span id="qrStatusText">Menunggu scan...</span>
+          </div>
+
+          <p
+            id="qrTimerIndicator"
+            class="qr-refresh-timer"
+            style="display: none"
+          >
+            QR akan refresh otomatis dalam <span id="qrTimerValue">60</span>s
+          </p>
+
+          <div class="modal-buttons" style="margin-top: 1.5rem">
+            <button
+              onclick="refreshQRCode()"
+              class="btn-info"
+              id="refreshQRBtn"
+              style="margin-right: 0.5rem"
+            >
+              <i class="bi bi-arrow-clockwise"></i> Refresh QR
+            </button>
+            <button onclick="closeQRModal()" class="ghost">Tutup</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal: WhatsApp Profil -->
+      <div id="waProfileModal" class="modal">
+        <div class="modal-content" style="max-width: 420px; text-align: center">
+          <span class="close" onclick="closeWAProfileModal()">&times;</span>
+          <h3><i class="bi bi-person-circle"></i> Profil WhatsApp</h3>
+          <p style="color: #6b7280; margin-bottom: 1rem">
+            Informasi akun saat ini yang sudah terhubung.
+          </p>
+          <div id="waProfileBody" class="wa-profile-body">
+            <p class="wa-profile-loading">Memuat profil WhatsApp...</p>
+          </div>
+          <div
+            class="modal-buttons"
+            style="margin-top: 1.5rem; justify-content: center"
+          >
+            <button onclick="closeWAProfileModal()" class="ghost">Tutup</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal: Send Message -->
+      <div id="sendMessageModal" class="modal">
+        <div class="modal-content" style="max-width: 500px">
+          <span class="close" onclick="closeSendMessageModal()">&times;</span>
+          <h3><i class="bi bi-send"></i> Send WhatsApp Message</h3>
+          <p
+            id="sendMessageDeviceName"
+            style="color: #6b7280; margin-bottom: 1.5rem"
+          ></p>
+
+          <div class="form-group">
+            <label for="sendMessagePhone">Phone Number</label>
+            <input
+              type="text"
+              id="sendMessagePhone"
+              placeholder="628123456789 (without + or spaces)"
+              style="
+                width: 100%;
+                padding: 0.75rem;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                margin-top: 0.5rem;
+              "
+            />
+            <small style="color: #6b7280; margin-top: 0.25rem; display: block">
+              Format: country code + number (e.g., 628123456789)
+            </small>
+          </div>
+
+          <div class="form-group" style="margin-top: 1rem">
+            <label for="sendMessageText">Message</label>
+            <textarea
+              id="sendMessageText"
+              rows="5"
+              placeholder="Type your message here..."
+              style="
+                width: 100%;
+                padding: 0.75rem;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                margin-top: 0.5rem;
+                resize: vertical;
+                font-family: inherit;
+              "
+            ></textarea>
+          </div>
+
+          <div class="modal-buttons" style="margin-top: 1.5rem">
+            <button onclick="submitSendMessage()" class="btn-success">
+              <i class="bi bi-send"></i> Send
+            </button>
+            <button onclick="closeSendMessageModal()" class="ghost">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal: WA Device Settings -->
+      <div id="waSettingsModal" class="modal">
+        <div class="modal-content" style="max-width: 700px">
+          <span class="close" onclick="closeWASettingsModal()">&times;</span>
+          <h3><i class="bi bi-gear"></i> Pengaturan Device WhatsApp</h3>
+          <p
+            id="waSettingsDeviceName"
+            style="color: #6b7280; margin-bottom: 1.5rem"
+          ></p>
+
+          <!-- Tabs -->
+          <div class="settings-tabs">
+            <button
+              class="settings-tab active"
+              data-tab="auto-reply"
+              onclick="switchWASettingsTab('auto-reply', event)"
+            >
+              <i class="bi bi-chat-left-text"></i> Auto Reply
+            </button>
+            <button
+              class="settings-tab"
+              data-tab="schedule"
+              onclick="switchWASettingsTab('schedule', event)"
+            >
+              <i class="bi bi-clock"></i> Schedule
+            </button>
+            <button
+              class="settings-tab"
+              data-tab="broadcast"
+              onclick="switchWASettingsTab('broadcast', event)"
+            >
+              <i class="bi bi-send"></i> Campaign
+            </button>
+            <button
+              class="settings-tab"
+              data-tab="calls"
+              onclick="switchWASettingsTab('calls', event)"
+            >
+              <i class="bi bi-telephone-x"></i> Panggilan
+            </button>
+            <button
+              class="settings-tab"
+              data-tab="logs"
+              onclick="switchWASettingsTab('logs', event)"
+            >
+              <i class="bi bi-journal-text"></i> Logs
+            </button>
+          </div>
+
+          <!-- Tab Content: Auto Reply -->
+          <div id="tab-auto-reply" class="settings-tab-content active">
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 1rem;
+              "
+            >
+              <h4>Auto Reply Rules</h4>
+              <button
+                onclick="openAddAutoReplyModal()"
+                style="padding: 0.5rem 1rem"
+              >
+                <i class="bi bi-plus-circle"></i> Tambah Rule
+              </button>
+            </div>
+
+            <div class="auto-reply-toggle">
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  id="autoReplyEnabledCheckbox"
+                  onchange="handleAutoReplyToggleChange(this)"
+                />
+                <span class="slider"></span>
+              </label>
+              <span id="autoReplyToggleLabel">Auto-reply belum aktif</span>
+            </div>
+
+            <div class="log-cleanup-panel">
+              <label for="logRetentionDays">Auto delete log lebih dari</label>
+              <input type="number" id="logRetentionDays" min="1" value="7" />
+              <span>hari</span>
+              <button
+                id="logRetentionBtn"
+                onclick="submitLogRetention()"
+                class="btn-sm btn-success"
+              >
+                <i class="bi bi-trash"></i> Bersihkan
+              </button>
+            </div>
+
+            <div id="autoReplyList" style="max-height: 300px; overflow-y: auto">
+              <!-- Will be populated by renderer.js -->
+            </div>
+          </div>
+
+          <!-- Tab Content: Calls -->
+          <div id="tab-calls" class="settings-tab-content">
+            <div style="padding:8px 0 20px;">
+              <h4 style="margin:0 0 6px;display:flex;align-items:center;gap:8px;">
+                <i class="bi bi-telephone-x-fill" style="color:#ef4444;"></i> Auto Reject Panggilan
+              </h4>
+              <p style="font-size:0.83rem;color:var(--color-muted);margin:0 0 20px;line-height:1.6;">
+                Ketika diaktifkan, semua panggilan masuk (voice &amp; video) akan otomatis ditolak.<br>
+                Berguna untuk akun yang hanya digunakan sebagai gateway pesan, bukan komunikasi langsung.
+              </p>
+
+              <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:10px;background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.2);">
+                <label class="switch" style="flex-shrink:0;">
+                  <input
+                    type="checkbox"
+                    id="autoRejectCallsCheckbox"
+                    onchange="handleAutoRejectCallsChange(this)"
+                  />
+                  <span class="slider"></span>
+                </label>
+                <div>
+                  <div id="autoRejectCallsLabel" style="font-size:0.88rem;font-weight:600;">Auto Reject Panggilan: <span id="autoRejectCallsStatus">Nonaktif</span></div>
+                  <div style="font-size:0.76rem;color:var(--color-muted);margin-top:2px;">Berlaku saat device sedang terhubung (Connected)</div>
+                </div>
+              </div>
+
+              <div style="margin-top:16px;padding:12px 14px;border-radius:9px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);font-size:0.79rem;color:var(--color-muted);line-height:1.7;">
+                <i class="bi bi-info-circle" style="color:#f59e0b;"></i>
+                <strong style="color:#f59e0b;">Catatan:</strong> Fitur ini menggunakan <code>rejectCall()</code> dari Baileys.
+                Pemanggil akan mendapat notifikasi "panggilan ditolak". Pastikan nomor Anda tidak digunakan untuk menerima panggilan penting sebelum mengaktifkan fitur ini.
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab Content: Schedule -->
+          <div id="tab-schedule" class="settings-tab-content">
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 1rem;
+              "
+            >
+              <h4>Scheduled Messages</h4>
+              <button
+                onclick="openAddScheduleModal()"
+                style="padding: 0.5rem 1rem"
+              >
+                <i class="bi bi-plus-circle"></i> Tambah Schedule
+              </button>
+            </div>
+
+            <div id="scheduleList" style="max-height: 300px; overflow-y: auto">
+              <!-- Will be populated by renderer.js -->
+            </div>
+          </div>
+
+          <!-- Tab Content: Broadcast/Campaign -->
+          <div id="tab-broadcast" class="settings-tab-content">
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 1rem;
+              "
+            >
+              <h4>Campaign / Broadcast</h4>
+              <div>
+                <button onclick="downloadCampaignTemplate()" class="btn-sm">
+                  <i class="bi bi-download"></i> Download Template
+                </button>
+              </div>
+            </div>
+
+            <div class="broadcast-panel">
+              <label for="campaignFileInput">Import file CSV/Excel</label>
+              <input
+                type="file"
+                id="campaignFileInput"
+                accept=".csv,.xlsx,.xls"
+                onchange="handleCampaignFile(this)"
+              />
+              <p class="small-text">
+                Kolom: <strong>phone</strong>, <strong>message</strong>.
+                Pastikan nomor lengkap (628...).
+              </p>
+            </div>
+
+            <div class="broadcast-rate">
+              <label for="campaignRate">Kirim per menit</label>
+              <input type="number" id="campaignRate" min="1" value="2" />
+              <small class="small-text">
+                Interval adalah 60 detik dibagi jumlah per menit.
+              </small>
+            </div>
+
+            <div class="broadcast-countdown">
+              <span id="campaignCountdownText">Belum ada pengiriman.</span>
+            </div>
+
+            <div id="campaignPreviewList" class="campaign-preview">
+              <p class="small-text">
+                Preview pesan akan muncul di sini setelah import.
+              </p>
+            </div>
+
+            <div class="campaign-controls">
+              <button
+                id="runCampaignBtn"
+                class="btn-success"
+                onclick="runCampaign()"
+              >
+                <i class="bi bi-play-fill"></i> Kirim Campaign
+              </button>
+              <button
+                id="stopCampaignBtn"
+                class="btn-sm btn-danger"
+                onclick="stopCampaign()"
+                disabled
+              >
+                <i class="bi bi-stop-fill"></i> Stop
+              </button>
+              <button
+                id="clearCampaignBtn"
+                class="btn-sm"
+                onclick="clearCampaign()"
+                disabled
+              >
+                <i class="bi bi-broom"></i> Clear
+              </button>
+            </div>
+          </div>
+
+          <!-- Tab Content: Logs -->
+          <div id="tab-logs" class="settings-tab-content">
+            <h4>Message Logs</h4>
+            <div
+              id="messageLogsList"
+              style="max-height: 400px; overflow-y: auto; margin-top: 1rem"
+            >
+              <!-- Will be populated by renderer.js -->
+            </div>
+          </div>
+
+          <div
+            class="modal-buttons"
+            style="margin-top: 1.5rem; text-align: right"
+          >
+            <button onclick="closeWASettingsModal()" class="ghost">
+              Tutup
+            </button>
+          </div>
+        </div>
+      </div>
+      <a
+        id="campaignTemplateLink"
+        href="assets/campaign-template.csv"
+        download
+        style="display: none"
+      ></a>
+
+      <!-- Modal: Add Auto Reply Rule -->
+      <div id="addAutoReplyModal" class="modal">
+        <div class="modal-content" style="max-width: 500px">
+          <span class="close" onclick="closeAddAutoReplyModal()">&times;</span>
+          <h3><i class="bi bi-chat-left-text"></i> Tambah Auto Reply Rule</h3>
+
+          <label for="autoReplyKeyword">Keyword (kata kunci)</label>
+          <input
+            type="text"
+            id="autoReplyKeyword"
+            placeholder="Contoh: halo, info, harga"
+          />
+
+          <label for="autoReplyMessage">Reply Message</label>
+          <textarea
+            id="autoReplyMessage"
+            rows="4"
+            placeholder="Pesan balasan otomatis..."
+          ></textarea>
+
+          <label for="autoReplyScope">Batasan scope</label>
+          <select id="autoReplyScope">
+            <option value="" disabled selected>-Pilih-</option>
+            <option value="personal">Personal</option>
+            <option value="group">Group</option>
+            <option value="both">Personal + Grup</option>
+          </select>
+
+          <label for="autoReplyMatchType">Tipe pencocokan</label>
+          <select id="autoReplyMatchType">
+            <option value="" disabled selected>-Pilih-</option>
+            <option value="exact">Sama persis</option>
+            <option value="contains">Mengandung</option>
+          </select>
+
+          <div
+            class="modal-buttons"
+            style="margin-top: 1rem; text-align: right"
+          >
+            <button onclick="submitAutoReply()">
+              <i class="bi bi-save"></i> Simpan
+            </button>
+            <button onclick="closeAddAutoReplyModal()" class="ghost">
+              Batal
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal: Add Schedule -->
+      <div id="addScheduleModal" class="modal">
+        <div class="modal-content" style="max-width: 500px">
+          <span class="close" onclick="closeAddScheduleModal()">&times;</span>
+          <h3><i class="bi bi-clock"></i> Tambah Scheduled Message</h3>
+
+          <label for="scheduleName">Nama Schedule</label>
+          <input
+            type="text"
+            id="scheduleName"
+            placeholder="Contoh: Broadcast Pagi"
+          />
+
+          <label for="scheduleDateTime">Waktu kirim</label>
+          <input type="datetime-local" id="scheduleDateTime" />
+
+          <label for="scheduleRecurrence">Pengulangan</label>
+          <select id="scheduleRecurrence">
+            <option value="once">Sekali</option>
+            <option value="daily">Setiap hari</option>
+            <option value="weekly">Setiap minggu</option>
+            <option value="monthly">Setiap bulan</option>
+            <option value="custom">Cron custom</option>
+          </select>
+
+          <div id="scheduleCronGroup" style="display: none; margin-top: 0.5rem">
+            <label for="scheduleCron">Cron Expression (custom)</label>
+            <input
+              type="text"
+              id="scheduleCron"
+              placeholder="Contoh: 0 9 * * * (setiap hari jam 09:00)"
+            />
+            <small
+              class="small-text"
+              style="display: block; margin-top: 0.25rem"
+            >
+              Format cron: menit jam hari bulan hari-minggu
+            </small>
+          </div>
+
+          <label for="scheduleMessage">Pesan</label>
+          <textarea
+            id="scheduleMessage"
+            rows="4"
+            placeholder="Pesan yang akan dikirim..."
+          ></textarea>
+
+          <label for="scheduleRecipients"
+            >Penerima (nomor HP, pisahkan dengan koma)</label
+          >
+          <textarea
+            id="scheduleRecipients"
+            rows="2"
+            placeholder="628123456789, 628987654321"
+          ></textarea>
+
+          <div
+            class="modal-buttons"
+            style="margin-top: 1rem; text-align: right"
+          >
+            <button onclick="submitSchedule()">
+              <i class="bi bi-save"></i> Simpan
+            </button>
+            <button onclick="closeAddScheduleModal()" class="ghost">
+              Batal
+            </button>
+          </div>
+        </div>
+      </div>
