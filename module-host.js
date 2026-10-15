@@ -106,7 +106,7 @@
         item.dataset.order = String(sb.order ?? 999);
         if (sb.pro) item.dataset.pro = "true";
         item.setAttribute("onclick", `switchPage('${sb.page}')`);
-        item.innerHTML = `<i class="bi ${esc(sb.icon || "bi-puzzle")}"></i>` +
+        item.innerHTML = iconHtml(sb.icon, mod.iconUrl) +
           `<span${sb.labelKey ? ` data-i18n="${esc(sb.labelKey)}"` : ""}>${esc(sb.label || mod.name)}</span>`;
 
         let after = firstExisting(sb.after, (p) => `.sidebar-item[data-page="${p}"]`)
@@ -205,6 +205,13 @@
     return `${note}<div class="mod-card-actions">${buttons.join("")}</div>`;
   }
 
+  /** Ikon modul: gambar dari manifest.iconImage, atau ikon Bootstrap. */
+  function iconHtml(icon, iconUrl) {
+    return iconUrl
+      ? `<img class="module-icon-img" src="${esc(iconUrl)}" alt="">`
+      : `<i class="bi ${esc(icon || "bi-puzzle")}"></i>`;
+  }
+
   function renderCard(mod) {
     const channels = [...(mod.ipc?.invoke || []), ...(mod.ipc?.events || [])];
     const source = !mod.installed ? "Katalog" : mod.source === "builtin" ? "Bawaan" : "Terpasang";
@@ -218,7 +225,7 @@
     return `
       <div class="mod-card${mod.installed && !mod.enabled ? " is-disabled" : ""}${highlightId === mod.id ? " is-highlight" : ""}" id="mod-card-${esc(mod.id)}">
         <div class="mod-card-head">
-          <div class="mod-card-icon"><i class="bi ${esc(mod.icon)}"></i></div>
+          <div class="mod-card-icon">${iconHtml(mod.icon, mod.iconUrl)}</div>
           <div class="mod-card-title">
             <strong>${esc(mod.name)}</strong>
             <span class="mod-card-meta">v${esc(mod.version)} · ${source}${mod.license ? ` · ${esc(mod.license)}` : ""}</span>

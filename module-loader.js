@@ -56,12 +56,13 @@ function validateManifest(manifest, dir) {
   for (const perm of manifest.permissions || []) {
     if (!KNOWN_PERMISSIONS.has(perm)) errors.push(`izin tidak dikenal: ${perm}`);
   }
+  if (manifest.iconImage && !/\.(svg|png)$/i.test(manifest.iconImage)) errors.push("iconImage harus .svg atau .png");
   for (const dep of [...(manifest.rendererDeps || []), ...(manifest.styleDeps || [])]) {
     if (!/^https:\/\/(cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net)\//.test(dep)) {
       errors.push(`rendererDeps hanya boleh dari cdnjs/jsdelivr: ${dep}`);
     }
   }
-  for (const key of ["main", "renderer", "page", "style", "i18n"]) {
+  for (const key of ["main", "renderer", "page", "style", "i18n", "iconImage"]) {
     const rel = manifest[key];
     if (!rel) continue;
     const abs = path.resolve(dir, rel);
@@ -323,6 +324,7 @@ class ModuleLoader {
       license: r.manifest.license || "",
       homepage: r.manifest.homepage || "",
       icon: r.manifest.icon || r.manifest.sidebar?.icon || "bi-puzzle",
+      iconUrl: r.manifest.iconImage ? pathToFileURL(path.join(r.dir, r.manifest.iconImage)).href : null,
       source: r.source,
       enabled: r.enabled,
       loaded: r.loaded,
@@ -373,6 +375,7 @@ class ModuleLoader {
         pageHtml,
         script: fileUrl(m.renderer),
         style: fileUrl(m.style),
+        iconUrl: fileUrl(m.iconImage),
         i18n: m.i18n ? readJson(path.join(r.dir, m.i18n), {}) : {},
       });
     }

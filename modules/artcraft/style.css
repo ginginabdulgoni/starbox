@@ -74,3 +74,5 @@ body:not(.theme-mode-light) .art-tabs button.active, body:not(.theme-mode-light)
 .art-table td .art-actions { justify-content: flex-start; margin: 0; }
 .art-table img { width: 26px; height: 26px; border-radius: 6px; vertical-align: middle; margin-right: 8px; }
 .art-status { margin-top: 14px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-muted, #94a3b8); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.art-logo { width: 1.15em; height: 1.15em; vertical-align: -0.18em; }

@@ -1,6 +1,7 @@
 details.json berisi teks halaman aplikasi dari ArtCraft Launcher
 (https://github.com/storytold/craft-launcher, crates/core/src/details.rs),
-dipakai di bawah lisensi MIT berikut. Gambar dimuat dari
+dipakai di bawah lisensi MIT berikut. logo.svg (logo ArtCraft) diambil dari
+repo yang sama (assets/app-icon/artcraft-launcher.svg). Gambar dimuat dari
 https://github.com/storytold/craft-launcher-assets (tag v1). Nama dan ikon
 aplikasi Craft adalah milik ArtCraft Team.
 

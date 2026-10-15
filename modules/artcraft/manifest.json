@@ -6,6 +6,7 @@
   "author": "StarBox",
   "license": "MIT",
   "icon": "bi-palette",
+  "iconImage": "logo.svg",
   "engine": {
     "starbox": ">=2.1.0"
   },

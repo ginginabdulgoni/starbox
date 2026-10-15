@@ -1111,6 +1111,13 @@ footer a {
     text-align: center;
   }
 
+  .sidebar-item img.module-icon-img {
+    width: 24px;
+    height: 1.25rem;
+    object-fit: contain;
+    flex: none;
+  }
+
   .sidebar-item:hover {
     background-color: rgba(139, 92, 246, 0.1);
     color: var(--color-text-light);
@@ -4541,6 +4548,7 @@ body.theme-mode-light .filter-chip.is-active .filter-badge {
   width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 10px;
   background: rgba(124, 58, 237, 0.15); color: var(--color-accent-purple, #a855f7); font-size: 1.2rem;
 }
+.mod-card-icon img.module-icon-img { width: 26px; height: 26px; object-fit: contain; }
 .mod-card-title { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .mod-card-meta { font-size: 0.75rem; color: var(--color-muted, #94a3b8); }
 .mod-card-desc { margin: 0; font-size: 0.85rem; line-height: 1.45; }
