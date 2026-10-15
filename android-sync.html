@@ -1,0 +1,2194 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StarSync — Kontrol Serentak Android</title>
+    <link rel="stylesheet" href="assets/leaflet/leaflet.css" />
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      .topbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        padding: 10px 14px;
+        background: #16213e;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+      }
+      .topbar h1 {
+        font-size: 0.95rem;
+        margin: 0 12px 0 0;
+        color: #3ddc84;
+        white-space: nowrap;
+      }
+      button {
+        background: #1e293b;
+        color: #e2e8f0;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 6px;
+        padding: 7px 12px;
+        font-size: 0.8rem;
+        cursor: pointer;
+      }
+      button:hover { background: #29385a; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      button.primary { background: #3ddc84; color: #0b1220; border-color: #3ddc84; font-weight: 600; }
+      button.primary:hover { background: #32c972; }
+      button.danger { background: #7f1d1d; border-color: #b91c1c; }
+      input[type="text"] {
+        background: #0b1220;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 6px;
+        color: #e2e8f0;
+        padding: 7px 10px;
+        font-size: 0.8rem;
+      }
+      #devicePicker {
+        position: relative;
+      }
+      #deviceDropdown {
+        display: none;
+        position: absolute;
+        top: 110%;
+        left: 0;
+        z-index: 20;
+        background: #16213e;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 8px;
+        padding: 8px;
+        min-width: 260px;
+        max-height: 320px;
+        overflow-y: auto;
+      }
+      #deviceDropdown.open { display: block; }
+      .device-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 4px;
+        font-size: 0.8rem;
+        border-radius: 4px;
+      }
+      .device-row:hover { background: rgba(148, 163, 184, 0.1); }
+      .device-row .meta { flex: 1; overflow: hidden; min-width: 0; }
+      .device-row .meta-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .device-row .meta-sub {
+        font-size: 0.68rem;
+        color: #64748b;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .device-row .badge { font-size: 0.65rem; color: #94a3b8; }
+      .device-row-active { cursor: default; }
+      .device-row-active:hover { background: transparent; }
+      .device-row-active .badge { color: #3ddc84; }
+      .device-row-disabled { opacity: 0.5; cursor: not-allowed; }
+      .device-row-disabled:hover { background: transparent; }
+      .device-row-disabled .badge { color: #f87171; }
+      .active-dot { width: 14px; text-align: center; color: #3ddc84; }
+      #syncToggleLabel {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.78rem;
+        color: #94a3b8;
+        cursor: pointer;
+        user-select: none;
+      }
+      #syncToggleLabel:has(#syncToggle:checked) { color: #3ddc84; }
+      #syncToggle { accent-color: #3ddc84; cursor: pointer; }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 14px;
+        background: #111827;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+      }
+      .toolbar .sep { width: 1px; height: 22px; background: rgba(148, 163, 184, 0.25); margin: 0 4px; }
+      #textInput { width: 240px; }
+      #pkgPresetSelect {
+        background: #0b1220;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 6px;
+        color: #e2e8f0;
+        padding: 7px 8px;
+        font-size: 0.8rem;
+        max-width: 160px;
+      }
+      #pkgInput { width: 170px; }
+      #addAppDropdown {
+        display: none;
+        position: absolute;
+        top: 110%;
+        right: 0;
+        z-index: 20;
+        background: #16213e;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 8px;
+        padding: 10px;
+        width: 220px;
+      }
+      #addAppDropdown.open { display: block; }
+      #addAppDropdown input {
+        width: 100%;
+        margin-top: 4px;
+        background: #0b1220;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 6px;
+        color: #e2e8f0;
+        padding: 6px 8px;
+        font-size: 0.78rem;
+      }
+      .grid {
+        flex: 1;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 14px;
+        padding: 14px;
+        align-content: start;
+        overflow-y: auto;
+      }
+      .tile {
+        background: #16213e;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 10px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .tile-focused { border-color: #3ddc84; box-shadow: 0 0 0 1px #3ddc84; }
+      .selection-box {
+        position: fixed;
+        border: 1px solid #3ddc84;
+        background: rgba(61, 220, 132, 0.15);
+        z-index: 40;
+        pointer-events: none;
+      }
+      .tile-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 10px;
+        font-size: 0.72rem;
+        color: #cbd5e1;
+        background: #0f172a;
+      }
+      .tile-head .status { color: #94a3b8; }
+      .tile-head .status[data-status="streaming"] { color: #3ddc84; }
+      .tile-head .status[data-status="error"] { color: #f87171; }
+      .tile-body {
+        position: relative;
+        background: #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .tile-body canvas {
+        width: 100%;
+        height: auto;
+        display: block;
+        cursor: pointer;
+      }
+      .tile-body .overlay-msg {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 10px;
+        font-size: 0.75rem;
+        color: #94a3b8;
+        pointer-events: none;
+      }
+      .tile-foot {
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+        padding: 4px 8px;
+        background: #0f172a;
+      }
+      .tile-foot button { padding: 3px 8px; font-size: 0.68rem; }
+      /* Floating window: NOT a modal — no backdrop, other tiles stay fully
+         visible/usable behind/around it. Draggable by its header, resizable
+         via the native browser resize handle (bottom-right corner) — meant
+         to feel like a real emulator window sitting on top of the grid. */
+      .float-window {
+        display: none;
+        position: fixed;
+        top: 80px;
+        left: 80px;
+        width: 380px;
+        height: 680px;
+        min-width: 220px;
+        min-height: 320px;
+        z-index: 90;
+        background: #16213e;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        border-radius: 10px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+        overflow: hidden;
+        resize: both;
+        flex-direction: column;
+      }
+      .float-window.open { display: flex; }
+      .float-window-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 6px 10px;
+        color: #e2e8f0;
+        font-size: 0.78rem;
+        background: #0f172a;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+        cursor: move;
+        user-select: none;
+      }
+      .float-window-slot {
+        flex: 1;
+        overflow: hidden;
+        display: flex;
+      }
+      /* Reparented .tile inside the floating window — override the grid
+         sizing so it fills the window instead of a fixed grid cell. */
+      .float-window-slot .tile {
+        width: 100%;
+        height: 100%;
+      }
+      .empty-hint {
+        margin: auto;
+        text-align: center;
+        color: #64748b;
+        font-size: 0.85rem;
+        max-width: 360px;
+        line-height: 1.5;
+      }
+      .warn-banner {
+        display: none;
+        padding: 8px 14px;
+        background: #7c2d12;
+        color: #fed7aa;
+        font-size: 0.78rem;
+      }
+      .warn-banner.show { display: block; }
+      .toast-stack {
+        position: fixed;
+        bottom: 16px;
+        right: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        z-index: 50;
+        max-width: 360px;
+      }
+      .toast {
+        background: #1e293b;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-left: 3px solid #94a3b8;
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 0.75rem;
+        color: #e2e8f0;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        animation: toast-in 0.15s ease-out;
+      }
+      .toast[data-level="warn"] { border-left-color: #fbbf24; }
+      .toast[data-level="error"] { border-left-color: #f87171; }
+      .toast .toast-device { color: #94a3b8; font-size: 0.68rem; margin-bottom: 2px; }
+      @keyframes toast-in {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .modal-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(2, 6, 23, 0.6);
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+      }
+      .modal-overlay.open { display: flex; }
+      .modal-box {
+        background: #16213e;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 10px;
+        padding: 18px;
+        max-width: 320px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      }
+      .modal-box p { margin: 0 0 14px; font-size: 0.85rem; color: #e2e8f0; }
+      .modal-actions { display: flex; flex-direction: column; gap: 6px; }
+      .modal-actions button { width: 100%; }
+      .sim-box {
+        max-width: 340px;
+        max-height: 85vh;
+        overflow-y: auto;
+        text-align: left;
+      }
+      .sim-box h3 { margin: 0 0 6px; font-size: 0.9rem; color: #3ddc84; }
+      .sim-hint { font-size: 0.7rem; color: #94a3b8; margin: 0 0 14px; }
+      .sim-section {
+        border-top: 1px solid rgba(148, 163, 184, 0.15);
+        padding-top: 10px;
+        margin-top: 10px;
+      }
+      .sim-section:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+      .sim-section-title { font-size: 0.75rem; color: #cbd5e1; margin-bottom: 6px; font-weight: 600; }
+      .sim-box input[type="text"],
+      .sim-box select,
+      .sim-box textarea {
+        width: 100%;
+        margin-bottom: 6px;
+        background: #0b1220;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 6px;
+        color: #e2e8f0;
+        padding: 6px 8px;
+        font-size: 0.78rem;
+        font-family: inherit;
+        box-sizing: border-box;
+      }
+      .sim-box textarea { resize: vertical; }
+      .sim-row { display: flex; gap: 6px; }
+      /* min-width:0 overrides the flex-item default of min-width:auto, which
+         otherwise refuses to shrink a text input below its intrinsic content
+         width — without it, a sibling with flex-basis:auto (e.g. a button
+         using flex:0 0 auto) can end up hogging the row instead of sizing to
+         its own content, squashing the input into a tiny box. */
+      .sim-row button, .sim-row input { flex: 1; min-width: 0; }
+      .sim-box button { width: 100%; margin-bottom: 6px; }
+      .sim-gps-status { font-size: 0.7rem; color: #94a3b8; min-height: 1em; margin-top: 4px; }
+      .map-picker-box {
+        width: min(720px, 90vw);
+        max-width: none;
+        display: flex;
+        flex-direction: column;
+      }
+      .map-picker-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+      .map-picker-head span { font-size: 0.9rem; color: #3ddc84; font-weight: 600; }
+      #mapPickerSearch {
+        width: 100%;
+        margin-bottom: 8px;
+        background: #0b1220;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 6px;
+        color: #e2e8f0;
+        padding: 8px 10px;
+        font-size: 0.82rem;
+        box-sizing: border-box;
+      }
+      #mapPickerResults {
+        display: none;
+        max-height: 140px;
+        overflow-y: auto;
+        margin: -4px 0 8px;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 6px;
+        background: #0b1220;
+      }
+      #mapPickerResults.open { display: block; }
+      #mapPickerResults .result-row {
+        padding: 7px 10px;
+        font-size: 0.76rem;
+        color: #cbd5e1;
+        cursor: pointer;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+      }
+      #mapPickerResults .result-row:last-child { border-bottom: none; }
+      #mapPickerResults .result-row:hover { background: rgba(61, 220, 132, 0.12); }
+      .map-picker-map {
+        width: 100%;
+        height: min(420px, 55vh);
+        border-radius: 8px;
+        overflow: hidden;
+        background: #0b1220;
+      }
+      .map-picker-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      #mapPickerCoords { font-size: 0.76rem; color: #94a3b8; }
+      .map-picker-actions { display: flex; gap: 6px; flex-shrink: 0; }
+      .map-picker-actions button { width: auto; margin-bottom: 0; }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <h1>🔗 StarSync</h1>
+      <div id="devicePicker">
+        <button id="pickDevicesBtn">Pilih Device...</button>
+        <div id="deviceDropdown"></div>
+      </div>
+      <button id="connectSelectedBtn" class="primary">Sambungkan Terpilih</button>
+      <button id="refreshDevicesBtn">🔄 Refresh</button>
+      <span style="flex:1"></span>
+      <label id="syncToggleLabel" title="Kalau nyala: tap/teks/tombol nav direplikasi ke SEMUA device tersambung. Kalau mati: hanya ke device yang dipilih (klik / Ctrl+klik / drag-select).">
+        <input type="checkbox" id="syncToggle" />
+        🔗 Sync Bersamaan
+      </label>
+      <button id="disconnectAllBtn" class="danger">Putuskan Semua</button>
+    </div>
+
+    <div class="toolbar">
+      <input type="text" id="textInput" placeholder="...atau langsung ketik di keyboard (di luar kotak ini)" />
+      <button id="sendTextBtn">Kirim Teks</button>
+      <div class="sep"></div>
+      <button id="navHomeBtn">🏠 Home</button>
+      <button id="navBackBtn">⬅️ Back</button>
+      <button id="navRecentBtn">▢ Recent</button>
+      <div class="sep"></div>
+      <button id="volUpBtn" title="Volume Up">🔊</button>
+      <button id="volDownBtn" title="Volume Down">🔉</button>
+      <button id="powerBtn" title="Power / Lock">⏻</button>
+      <button id="rotateBtn" title="Rotate">🔄</button>
+      <button id="rebootBtn" class="danger" title="Reboot device (adb reboot)">♻️ Reboot</button>
+      <div class="sep"></div>
+      <select id="pkgPresetSelect">
+        <option value="">Pilih aplikasi...</option>
+      </select>
+      <input type="text" id="pkgInput" placeholder="atau ketik package name manual..." />
+      <div id="addAppPicker" style="position: relative">
+        <button id="addAppBtn" title="Tambah aplikasi ke daftar">➕</button>
+        <div id="addAppDropdown">
+          <div style="font-size: 0.72rem; color: #94a3b8; margin-bottom: 4px;">Tambah aplikasi ke daftar</div>
+          <input type="text" id="newAppLabel" placeholder="Nama (mis. Shopee)" />
+          <input type="text" id="newAppPkg" placeholder="Package (mis. com.shopee.id)" />
+          <button id="saveAppBtn" class="primary" style="width: 100%; margin-top: 4px;">Simpan</button>
+        </div>
+      </div>
+      <button id="launchAppBtn">🚀 Buka App</button>
+    </div>
+
+    <div id="warnBanner" class="warn-banner"></div>
+
+    <div class="grid" id="grid">
+      <div class="empty-hint" id="emptyHint">
+        Belum ada device tersambung. Klik <strong>"Pilih Device..."</strong> untuk memilih emulator
+        Android StarBox atau HP fisik yang terhubung lewat ADB, lalu <strong>"Sambungkan Terpilih"</strong>.
+        <br /><br />
+        Secara default tiap tile dikontrol sendiri-sendiri — device yang dipilih (border hijau) jadi
+        target tombol toolbar. Klik tile untuk memilih satu, <strong>Ctrl/Cmd+klik</strong> header tile
+        untuk menambah/menghapus dari pilihan, atau <strong>drag di area kosong grid</strong> untuk
+        memilih beberapa sekaligus. Aktifkan <strong>🔗 Sync Bersamaan</strong> di pojok kanan atas untuk
+        mereplikasi tap/geser/teks/tombol ke SEMUA device tersambung sekaligus (skala koordinat otomatis
+        menyesuaikan resolusi masing-masing).
+      </div>
+    </div>
+
+    <div class="toast-stack" id="toastStack"></div>
+
+    <div class="float-window" id="floatWindow">
+      <div class="float-window-head" id="floatWindowHead">
+        <span id="floatWindowTitle"></span>
+        <button id="floatWindowCloseBtn">✕ Kembalikan ke grid</button>
+      </div>
+      <div class="float-window-slot" id="floatWindowSlot"></div>
+    </div>
+
+    <div class="modal-overlay" id="disconnectModal">
+      <div class="modal-box">
+        <p id="disconnectModalText">Putuskan device?</p>
+        <div class="modal-actions">
+          <button id="dmCancel">Batal</button>
+          <button id="dmDisconnectOnly">Putuskan tampilan saja</button>
+          <button id="dmStopToo" class="danger">Putuskan + Stop emulator</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="simModal">
+      <div class="modal-box sim-box">
+        <h3 id="simModalTitle">SIM Virtual</h3>
+        <p class="sim-hint">Simulasi lokal lewat console emulator — hanya berfungsi untuk emulator, tidak untuk HP fisik.</p>
+
+        <div class="sim-section">
+          <div class="sim-section-title">📱 Nomor Telepon Device</div>
+          <div class="sim-row">
+            <input type="text" id="simPhoneNumber" placeholder="mis. 6281234509876" />
+            <button id="simSetPhoneBtn" style="flex: 0 0 auto; width: auto;">Set</button>
+          </div>
+        </div>
+
+        <div class="sim-section">
+          <div class="sim-section-title">📩 SMS Masuk</div>
+          <input type="text" id="simSmsFrom" placeholder="Nomor pengirim (mis. 6281234567890)" />
+          <input type="text" id="simSmsText" placeholder="Isi pesan" />
+          <button id="simSendSmsBtn" class="primary">Kirim SMS</button>
+        </div>
+
+        <div class="sim-section">
+          <div class="sim-section-title">📞 Panggilan Masuk</div>
+          <input type="text" id="simCallNumber" placeholder="Nomor penelepon" />
+          <div class="sim-row">
+            <button id="simCallBtn">Panggil</button>
+            <button id="simAcceptBtn">Terima</button>
+            <button id="simCancelCallBtn" class="danger">Batalkan</button>
+          </div>
+        </div>
+
+        <div class="sim-section">
+          <div class="sim-section-title">📡 Status Jaringan</div>
+          <select id="simVoiceState">
+            <option value="home">Voice: Home</option>
+            <option value="roaming">Voice: Roaming</option>
+            <option value="searching">Voice: Searching</option>
+            <option value="denied">Voice: Denied</option>
+            <option value="unregistered">Voice: Unregistered</option>
+          </select>
+          <select id="simDataState">
+            <option value="home">Data: Home</option>
+            <option value="roaming">Data: Roaming</option>
+            <option value="searching">Data: Searching</option>
+            <option value="denied">Data: Denied</option>
+            <option value="unregistered">Data: Unregistered</option>
+          </select>
+          <select id="simSignalProfile">
+            <option value="great">Sinyal: Great</option>
+            <option value="good">Sinyal: Good</option>
+            <option value="moderate">Sinyal: Moderate</option>
+            <option value="poor">Sinyal: Poor</option>
+            <option value="none">Sinyal: None</option>
+          </select>
+          <button id="simApplyNetworkBtn" class="primary">Terapkan</button>
+        </div>
+
+        <div class="sim-section">
+          <div class="sim-section-title">📍 Lokasi GPS</div>
+          <div class="sim-row">
+            <input type="text" id="simGpsLat" placeholder="Latitude (mis. -6.1754)" />
+            <input type="text" id="simGpsLon" placeholder="Longitude (mis. 106.8272)" />
+          </div>
+          <button id="mapPickerOpenBtn">🗺️ Pilih di Peta</button>
+          <button id="simSetGpsBtn">Set Lokasi</button>
+          <div class="sim-section-title" style="margin-top:8px;">Simulasi Pergerakan (lat,lon per baris, min. 2 titik)</div>
+          <textarea id="simGpsRouteArea" rows="3" placeholder="-6.1754,106.8272&#10;-6.1952,106.8231&#10;-6.2088,106.8456"></textarea>
+          <div class="sim-row">
+            <input type="text" id="simGpsSpeed" placeholder="Kecepatan km/j (default 5)" style="flex:1" />
+          </div>
+          <div class="sim-row">
+            <button id="simStartRouteBtn" class="primary">Mulai Jalan</button>
+            <button id="simStopRouteBtn" class="danger">Berhenti</button>
+          </div>
+          <div class="sim-gps-status" id="simGpsStatus"></div>
+        </div>
+
+        <div class="sim-section">
+          <div class="sim-section-title">📷 Kamera Virtual</div>
+          <p class="sim-hint" style="margin-bottom:8px;">
+            Sumber kamera cuma bisa diganti dengan restart device. Gambar virtual scene bisa diganti langsung
+            tanpa restart, tapi hanya berlaku kalau sumber kameranya "Virtual Scene" (juga dipakai untuk
+            simulasi scan QR code — set gambar QR sebagai virtual scene).
+          </p>
+          <select id="simCameraSourceSelect">
+            <option value="emulated">Emulated (default)</option>
+            <option value="virtualscene">Virtual Scene (gambar/QR)</option>
+            <option value="none">None (nonaktif)</option>
+          </select>
+          <button id="simApplyCameraBtn" class="danger">Terapkan (Restart Device)</button>
+
+          <div class="sim-section-title" style="margin-top:10px;">Gambar Virtual Scene</div>
+          <select id="simSceneTarget">
+            <option value="wall">Target: Wall (kamera belakang)</option>
+            <option value="table">Target: Table (kamera depan)</option>
+          </select>
+          <div class="sim-row">
+            <button id="simPickImageBtn">Pilih Gambar...</button>
+            <button id="simResetImageBtn">Reset Default</button>
+          </div>
+          <div id="simPickedImagePath" class="sim-gps-status"></div>
+          <button id="simApplyImageBtn" class="primary">Set Gambar</button>
+        </div>
+
+        <div class="sim-section">
+          <div class="sim-section-title">🎭 Device Profile</div>
+          <p class="sim-hint" style="margin-bottom:8px;">
+            Ganti identitas device (Build.MANUFACTURER/MODEL) supaya app melihat HP asli, bukan emulator.
+            Butuh root — semua device baru sudah rootable otomatis (lihat badge 🔓 Root di kartu device).
+            Device lama dari sebelum update ini (badge 🔒 Standar) tidak bisa dipakai.
+            Proses ini restart device beberapa kali dan makan waktu ~1 menit.
+          </p>
+          <select id="simProfilePreset">
+            <option value="">-- Pilih preset --</option>
+          </select>
+          <div class="sim-row">
+            <input type="text" id="simProfileBrand" placeholder="Brand" />
+            <input type="text" id="simProfileManufacturer" placeholder="Manufacturer" />
+          </div>
+          <input type="text" id="simProfileModel" placeholder="Model (mis. SM-S911B)" />
+          <button id="simApplyProfileBtn" class="danger">Terapkan Device Profile</button>
+          <div class="sim-section-title" style="margin-top:10px;">Google Play Store</div>
+          <p class="sim-hint" style="margin-bottom:8px;">
+            Play Store sekarang dipasang otomatis saat device pertama kali Start. Tombol ini hanya untuk
+            pasang ulang manual kalau instalasi otomatis gagal — meminjam Play Store dari image versi
+            Android yang sama (unduh ~1.2GB sekali kalau belum ada), lalu memasangnya di sini.
+          </p>
+          <button id="simInstallPlayStoreBtn">Install Play Store</button>
+          <div class="sim-gps-status" id="simProfileStatus"></div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="simCloseBtn">Tutup</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="mapPickerModal">
+      <div class="modal-box map-picker-box">
+        <div class="map-picker-head">
+          <span>🗺️ Pilih Lokasi di Peta</span>
+          <button id="mapPickerCloseBtn" style="width:auto;margin-bottom:0;">✕</button>
+        </div>
+        <input type="text" id="mapPickerSearch" placeholder="Cari alamat/tempat (mis. Monas Jakarta)..." />
+        <div id="mapPickerResults"></div>
+        <div id="mapPickerMap" class="map-picker-map"></div>
+        <div class="map-picker-footer">
+          <span id="mapPickerCoords">Klik peta untuk memilih titik, atau cari alamat di atas</span>
+          <div class="map-picker-actions">
+            <button id="mapPickerCancelBtn">Batal</button>
+            <button id="mapPickerConfirmBtn" class="primary">Gunakan Lokasi Ini</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="assets/leaflet/leaflet.js"></script>
+    <script>
+      (function () {
+        const grid = document.getElementById('grid');
+        const emptyHint = document.getElementById('emptyHint');
+        const toastStack = document.getElementById('toastStack');
+
+        function showToast(text, { level = 'warn', deviceLabel = '' } = {}) {
+          const toast = document.createElement('div');
+          toast.className = 'toast';
+          toast.dataset.level = level;
+          if (deviceLabel) {
+            const dev = document.createElement('div');
+            dev.className = 'toast-device';
+            dev.textContent = deviceLabel;
+            toast.appendChild(dev);
+          }
+          const body = document.createElement('div');
+          body.textContent = text;
+          toast.appendChild(body);
+          toastStack.appendChild(toast);
+          setTimeout(() => toast.remove(), 6000);
+        }
+        const deviceDropdown = document.getElementById('deviceDropdown');
+        const pickDevicesBtn = document.getElementById('pickDevicesBtn');
+        const warnBanner = document.getElementById('warnBanner');
+
+        const webCodecsSupported = 'VideoDecoder' in window && 'EncodedVideoChunk' in window;
+        if (!webCodecsSupported) {
+          warnBanner.textContent =
+            '⚠️ WebCodecs (VideoDecoder) tidak tersedia di runtime ini — mirror video tidak bisa ditampilkan. ' +
+            'Kontrol serentak (tap/teks/nav) tetap bisa dipakai lewat koneksi yang berhasil tersambung.';
+          warnBanner.classList.add('show');
+        }
+
+        /** key (adbId, or 'uid:<uid>' while a not-yet-started device is booting) ->
+         *  { key, pendingKey, tile, canvas, ctx, decoder, width, height, connected,
+         *    description, codecString, gotKeyFrame } */
+        const sessions = new Map();
+        let knownDevices = [];
+        const pendingSelection = new Map(); // key -> device meta from listDevices()
+
+        // ---------------- Sync (fan-out) toggle + multi-select ----------------
+        // Off by default: input (tap/swipe/teks/nav) only targets the
+        // *selected* tile(s) — not blasted to every connected device.
+        // Selection can be one device (click) or several (Ctrl/Cmd+click on
+        // a tile header, or drag a rubber-band box over the grid). Turning
+        // Sync on ignores selection and restores the old
+        // always-fan-out-to-everyone behavior.
+        let syncEnabled = false;
+        const selectedSessions = new Set();
+
+        // With Sync on, every connected tile is a target — so every tile
+        // gets the green "selected" border. With Sync off, only whatever's
+        // in selectedSessions does.
+        function applySelectionHighlights() {
+          sessions.forEach((s) => {
+            s.tile?.classList.toggle('tile-focused', syncEnabled || selectedSessions.has(s));
+          });
+        }
+
+        function setSelection(list, { additive = false } = {}) {
+          if (!additive) selectedSessions.clear();
+          list.forEach((s) => selectedSessions.add(s));
+          applySelectionHighlights();
+        }
+
+        function toggleSelection(s) {
+          if (selectedSessions.has(s)) selectedSessions.delete(s);
+          else selectedSessions.add(s);
+          applySelectionHighlights();
+        }
+
+        function clearSelection() {
+          selectedSessions.clear();
+          applySelectionHighlights();
+        }
+
+        /** [adbId, session] pairs an action should go to right now, honoring the Sync toggle. */
+        function activeTargets() {
+          const out = [];
+          sessions.forEach((s, adbId) => {
+            if (!syncEnabled && !selectedSessions.has(s)) return;
+            out.push([adbId, s]);
+          });
+          return out;
+        }
+
+        /** Adb IDs to send a shared-toolbar action to, honoring the Sync toggle. */
+        function targetAdbIds() {
+          return activeTargets().map(([adbId]) => adbId);
+        }
+
+        document.getElementById('syncToggle').addEventListener('change', (e) => {
+          syncEnabled = e.target.checked;
+          applySelectionHighlights();
+          showToast(
+            syncEnabled
+              ? '🔗 Sync Bersamaan aktif — tap/teks/tombol direplikasi ke semua device tersambung.'
+              : '🔗 Sync Bersamaan nonaktif — hanya device yang dipilih (border hijau) yang jadi target.',
+            { level: 'info' }
+          );
+        });
+
+        // ---------------- Drag-select (rubber-band) ----------------
+        // Click-drag on empty grid background selects every tile the box
+        // touches — Shift/Ctrl/Cmd held down adds to the current selection
+        // instead of replacing it. A plain click (no drag) on empty
+        // background clears the selection.
+        let dragBox = null;
+
+        function positionDragBox(curX, curY) {
+          if (!dragBox) return null;
+          const x = Math.min(dragBox.startX, curX);
+          const y = Math.min(dragBox.startY, curY);
+          const w = Math.abs(curX - dragBox.startX);
+          const h = Math.abs(curY - dragBox.startY);
+          Object.assign(dragBox.el.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
+          return { x, y, w, h };
+        }
+
+        function tilesIntersecting(rect) {
+          const out = [];
+          sessions.forEach((s) => {
+            if (!s.tile) return;
+            const r = s.tile.getBoundingClientRect();
+            const hit = r.left < rect.x + rect.w && r.right > rect.x && r.top < rect.y + rect.h && r.bottom > rect.y;
+            if (hit) out.push(s);
+          });
+          return out;
+        }
+
+        grid.addEventListener('mousedown', (e) => {
+          if (e.target !== grid) return; // only start on empty grid background, not on a tile
+          const el = document.createElement('div');
+          el.className = 'selection-box';
+          document.body.appendChild(el);
+          dragBox = {
+            startX: e.clientX,
+            startY: e.clientY,
+            el,
+            additive: e.shiftKey || e.ctrlKey || e.metaKey,
+          };
+          positionDragBox(e.clientX, e.clientY);
+        });
+
+        document.addEventListener('mousemove', (e) => {
+          if (!dragBox) return;
+          positionDragBox(e.clientX, e.clientY);
+        });
+
+        document.addEventListener('mouseup', (e) => {
+          if (!dragBox) return;
+          const rect = positionDragBox(e.clientX, e.clientY);
+          const moved = rect.w > 4 || rect.h > 4;
+          if (moved) {
+            setSelection(tilesIntersecting(rect), { additive: dragBox.additive });
+          } else if (!dragBox.additive) {
+            clearSelection();
+          }
+          dragBox.el.remove();
+          dragBox = null;
+        });
+
+        // ---------------- Device picker ----------------
+        // listDevices() returns two kinds of entries: live ADB devices
+        // (`running: true`, has adbId — emulator already booted or a physical
+        // phone plugged in) and StarBox-registered Android devices that
+        // aren't booted yet (`running: false`, has uid instead). Picking one
+        // of the latter boots it on connect (see startAndConnectRegistered).
+
+        function deviceKey(d) {
+          return d.running ? d.adbId : `uid:${d.uid}`;
+        }
+
+        // A StarBox-registered device's session key starts as `uid:<uid>`
+        // then gets re-keyed to its real adbId once it finishes booting
+        // (see startAndConnectRegistered) — so `sessions.has(deviceKey(d))`
+        // goes stale the moment that happens (knownDevices from the last
+        // listDevices() call still says running:false / has no adbId yet).
+        // Look up by the session's stable `uid` field instead, which never
+        // changes across that re-key.
+        function findSessionByUid(uid) {
+          if (!uid) return null;
+          return Array.from(sessions.values()).find((s) => s.uid === uid) || null;
+        }
+
+        /** True if this device (from listDevices()) already has a live/connecting session, however it's currently keyed. */
+        function isDeviceActive(d) {
+          if (d.running && sessions.has(d.adbId)) return true;
+          if (d.uid && findSessionByUid(d.uid)) return true;
+          return false;
+        }
+
+        async function refreshDevices() {
+          const res = await window.androidSync.listDevices();
+          knownDevices = res?.devices || [];
+          renderDeviceDropdown();
+        }
+
+        function renderDeviceDropdown() {
+          deviceDropdown.innerHTML = '';
+          if (!knownDevices.length) {
+            deviceDropdown.innerHTML =
+              '<div class="device-row"><span class="meta">Tidak ada device ADB atau device Android terdaftar di StarBox.</span></div>';
+            return;
+          }
+          knownDevices.forEach((d) => {
+            const key = deviceKey(d);
+            // Already connected (or in the middle of connecting) in this
+            // grid — no point offering it as a pending selection again.
+            const active = isDeviceActive(d);
+            if (active) pendingSelection.delete(key);
+
+            const row = document.createElement('label');
+            row.className = active ? 'device-row device-row-active' : 'device-row';
+            if (d.videoUnsupported) {
+              row.classList.add('device-row-disabled');
+              row.title = d.videoUnsupportedReason || 'Tidak didukung StarSync';
+            }
+
+            if (active) {
+              const dot = document.createElement('span');
+              dot.className = 'active-dot';
+              dot.textContent = '●';
+              row.appendChild(dot);
+            } else {
+              const cb = document.createElement('input');
+              cb.type = 'checkbox';
+              cb.checked = pendingSelection.has(key);
+              cb.disabled = !!d.videoUnsupported;
+              cb.addEventListener('change', () => {
+                if (cb.checked) pendingSelection.set(key, d);
+                else pendingSelection.delete(key);
+              });
+              row.appendChild(cb);
+            }
+
+            const meta = document.createElement('span');
+            meta.className = 'meta';
+            const nameEl = document.createElement('div');
+            nameEl.className = 'meta-name';
+            nameEl.textContent = d.name || d.adbId || d.uid;
+            const subEl = document.createElement('div');
+            subEl.className = 'meta-sub';
+            const subParts = [];
+            if (d.androidVersionLabel) subParts.push(d.androidVersionLabel);
+            subParts.push(d.running ? d.adbId : 'belum jalan');
+            if (d.videoUnsupported) subParts.push('tidak didukung StarSync');
+            subEl.textContent = subParts.join(' • ');
+            meta.appendChild(nameEl);
+            meta.appendChild(subEl);
+            const badge = document.createElement('span');
+            badge.className = 'badge';
+            badge.textContent = active
+              ? 'sudah tersambung'
+              : d.videoUnsupported
+              ? 'tidak didukung'
+              : !d.running
+              ? 'belum jalan'
+              : d.adbId && d.adbId.startsWith('emulator-')
+              ? 'emulator'
+              : 'fisik';
+            row.appendChild(meta);
+            row.appendChild(badge);
+            deviceDropdown.appendChild(row);
+          });
+        }
+
+        pickDevicesBtn.addEventListener('click', () => {
+          // Recompute active/inactive state fresh every time the dropdown
+          // opens, since sessions change without a full listDevices() refresh.
+          renderDeviceDropdown();
+          deviceDropdown.classList.toggle('open');
+        });
+        document.addEventListener('click', (e) => {
+          if (!e.target.closest('#devicePicker')) deviceDropdown.classList.remove('open');
+        });
+
+        document.getElementById('refreshDevicesBtn').addEventListener('click', refreshDevices);
+
+        function deviceLabel(d) {
+          const name = d.name || d.adbId || d.uid;
+          return d.adbId && name !== d.adbId ? `${name} (${d.adbId})` : name;
+        }
+
+        document.getElementById('connectSelectedBtn').addEventListener('click', async () => {
+          deviceDropdown.classList.remove('open');
+          const targets = Array.from(pendingSelection.values());
+          for (const meta of targets) {
+            if (meta.videoUnsupported) {
+              showToast(meta.videoUnsupportedReason || 'Device ini tidak didukung StarSync.', { level: 'error', deviceLabel: meta.name });
+              continue;
+            }
+            // Re-check right before acting, not just at render time — the
+            // picker's checkbox list can go stale (e.g. a registered device
+            // finished booting and got re-keyed from uid: to its real adbId
+            // since the dropdown was last rendered). Without this, picking
+            // an already-connected device tears down its working session
+            // and reconnects from scratch, which sometimes surfaces as an
+            // error instead of just being a no-op.
+            if (isDeviceActive(meta)) continue;
+            if (meta.running) {
+              if (!sessions.has(meta.adbId)) connectDevice(meta.adbId, meta.uid, deviceLabel(meta));
+            } else {
+              startAndConnectRegistered(meta);
+            }
+          }
+          pendingSelection.clear();
+        });
+
+        document.getElementById('disconnectAllBtn').addEventListener('click', async () => {
+          if (!sessions.size) return;
+          const allSessions = Array.from(sessions.values());
+          const anyStoppable = allSessions.some((s) => s.uid);
+          const choice = await confirmDisconnect({
+            text: `Putuskan semua device (${allSessions.size})?`,
+            showStop: anyStoppable,
+          });
+          if (choice === 'cancel') return;
+
+          await window.androidSync.disconnectAll();
+          Array.from(sessions.keys()).forEach(removeTile);
+
+          if (choice === 'stop') {
+            const uids = Array.from(new Set(allSessions.filter((s) => s.uid).map((s) => s.uid)));
+            await Promise.all(uids.map((uid) => window.androidSync.stopDevice(uid).catch(() => {})));
+          }
+        });
+
+        // ---------------- Tile lifecycle ----------------
+
+        function createTile(label) {
+          emptyHint.style.display = 'none';
+          const tile = document.createElement('div');
+          tile.className = 'tile';
+          tile.innerHTML = `
+            <div class="tile-head">
+              <span class="name">${label}</span>
+              <span class="status" data-status="connecting">connecting...</span>
+            </div>
+            <div class="tile-body">
+              <canvas width="360" height="640"></canvas>
+              <div class="overlay-msg">Menyambungkan...</div>
+            </div>
+            <div class="tile-foot">
+              <button class="expand-btn" title="Perbesar tampilan device ini">⤢</button>
+              <button class="sim-btn" title="SIM Virtual: SMS / Panggilan / Jaringan / GPS">📶 SIM</button>
+              <button class="disconnect-btn">Putuskan</button>
+            </div>
+          `;
+          grid.appendChild(tile);
+
+          const canvas = tile.querySelector('canvas');
+          const ctx = canvas.getContext('2d');
+          attachPointerHandlers(canvas);
+
+          return { tile, canvas, ctx };
+        }
+
+        function bindDisconnectButton(session) {
+          // Reads session.key/uid at click time (not captured values) so
+          // this still targets the right device after
+          // startAndConnectRegistered() re-keys the session from a temp uid
+          // key to the real adbId.
+          session.tile.querySelector('.disconnect-btn').addEventListener('click', async () => {
+            const label = session.tile.querySelector('.name')?.textContent || session.key;
+            const choice = await confirmDisconnect({
+              text: `Putuskan "${label}"?`,
+              showStop: !!session.uid,
+            });
+            if (choice === 'cancel') return;
+            await disconnectDevice(session.key);
+            if (choice === 'stop' && session.uid) {
+              try {
+                await window.androidSync.stopDevice(session.uid);
+              } catch (_) {}
+            }
+          });
+        }
+
+        // Disconnecting from StarSync only tears down the video/control
+        // session — the emulator itself (and its "running" status on the
+        // main StarBox device list) keeps going, since other things may
+        // still depend on it. Ask which the user actually wants, defaulting
+        // to the safe "view only" option. The "stop emulator too" choice
+        // only appears when at least one target device's uid is known
+        // (StarBox-managed emulator) — there's nothing to stop for a
+        // physical phone. Shared by the per-tile and "Putuskan Semua" flows.
+        function confirmDisconnect({ text, showStop }) {
+          return new Promise((resolve) => {
+            const overlay = document.getElementById('disconnectModal');
+            const textEl = document.getElementById('disconnectModalText');
+            textEl.textContent = text;
+
+            const stopBtn = document.getElementById('dmStopToo');
+            stopBtn.style.display = showStop ? 'inline-block' : 'none';
+            overlay.classList.add('open');
+
+            const cancelBtn = document.getElementById('dmCancel');
+            const onlyBtn = document.getElementById('dmDisconnectOnly');
+
+            const cleanup = (result) => {
+              overlay.classList.remove('open');
+              cancelBtn.removeEventListener('click', onCancel);
+              onlyBtn.removeEventListener('click', onOnly);
+              stopBtn.removeEventListener('click', onStop);
+              resolve(result);
+            };
+            const onCancel = () => cleanup('cancel');
+            const onOnly = () => cleanup('disconnect');
+            const onStop = () => cleanup('stop');
+
+            cancelBtn.addEventListener('click', onCancel);
+            onlyBtn.addEventListener('click', onOnly);
+            stopBtn.addEventListener('click', onStop);
+          });
+        }
+
+        // ---------------- Virtual SIM (per-device panel) ----------------
+        // Local emulator telephony/GPS simulation via the emulator's own
+        // console protocol (android-manager.js EmulatorConsoleClient) — a
+        // completely different transport than the scrcpy control socket
+        // everything else in this file uses. Only ever targets ONE device
+        // at a time (the one whose 📶 SIM button was clicked), unlike the
+        // toolbar's text/nav which fan out to every connected tile — makes
+        // sense here since OTP codes, caller numbers, etc. are naturally
+        // per-device, not something you'd normally blast to every tile.
+
+        function bindSimButton(session) {
+          session.tile.querySelector('.sim-btn').addEventListener('click', () => {
+            if (!/^emulator-\d+$/.test(session.key)) {
+              showToast('SIM Virtual hanya untuk emulator — device ini belum siap atau bukan emulator StarBox.', {
+                level: 'warn',
+              });
+              return;
+            }
+            openSimModal(session);
+          });
+        }
+
+        function currentSimAdbId() {
+          return document.getElementById('simModal').dataset.targetAdbId || '';
+        }
+
+        function openSimModal(session) {
+          const overlay = document.getElementById('simModal');
+          const label = session.tile.querySelector('.name')?.textContent || session.key;
+          document.getElementById('simModalTitle').textContent = `SIM Virtual — ${label}`;
+          document.getElementById('simGpsStatus').textContent = '';
+          document.getElementById('simPickedImagePath').textContent = '';
+          pickedSceneImagePath = null;
+          overlay.dataset.targetAdbId = session.key;
+          overlay.classList.add('open');
+          document.getElementById('simProfileStatus').textContent = '';
+          populateCameraSourceSelect();
+          populateDeviceProfilePresets();
+        }
+
+        document.getElementById('simCloseBtn').addEventListener('click', () => {
+          document.getElementById('simModal').classList.remove('open');
+        });
+
+        document.getElementById('simSendSmsBtn').addEventListener('click', async () => {
+          const adbId = currentSimAdbId();
+          const from = document.getElementById('simSmsFrom').value.trim();
+          const text = document.getElementById('simSmsText').value.trim();
+          if (!from || !text) return;
+          const res = await window.androidSync.simSendSms(adbId, from, text);
+          showToast(res?.success ? 'SMS terkirim ke device.' : res?.error || 'Gagal kirim SMS', {
+            level: res?.success ? 'info' : 'error',
+            deviceLabel: adbId,
+          });
+        });
+
+        document.getElementById('simCallBtn').addEventListener('click', async () => {
+          const adbId = currentSimAdbId();
+          const number = document.getElementById('simCallNumber').value.trim();
+          if (!number) return;
+          const res = await window.androidSync.simCall(adbId, number);
+          if (!res?.success) showToast(res?.error || 'Gagal simulasi panggilan', { level: 'error', deviceLabel: adbId });
+        });
+
+        document.getElementById('simAcceptBtn').addEventListener('click', async () => {
+          const adbId = currentSimAdbId();
+          const number = document.getElementById('simCallNumber').value.trim();
+          if (!number) return;
+          const res = await window.androidSync.simAcceptCall(adbId, number);
+          if (!res?.success) showToast(res?.error || 'Gagal menerima panggilan', { level: 'error', deviceLabel: adbId });
+        });
+
+        document.getElementById('simCancelCallBtn').addEventListener('click', async () => {
+          const adbId = currentSimAdbId();
+          const number = document.getElementById('simCallNumber').value.trim();
+          if (!number) return;
+          const res = await window.androidSync.simCancelCall(adbId, number);
+          if (!res?.success) showToast(res?.error || 'Gagal membatalkan panggilan', { level: 'error', deviceLabel: adbId });
+        });
+
+        document.getElementById('simApplyNetworkBtn').addEventListener('click', async () => {
+          const adbId = currentSimAdbId();
+          const voice = document.getElementById('simVoiceState').value;
+          const data = document.getElementById('simDataState').value;
+          const signal = document.getElementById('simSignalProfile').value;
+          const res = await window.androidSync.simSetNetwork(adbId, { voice, data, signal });
+          showToast(res?.success ? 'Status jaringan diterapkan.' : res?.error || 'Gagal menerapkan status jaringan', {
+            level: res?.success ? 'info' : 'error',
+            deviceLabel: adbId,
+          });
+        });
+
+        document.getElementById('simSetGpsBtn').addEventListener('click', async () => {
+          const adbId = currentSimAdbId();
+          const lat = parseFloat(document.getElementById('simGpsLat').value);
+          const lon = parseFloat(document.getElementById('simGpsLon').value);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+            showToast('Latitude/longitude tidak valid.', { level: 'warn' });
+            return;
+          }
+          const res = await window.androidSync.simSetGps(adbId, lat, lon);
+          showToast(res?.success ? `Lokasi diset ke ${lat}, ${lon}.` : res?.error || 'Gagal set lokasi', {
+            level: res?.success ? 'info' : 'error',
+            deviceLabel: adbId,
+          });
+        });
+
+        // ---------------- Map picker (Leaflet, street/satellite/topo) ----------------
+        let mapPickerInstance = null;
+        let mapPickerMarker = null;
+        let mapPickerSearchDebounce = null;
+
+        function ensureMapPicker() {
+          if (mapPickerInstance) return mapPickerInstance;
+          const streets = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors',
+            maxZoom: 19,
+          });
+          const satellite = L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            { attribution: 'Tiles &copy; Esri', maxZoom: 19 }
+          );
+          const satelliteLabels = L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+            { attribution: 'Esri', maxZoom: 19 }
+          );
+          const topo = L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+            { attribution: 'Tiles &copy; Esri', maxZoom: 19 }
+          );
+
+          mapPickerInstance = L.map('mapPickerMap', {
+            center: [-6.2088, 106.8456],
+            zoom: 12,
+            layers: [streets],
+          });
+          L.control
+            .layers(
+              {
+                'Jalan (OSM)': streets,
+                'Satelit': satellite,
+                'Satelit + Label': L.layerGroup([satellite, satelliteLabels]),
+                'Topografi': topo,
+              },
+              {},
+              { position: 'topright' }
+            )
+            .addTo(mapPickerInstance);
+
+          // Plain circleMarker (not L.marker) on purpose — the default
+          // marker icon images aren't vendored locally, so a plain marker
+          // would 404 for its pin graphic.
+          mapPickerMarker = L.circleMarker([-6.2088, 106.8456], {
+            radius: 8,
+            color: '#3ddc84',
+            weight: 2,
+            fillColor: '#3ddc84',
+            fillOpacity: 0.5,
+          }).addTo(mapPickerInstance);
+
+          mapPickerInstance.on('click', (e) => setMapPickerPoint(e.latlng.lat, e.latlng.lng));
+          return mapPickerInstance;
+        }
+
+        function setMapPickerPoint(lat, lon) {
+          mapPickerMarker.setLatLng([lat, lon]);
+          mapPickerMarker._pickedLat = lat;
+          mapPickerMarker._pickedLon = lon;
+          document.getElementById('mapPickerCoords').textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+        }
+
+        function closeMapPicker() {
+          document.getElementById('mapPickerModal').classList.remove('open');
+        }
+
+        document.getElementById('mapPickerOpenBtn').addEventListener('click', () => {
+          const map = ensureMapPicker();
+          const curLat = parseFloat(document.getElementById('simGpsLat').value);
+          const curLon = parseFloat(document.getElementById('simGpsLon').value);
+          const startLat = Number.isFinite(curLat) ? curLat : -6.2088;
+          const startLon = Number.isFinite(curLon) ? curLon : 106.8456;
+          document.getElementById('mapPickerModal').classList.add('open');
+          // Leaflet can't measure a container that was hidden (display:none)
+          // when the map was created — invalidateSize() re-measures it now
+          // that the modal is actually visible.
+          setTimeout(() => {
+            map.invalidateSize();
+            map.setView([startLat, startLon], 15);
+            setMapPickerPoint(startLat, startLon);
+          }, 50);
+        });
+
+        document.getElementById('mapPickerCloseBtn').addEventListener('click', closeMapPicker);
+        document.getElementById('mapPickerCancelBtn').addEventListener('click', closeMapPicker);
+
+        document.getElementById('mapPickerConfirmBtn').addEventListener('click', () => {
+          const lat = mapPickerMarker?._pickedLat;
+          const lon = mapPickerMarker?._pickedLon;
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+          document.getElementById('simGpsLat').value = lat.toFixed(6);
+          document.getElementById('simGpsLon').value = lon.toFixed(6);
+          closeMapPicker();
+        });
+
+        // Address search via Nominatim (OpenStreetMap's free geocoder, no API key needed).
+        const mapPickerResults = document.getElementById('mapPickerResults');
+        document.getElementById('mapPickerSearch').addEventListener('input', (e) => {
+          const q = e.target.value.trim();
+          clearTimeout(mapPickerSearchDebounce);
+          if (q.length < 3) {
+            mapPickerResults.classList.remove('open');
+            mapPickerResults.innerHTML = '';
+            return;
+          }
+          mapPickerSearchDebounce = setTimeout(async () => {
+            try {
+              const res = await fetch(
+                `https://nominatim.openstreetmap.org/search?format=json&limit=6&q=${encodeURIComponent(q)}`
+              );
+              const results = await res.json();
+              mapPickerResults.innerHTML = '';
+              if (!results.length) {
+                mapPickerResults.classList.remove('open');
+                return;
+              }
+              results.forEach((r) => {
+                const row = document.createElement('div');
+                row.className = 'result-row';
+                row.textContent = r.display_name;
+                row.addEventListener('click', () => {
+                  const lat = parseFloat(r.lat);
+                  const lon = parseFloat(r.lon);
+                  ensureMapPicker().setView([lat, lon], 16);
+                  setMapPickerPoint(lat, lon);
+                  mapPickerResults.classList.remove('open');
+                  document.getElementById('mapPickerSearch').value = r.display_name;
+                });
+                mapPickerResults.appendChild(row);
+              });
+              mapPickerResults.classList.add('open');
+            } catch (err) {
+              console.warn('Geocoding error:', err.message);
+            }
+          }, 500);
+        });
+
+        function parseGpsRouteText(raw) {
+          return raw
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => {
+              const [latStr, lonStr] = line.split(',').map((s) => s.trim());
+              return { lat: parseFloat(latStr), lon: parseFloat(lonStr) };
+            })
+            .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+        }
+
+        document.getElementById('simStartRouteBtn').addEventListener('click', async () => {
+          const adbId = currentSimAdbId();
+          const waypoints = parseGpsRouteText(document.getElementById('simGpsRouteArea').value);
+          const statusEl = document.getElementById('simGpsStatus');
+          if (waypoints.length < 2) {
+            showToast('Butuh minimal 2 titik (lat,lon per baris) untuk simulasi pergerakan.', { level: 'warn' });
+            return;
+          }
+          const speedKmh = parseFloat(document.getElementById('simGpsSpeed').value) || 5;
+          statusEl.textContent = 'Memulai simulasi pergerakan...';
+          const res = await window.androidSync.simStartGpsRoute(adbId, waypoints, { speedKmh });
+          if (!res?.success) {
+            showToast(res?.error || 'Gagal memulai simulasi pergerakan', { level: 'error', deviceLabel: adbId });
+            statusEl.textContent = '';
+          }
+        });
+
+        document.getElementById('simStopRouteBtn').addEventListener('click', async () => {
+          const adbId = currentSimAdbId();
+          await window.androidSync.simStopGpsRoute(adbId);
+          document.getElementById('simGpsStatus').textContent = 'Simulasi pergerakan dihentikan.';
+        });
+
+        window.androidSync.onGpsUpdate(({ adbId, lat, lon, done }) => {
+          if (adbId !== currentSimAdbId()) return;
+          const statusEl = document.getElementById('simGpsStatus');
+          if (!document.getElementById('simModal').classList.contains('open')) return;
+          statusEl.textContent = done
+            ? 'Simulasi pergerakan selesai.'
+            : `Posisi sekarang: ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+        });
+
+        document.getElementById('simSetPhoneBtn').addEventListener('click', async () => {
+          const adbId = currentSimAdbId();
+          const number = document.getElementById('simPhoneNumber').value.trim();
+          if (!number) return;
+          const res = await window.androidSync.simSetPhoneNumber(adbId, number);
+          showToast(res?.success ? 'Nomor telepon device diset.' : res?.error || 'Gagal set nomor telepon', {
+            level: res?.success ? 'info' : 'error',
+            deviceLabel: adbId,
+          });
+        });
+
+        // ---------------- Virtual camera ----------------
+
+        let webcamsCache = null;
+        async function populateCameraSourceSelect() {
+          const select = document.getElementById('simCameraSourceSelect');
+          if (webcamsCache === null) {
+            const res = await window.androidSync.listWebcams();
+            webcamsCache = res?.webcams || [];
+          }
+          // Preserve the fixed options already in the markup; only (re)append
+          // detected host webcams, and only once.
+          Array.from(select.querySelectorAll('option[data-webcam]')).forEach((o) => o.remove());
+          webcamsCache.forEach((name) => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.dataset.webcam = '1';
+            opt.textContent = `Webcam PC: ${name}`;
+            select.appendChild(opt);
+          });
+        }
+
+        document.getElementById('simApplyCameraBtn').addEventListener('click', async () => {
+          const adbId = currentSimAdbId();
+          const session = sessions.get(adbId);
+          if (!session?.uid) {
+            showToast('Ganti sumber kamera perlu restart device, tapi uid device ini tidak diketahui.', {
+              level: 'warn',
+            });
+            return;
+          }
+          const mode = document.getElementById('simCameraSourceSelect').value;
+          const label = session.tile.querySelector('.name')?.textContent || session.uid;
+          const uid = session.uid;
+
+          document.getElementById('simModal').classList.remove('open');
+          showToast(`Merestart "${label}" dengan sumber kamera baru...`, { level: 'warn', deviceLabel: adbId });
+
+          await window.androidSync.stopDevice(uid);
+          await disconnectDevice(adbId);
+          await startAndConnectRegistered(
+            { uid, name: label },
+            { cameraBack: mode, cameraFront: mode }
+          );
+        });
+
+        let pickedSceneImagePath = null;
+        document.getElementById('simPickImageBtn').addEventListener('click', async () => {
+          const res = await window.androidSync.pickCameraImage();
+          if (!res?.success) return;
+          pickedSceneImagePath = res.path;
+          document.getElementById('simPickedImagePath').textContent = res.path;
+        });
+
+        document.getElementById('simResetImageBtn').addEventListener('click', () => {
+          pickedSceneImagePath = null;
+          document.getElementById('simPickedImagePath').textContent = '(akan direset ke gambar default)';
+        });
+
+        document.getElementById('simApplyImageBtn').addEventListener('click', async () => {
+          const adbId = currentSimAdbId();
+          const target = document.getElementById('simSceneTarget').value;
+          const res = await window.androidSync.setSceneImage(adbId, target, pickedSceneImagePath);
+          showToast(
+            res?.success
+              ? 'Gambar virtual scene diterapkan.'
+              : res?.error || 'Gagal set gambar (pastikan sumber kamera device ini "Virtual Scene").',
+            { level: res?.success ? 'info' : 'error', deviceLabel: adbId }
+          );
+        });
+
+        // ---------------- Device Profile ----------------
+
+        let deviceProfilePresetsCache = null;
+        async function populateDeviceProfilePresets() {
+          const select = document.getElementById('simProfilePreset');
+          if (deviceProfilePresetsCache === null) {
+            const res = await window.androidSync.listDeviceProfilePresets();
+            deviceProfilePresetsCache = res?.presets || [];
+          }
+          select.innerHTML = '<option value="">-- Pilih preset --</option>';
+          deviceProfilePresetsCache.forEach((p) => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.label;
+            select.appendChild(opt);
+          });
+        }
+
+        document.getElementById('simProfilePreset').addEventListener('change', (e) => {
+          const preset = deviceProfilePresetsCache?.find((p) => p.id === e.target.value);
+          if (!preset) return;
+          document.getElementById('simProfileBrand').value = preset.brand;
+          document.getElementById('simProfileManufacturer').value = preset.manufacturer;
+          document.getElementById('simProfileModel').value = preset.model;
+        });
+
+        window.androidSync.onDeviceProfileProgress(({ adbId, message }) => {
+          if (adbId !== currentSimAdbId()) return;
+          if (!document.getElementById('simModal').classList.contains('open')) return;
+          document.getElementById('simProfileStatus').textContent = message;
+        });
+
+        document.getElementById('simApplyProfileBtn').addEventListener('click', async () => {
+          const adbId = currentSimAdbId();
+          const brand = document.getElementById('simProfileBrand').value.trim();
+          const manufacturer = document.getElementById('simProfileManufacturer').value.trim();
+          const model = document.getElementById('simProfileModel').value.trim();
+          if (!brand || !manufacturer || !model) {
+            showToast('Isi Brand, Manufacturer, dan Model dulu (atau pilih preset).', { level: 'warn' });
+            return;
+          }
+          const statusEl = document.getElementById('simProfileStatus');
+          statusEl.textContent = 'Memulai...';
+          const res = await window.androidSync.applyDeviceProfile(adbId, { brand, manufacturer, model });
+          if (res?.success) {
+            statusEl.textContent = `Selesai — device sekarang "${res.manufacturer} ${res.model}".`;
+            showToast('Device profile diterapkan.', { level: 'info', deviceLabel: adbId });
+          } else {
+            statusEl.textContent = '';
+            showToast(res?.error || 'Gagal menerapkan device profile', { level: 'error', deviceLabel: adbId });
+          }
+        });
+
+        document.getElementById('simInstallPlayStoreBtn').addEventListener('click', async () => {
+          const adbId = currentSimAdbId();
+          const statusEl = document.getElementById('simProfileStatus');
+          statusEl.textContent = 'Memulai (bisa makan waktu beberapa menit kalau perlu unduh image tambahan)...';
+          const res = await window.androidSync.installPlayStore(adbId);
+          if (res?.success) {
+            statusEl.textContent = res.alreadyInstalled
+              ? 'Play Store sudah terpasang sebelumnya.'
+              : 'Play Store berhasil dipasang.';
+            showToast(statusEl.textContent, { level: 'info', deviceLabel: adbId });
+          } else {
+            statusEl.textContent = '';
+            showToast(res?.error || 'Gagal memasang Play Store', { level: 'error', deviceLabel: adbId });
+          }
+        });
+
+        // ---------------- Expand (pop-out) one tile bigger ----------------
+        // Reparents the tile's actual DOM node (canvas + its already-bound
+        // WebCodecs decoder/pointer handlers, not a clone) into a floating,
+        // draggable/resizable window — NOT a modal: no backdrop, the grid
+        // stays fully visible/usable around it, like a real emulator window
+        // sitting on top. Other devices keep syncing normally in the
+        // background regardless of where this one's DOM node currently is.
+        let expandedSession = null;
+        const floatWindow = document.getElementById('floatWindow');
+        const floatWindowHead = document.getElementById('floatWindowHead');
+        const floatWindowSlot = document.getElementById('floatWindowSlot');
+        const floatWindowTitle = document.getElementById('floatWindowTitle');
+
+        function expandTile(session) {
+          if (expandedSession === session) return;
+          if (expandedSession) collapseExpanded();
+          expandedSession = session;
+          floatWindowTitle.textContent = session.tile.querySelector('.name')?.textContent || '';
+          floatWindowSlot.appendChild(session.tile);
+          floatWindow.classList.add('open');
+        }
+
+        function collapseExpanded() {
+          if (!expandedSession) return;
+          const session = expandedSession;
+          expandedSession = null;
+          floatWindow.classList.remove('open');
+          if (session.tile && session.tile.isConnected) {
+            grid.appendChild(session.tile);
+          }
+        }
+
+        document.getElementById('floatWindowCloseBtn').addEventListener('click', collapseExpanded);
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && expandedSession) collapseExpanded();
+        });
+
+        function bindExpandButton(session) {
+          session.tile.querySelector('.expand-btn')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            expandTile(session);
+          });
+        }
+
+        // Drag the floating window by its header — position is fixed
+        // (top/left in viewport px), so dragging just tracks pointer delta.
+        (function enableFloatWindowDrag() {
+          let dragging = false;
+          let startX = 0;
+          let startY = 0;
+          let startLeft = 0;
+          let startTop = 0;
+          floatWindowHead.addEventListener('mousedown', (e) => {
+            if (e.target.closest('button')) return; // don't drag when clicking the close button
+            dragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            const rect = floatWindow.getBoundingClientRect();
+            startLeft = rect.left;
+            startTop = rect.top;
+            e.preventDefault();
+          });
+          document.addEventListener('mousemove', (e) => {
+            if (!dragging) return;
+            const maxLeft = window.innerWidth - 60;
+            const maxTop = window.innerHeight - 40;
+            const left = Math.min(Math.max(0, startLeft + (e.clientX - startX)), maxLeft);
+            const top = Math.min(Math.max(0, startTop + (e.clientY - startY)), maxTop);
+            floatWindow.style.left = left + 'px';
+            floatWindow.style.top = top + 'px';
+          });
+          document.addEventListener('mouseup', () => {
+            dragging = false;
+          });
+        })();
+
+        function removeTile(key) {
+          const s = sessions.get(key);
+          if (!s) return;
+          if (expandedSession === s) collapseExpanded();
+          try {
+            s.decoder && s.decoder.state !== 'closed' && s.decoder.close();
+          } catch (_) {}
+          s.tile.remove();
+          sessions.delete(key);
+          if (!sessions.size) emptyHint.style.display = 'block';
+          if (currentSimAdbId() === key) {
+            document.getElementById('simModal').classList.remove('open');
+          }
+          selectedSessions.delete(s);
+          if (!selectedSessions.size && sessions.size) {
+            // Move selection to whatever's left so toolbar buttons don't go dead.
+            selectedSessions.add(sessions.values().next().value);
+          }
+          applySelectionHighlights();
+        }
+
+        // Lets the user pick which device(s) the shared toolbar targets
+        // (when Sync is off) without necessarily tapping the phone screen
+        // itself. Plain click selects just this one; Ctrl/Cmd+click adds it
+        // to (or removes it from) a multi-selection.
+        function bindTileFocus(session) {
+          session.tile.querySelector('.tile-head')?.addEventListener('click', (e) => {
+            if (e.ctrlKey || e.metaKey) toggleSelection(session);
+            else setSelection([session]);
+          });
+        }
+
+        function newSessionShell(key, tile, canvas, ctx, uid = null) {
+          return {
+            key,
+            pendingKey: key,
+            uid,
+            tile,
+            canvas,
+            ctx,
+            decoder: null,
+            width: 0,
+            height: 0,
+            connected: false,
+            description: null,
+            codecString: null,
+            gotKeyFrame: false,
+          };
+        }
+
+        async function connectDevice(adbId, uid = null, label = null) {
+          if (sessions.has(adbId)) return;
+          const { tile, canvas, ctx } = createTile(label || adbId);
+          const session = newSessionShell(adbId, tile, canvas, ctx, uid);
+          sessions.set(adbId, session);
+          if (!selectedSessions.size) selectedSessions.add(session);
+          applySelectionHighlights();
+          bindDisconnectButton(session);
+          bindSimButton(session);
+          bindTileFocus(session);
+          bindExpandButton(session);
+
+          const res = await window.androidSync.connect(adbId, { video: webCodecsSupported });
+          if (!res?.success) {
+            setTileStatus(adbId, 'error', res?.error || 'Gagal konek');
+          }
+        }
+
+        // For a StarBox-registered device that isn't running yet: boot it
+        // first (same "android-start" flow the Android page's own Start
+        // button uses), then connect StarSync once it has a real adbId.
+        async function startAndConnectRegistered(meta, startOptions = {}) {
+          // Backstop: findSessionByUid catches it even after the session's
+          // key has already been promoted from uid:<uid> to a real adbId,
+          // which the plain tempKey check below can't see.
+          if (findSessionByUid(meta.uid)) return;
+          const tempKey = `uid:${meta.uid}`;
+          if (sessions.has(tempKey)) return;
+          const label = meta.name || meta.avdName || meta.uid;
+          const { tile, canvas, ctx } = createTile(label);
+          const session = newSessionShell(tempKey, tile, canvas, ctx, meta.uid);
+          sessions.set(tempKey, session);
+          if (!selectedSessions.size) selectedSessions.add(session);
+          applySelectionHighlights();
+          bindDisconnectButton(session);
+          bindSimButton(session);
+          bindTileFocus(session);
+          bindExpandButton(session);
+          setTileStatus(tempKey, 'connecting', 'Menyalakan emulator...');
+
+          let res;
+          try {
+            res = await window.androidSync.startDevice(meta.uid, startOptions);
+          } catch (err) {
+            setTileStatus(session.key, 'error', err?.message || 'Gagal menyalakan emulator');
+            return;
+          }
+          if (!res?.success || !res?.adbId) {
+            setTileStatus(session.key, 'error', res?.error || res?.message || 'Gagal menyalakan emulator');
+            return;
+          }
+
+          sessions.delete(tempKey);
+          session.key = res.adbId;
+          sessions.set(res.adbId, session);
+          // Keep the nice "name — version" label; just append the adbId
+          // it was actually assigned now that it's known, instead of
+          // replacing the label with the bare adbId.
+          session.tile.querySelector('.name').textContent = `${label} (${res.adbId})`;
+          setTileStatus(res.adbId, 'connecting', 'Menyambungkan video...');
+
+          const connectRes = await window.androidSync.connect(res.adbId, { video: webCodecsSupported });
+          if (!connectRes?.success) {
+            setTileStatus(res.adbId, 'error', connectRes?.error || 'Gagal konek');
+          }
+        }
+
+        async function disconnectDevice(key) {
+          const s = sessions.get(key);
+          const pendingKey = s?.pendingKey || key;
+          if (!key.startsWith('uid:')) {
+            await window.androidSync.disconnect(key);
+          }
+          removeTile(key);
+          pendingSelection.delete(pendingKey);
+        }
+
+        function setTileStatus(adbId, status, detail) {
+          const s = sessions.get(adbId);
+          if (!s) return;
+          const el = s.tile.querySelector('.status');
+          el.dataset.status = status;
+          el.textContent = detail ? `${status}: ${detail}` : status;
+          const overlay = s.tile.querySelector('.overlay-msg');
+          if (status === 'streaming') {
+            overlay.style.display = 'none';
+            s.connected = true;
+          } else if (status === 'error' || status === 'closed') {
+            overlay.style.display = 'flex';
+            overlay.textContent = detail || status;
+            s.connected = false;
+          }
+        }
+
+        // ---------------- IPC event wiring ----------------
+
+        window.androidSync.onStatus(({ adbId, status, detail }) => {
+          setTileStatus(adbId, status, detail);
+        });
+
+        window.androidSync.onLog(({ adbId, level, text }) => {
+          // scrcpy-server has no ack for one-shot actions like "buka app" —
+          // this is the only way a bad package name etc. becomes visible
+          // instead of failing completely silently.
+          const cleaned = text.replace(/^\[server\]\s*/i, '').replace(/^(WARN|ERROR):\s*/i, '');
+          const s = sessions.get(adbId);
+          showToast(cleaned, { level, deviceLabel: s?.tile.querySelector('.name')?.textContent || adbId });
+        });
+
+        window.androidSync.onConfig(({ adbId, width, height }) => {
+          const s = sessions.get(adbId);
+          if (!s) return;
+          s.width = width;
+          s.height = height;
+          s.canvas.width = width;
+          s.canvas.height = height;
+        });
+
+        window.androidSync.onFrame(({ adbId, chunk, config, keyFrame }) => {
+          const s = sessions.get(adbId);
+          if (!s || !webCodecsSupported) return;
+          const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+          if (config) {
+            configureDecoder(s, bytes);
+            return;
+          }
+          if (!s.decoder || s.decoder.state !== 'configured') return;
+          if (!s.gotKeyFrame && !keyFrame) return; // can't decode deltas before the first keyframe
+          if (keyFrame) s.gotKeyFrame = true;
+          try {
+            const avcc = annexBFrameToAvcc(bytes);
+            const encodedChunk = new EncodedVideoChunk({
+              type: keyFrame ? 'key' : 'delta',
+              timestamp: performance.now() * 1000,
+              data: avcc,
+            });
+            s.decoder.decode(encodedChunk);
+          } catch (err) {
+            console.warn(`[${adbId}] decode error:`, err.message);
+          }
+        });
+
+        // ---------------- H264 Annex-B -> WebCodecs (avc/AVCC) ----------------
+        // Verified against real scrcpy-server v4.1 output before being ported
+        // here (see conversation notes) — SPS/PPS from the CONFIG packet build
+        // the avcC `description` + `avc1.PPCCLL` codec string; every
+        // subsequent frame's Annex-B start codes are replaced with 4-byte
+        // big-endian length prefixes as WebCodecs' 'avc' format requires.
+
+        function splitAnnexBNals(bytes) {
+          const nals = [];
+          const starts = [];
+          let i = 0;
+          while (i < bytes.length - 2) {
+            if (bytes[i] === 0 && bytes[i + 1] === 0 && bytes[i + 2] === 1) {
+              starts.push({ pos: i, len: 3 });
+              i += 3;
+            } else if (i < bytes.length - 3 && bytes[i] === 0 && bytes[i + 1] === 0 && bytes[i + 2] === 0 && bytes[i + 3] === 1) {
+              starts.push({ pos: i, len: 4 });
+              i += 4;
+            } else {
+              i += 1;
+            }
+          }
+          for (let s = 0; s < starts.length; s++) {
+            const nalStart = starts[s].pos + starts[s].len;
+            const nalEnd = s + 1 < starts.length ? starts[s + 1].pos : bytes.length;
+            nals.push(bytes.subarray(nalStart, nalEnd));
+          }
+          return nals;
+        }
+
+        function annexBFrameToAvcc(bytes) {
+          const nals = splitAnnexBNals(bytes);
+          let total = 0;
+          nals.forEach((n) => (total += 4 + n.length));
+          const out = new Uint8Array(total);
+          const view = new DataView(out.buffer);
+          let offset = 0;
+          nals.forEach((n) => {
+            view.setUint32(offset, n.length, false);
+            offset += 4;
+            out.set(n, offset);
+            offset += n.length;
+          });
+          return out;
+        }
+
+        function buildAvcDescription(spsList, ppsList) {
+          const sps = spsList[0];
+          const profileIdc = sps[1];
+          const profileCompat = sps[2];
+          const levelIdc = sps[3];
+          const parts = [new Uint8Array([1, profileIdc, profileCompat, levelIdc, 0xff, 0xe0 | spsList.length])];
+          spsList.forEach((s) => {
+            const lenBuf = new Uint8Array(2);
+            new DataView(lenBuf.buffer).setUint16(0, s.length, false);
+            parts.push(lenBuf, s);
+          });
+          parts.push(new Uint8Array([ppsList.length]));
+          ppsList.forEach((p) => {
+            const lenBuf = new Uint8Array(2);
+            new DataView(lenBuf.buffer).setUint16(0, p.length, false);
+            parts.push(lenBuf, p);
+          });
+          let total = 0;
+          parts.forEach((p) => (total += p.length));
+          const description = new Uint8Array(total);
+          let offset = 0;
+          parts.forEach((p) => {
+            description.set(p, offset);
+            offset += p.length;
+          });
+          const hex = (n) => n.toString(16).padStart(2, '0');
+          const codecString = `avc1.${hex(profileIdc)}${hex(profileCompat)}${hex(levelIdc)}`;
+          return { description, codecString };
+        }
+
+        function configureDecoder(session, configBytes) {
+          const nals = splitAnnexBNals(configBytes);
+          const sps = nals.filter((n) => (n[0] & 0x1f) === 7);
+          const pps = nals.filter((n) => (n[0] & 0x1f) === 8);
+          if (!sps.length || !pps.length) return;
+          const { description, codecString } = buildAvcDescription(sps, pps);
+          try {
+            session.decoder && session.decoder.state !== 'closed' && session.decoder.close();
+          } catch (_) {}
+          session.gotKeyFrame = false;
+          session.decoder = new VideoDecoder({
+            output: (frame) => {
+              try {
+                session.ctx.drawImage(frame, 0, 0, session.canvas.width, session.canvas.height);
+              } finally {
+                frame.close();
+              }
+            },
+            error: (err) => console.warn('VideoDecoder error:', err.message),
+          });
+          session.decoder.configure({ codec: codecString, description, optimizeForLatency: true });
+          session.description = description;
+          session.codecString = codecString;
+        }
+
+        // ---------------- Input fan-out ----------------
+
+        function attachPointerHandlers(canvas) {
+          let dragging = false;
+          const fracFromEvent = (evt) => {
+            const rect = canvas.getBoundingClientRect();
+            return {
+              fx: Math.min(1, Math.max(0, (evt.clientX - rect.left) / rect.width)),
+              fy: Math.min(1, Math.max(0, (evt.clientY - rect.top) / rect.height)),
+            };
+          };
+          const fanOutTouch = (action, fx, fy) => {
+            // Sync off: goes to whatever's currently selected — which the
+            // pointerdown handler below guarantees includes this canvas's
+            // own device, so tapping a lone (unselected) tile still works.
+            activeTargets().forEach(([adbId, s]) => {
+              if (!s.connected && !s.width) return;
+              const w = s.width || s.canvas.width;
+              const h = s.height || s.canvas.height;
+              window.androidSync.touch(adbId, {
+                action,
+                x: Math.round(fx * w),
+                y: Math.round(fy * h),
+                screenWidth: w,
+                screenHeight: h,
+              });
+            });
+          };
+          canvas.addEventListener('pointerdown', (evt) => {
+            dragging = true;
+            canvas.setPointerCapture(evt.pointerId);
+            const s = Array.from(sessions.values()).find((ss) => ss.canvas === canvas);
+            // Tapping a tile that's outside the current multi-selection
+            // replaces the selection with just it; tapping one that's
+            // already part of a multi-selection keeps the group intact and
+            // fans the touch out to all of them.
+            if (s && !selectedSessions.has(s)) setSelection([s]);
+            const { fx, fy } = fracFromEvent(evt);
+            fanOutTouch('down', fx, fy);
+          });
+          canvas.addEventListener('pointermove', (evt) => {
+            if (!dragging) return;
+            const { fx, fy } = fracFromEvent(evt);
+            fanOutTouch('move', fx, fy);
+          });
+          const endDrag = (evt) => {
+            if (!dragging) return;
+            dragging = false;
+            const { fx, fy } = fracFromEvent(evt);
+            fanOutTouch('up', fx, fy);
+          };
+          canvas.addEventListener('pointerup', endDrag);
+          canvas.addEventListener('pointercancel', endDrag);
+        }
+
+        // ---------------- Shared toolbar actions ----------------
+
+        function withTargets(fn) {
+          const ids = targetAdbIds();
+          if (!ids.length) {
+            showToast(
+              sessions.size
+                ? 'Tap/klik salah satu tile dulu buat pilih target, atau aktifkan 🔗 Sync Bersamaan.'
+                : 'Belum ada device tersambung.',
+              { level: 'warn' }
+            );
+            return;
+          }
+          ids.forEach(fn);
+        }
+
+        document.getElementById('sendTextBtn').addEventListener('click', () => {
+          const text = document.getElementById('textInput').value;
+          if (!text) return;
+          withTargets((adbId) => window.androidSync.text(adbId, text));
+        });
+
+        function sendNav(keycode) {
+          withTargets((adbId) => window.androidSync.nav(adbId, keycode));
+        }
+        document.getElementById('navHomeBtn').addEventListener('click', () => sendNav(3));
+        document.getElementById('navBackBtn').addEventListener('click', () => sendNav(4));
+        document.getElementById('navRecentBtn').addEventListener('click', () => sendNav(187));
+        // KEYCODE_VOLUME_UP=24, KEYCODE_VOLUME_DOWN=25, KEYCODE_POWER=26 —
+        // same control-socket keycode path as Home/Back/Recent above.
+        document.getElementById('volUpBtn').addEventListener('click', () => sendNav(24));
+        document.getElementById('volDownBtn').addEventListener('click', () => sendNav(25));
+        document.getElementById('powerBtn').addEventListener('click', () => sendNav(26));
+        document.getElementById('rotateBtn').addEventListener('click', () => {
+          withTargets((adbId) => window.androidSync.rotate(adbId));
+        });
+
+        document.getElementById('rebootBtn').addEventListener('click', () => {
+          const ids = targetAdbIds();
+          if (!ids.length) {
+            showToast(
+              sessions.size
+                ? 'Tap/klik salah satu tile dulu buat pilih target, atau aktifkan 🔗 Sync Bersamaan.'
+                : 'Belum ada device tersambung.',
+              { level: 'warn' }
+            );
+            return;
+          }
+          if (!window.confirm(`Reboot ${ids.length} device? Video/kontrol akan terputus sementara, lalu otomatis tersambung lagi begitu device selesai boot ulang.`)) return;
+          ids.forEach((adbId) => rebootAndReconnect(adbId));
+          showToast(`Reboot dikirim ke ${ids.length} device — akan otomatis tersambung lagi setelah selesai boot.`, { level: 'info' });
+        });
+
+        async function rebootAndReconnect(adbId) {
+          setTileStatus(adbId, 'connecting', 'Reboot dikirim...');
+          const res = await window.androidSync.reboot(adbId);
+          if (!res?.success) {
+            setTileStatus(adbId, 'error', res?.error || 'Gagal reboot device.');
+            showToast(res?.error || 'Gagal reboot device.', { level: 'error', deviceLabel: adbId });
+            return;
+          }
+          setTileStatus(adbId, 'connecting', 'Menunggu device selesai boot ulang...');
+          const wait = await window.androidSync.waitBoot(adbId);
+          if (!sessions.has(adbId)) return; // tile was disconnected/removed while waiting
+          if (!wait?.success) {
+            setTileStatus(adbId, 'error', wait?.error || 'Timeout menunggu boot ulang.');
+            return;
+          }
+          setTileStatus(adbId, 'connecting', 'Boot ulang selesai, menyambungkan lagi...');
+          const connectRes = await window.androidSync.connect(adbId, { video: webCodecsSupported });
+          if (!sessions.has(adbId)) return;
+          if (!connectRes?.success) {
+            setTileStatus(adbId, 'error', connectRes?.error || 'Gagal konek ulang setelah reboot.');
+          }
+        }
+
+        document.getElementById('launchAppBtn').addEventListener('click', () => {
+          const pkg = document.getElementById('pkgInput').value.trim();
+          if (!pkg) return;
+          withTargets((adbId) => window.androidSync.launchApp(adbId, pkg));
+        });
+
+        // ---------------- Live keyboard sync ----------------
+        // Typing anywhere in the window (as long as focus isn't inside one
+        // of StarSync's own inputs/textareas) goes straight to whichever
+        // device(s) targetAdbIds() resolves to — same Sync-toggle/focused-tile
+        // rule as the toolbar buttons. Lets you type directly into whatever
+        // text field is focused on the device screen, without the separate
+        // "Kirim Teks" box.
+        const KEY_TO_ANDROID_KEYCODE = {
+          Backspace: 67,
+          Enter: 66,
+          Tab: 61,
+          Escape: 111,
+          ArrowLeft: 21,
+          ArrowRight: 22,
+          ArrowUp: 19,
+          ArrowDown: 20,
+          Delete: 112,
+        };
+
+        function isTypingIntoOwnUi() {
+          const el = document.activeElement;
+          if (!el) return false;
+          const tag = el.tagName;
+          return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+        }
+
+        document.addEventListener('keydown', (evt) => {
+          if (!sessions.size || isTypingIntoOwnUi()) return;
+          const ids = targetAdbIds();
+          if (!ids.length) return;
+
+          const specialCode = KEY_TO_ANDROID_KEYCODE[evt.key];
+          if (specialCode) {
+            evt.preventDefault();
+            ids.forEach((adbId) => window.androidSync.nav(adbId, specialCode));
+            return;
+          }
+          // Printable single character (letters, digits, symbols, space) —
+          // skip Ctrl/Alt/Meta combos so browser/OS shortcuts still work.
+          if (evt.key.length === 1 && !evt.ctrlKey && !evt.altKey && !evt.metaKey) {
+            evt.preventDefault();
+            ids.forEach((adbId) => window.androidSync.text(adbId, evt.key));
+          }
+        });
+
+        // ---------------- App preset picker ----------------
+        // Common apps to pick from out of the box, plus whatever the user
+        // adds — saved in localStorage so the list survives window reloads.
+
+        const DEFAULT_APPS = [
+          { label: 'WhatsApp', pkg: 'com.whatsapp' },
+          { label: 'Telegram', pkg: 'org.telegram.messenger' },
+          { label: 'Instagram', pkg: 'com.instagram.android' },
+          { label: 'TikTok', pkg: 'com.zhiliaoapp.musically' },
+          { label: 'Facebook', pkg: 'com.facebook.katana' },
+          { label: 'Chrome', pkg: 'com.android.chrome' },
+          { label: 'Play Store', pkg: 'com.android.vending' },
+          { label: 'Gmail', pkg: 'com.google.android.gm' },
+          { label: 'YouTube', pkg: 'com.google.android.youtube' },
+          { label: 'Tokopedia', pkg: 'com.tokopedia.tkpd' },
+          { label: 'Shopee', pkg: 'com.shopee.id' },
+          { label: 'Settings', pkg: 'com.android.settings' },
+        ];
+        const CUSTOM_APPS_KEY = 'starsync-custom-apps';
+
+        function loadCustomApps() {
+          try {
+            const raw = localStorage.getItem(CUSTOM_APPS_KEY);
+            const parsed = raw ? JSON.parse(raw) : [];
+            return Array.isArray(parsed) ? parsed : [];
+          } catch (_) {
+            return [];
+          }
+        }
+
+        function saveCustomApps(apps) {
+          try {
+            localStorage.setItem(CUSTOM_APPS_KEY, JSON.stringify(apps));
+          } catch (_) {}
+        }
+
+        function renderAppPresetSelect() {
+          const select = document.getElementById('pkgPresetSelect');
+          const previousValue = select.value;
+          select.innerHTML = '<option value="">Pilih aplikasi...</option>';
+
+          const commonGroup = document.createElement('optgroup');
+          commonGroup.label = 'Umum';
+          DEFAULT_APPS.forEach((app) => {
+            const opt = document.createElement('option');
+            opt.value = app.pkg;
+            opt.textContent = app.label;
+            commonGroup.appendChild(opt);
+          });
+          select.appendChild(commonGroup);
+
+          const customApps = loadCustomApps();
+          if (customApps.length) {
+            const customGroup = document.createElement('optgroup');
+            customGroup.label = 'Kustom';
+            customApps.forEach((app) => {
+              const opt = document.createElement('option');
+              opt.value = app.pkg;
+              opt.textContent = app.label;
+              customGroup.appendChild(opt);
+            });
+            select.appendChild(customGroup);
+          }
+          select.value = previousValue;
+        }
+
+        document.getElementById('pkgPresetSelect').addEventListener('change', (e) => {
+          if (e.target.value) {
+            document.getElementById('pkgInput').value = e.target.value;
+          }
+        });
+
+        const addAppDropdown = document.getElementById('addAppDropdown');
+        document.getElementById('addAppBtn').addEventListener('click', () => {
+          addAppDropdown.classList.toggle('open');
+        });
+        document.addEventListener('click', (e) => {
+          if (!e.target.closest('#addAppPicker')) addAppDropdown.classList.remove('open');
+        });
+
+        document.getElementById('saveAppBtn').addEventListener('click', () => {
+          const labelInput = document.getElementById('newAppLabel');
+          const pkgInputEl = document.getElementById('newAppPkg');
+          const label = labelInput.value.trim();
+          const pkg = pkgInputEl.value.trim();
+          if (!label || !pkg) return;
+
+          const customApps = loadCustomApps();
+          const existingIdx = customApps.findIndex((a) => a.pkg === pkg);
+          if (existingIdx !== -1) customApps[existingIdx] = { label, pkg };
+          else customApps.push({ label, pkg });
+          saveCustomApps(customApps);
+
+          renderAppPresetSelect();
+          document.getElementById('pkgPresetSelect').value = pkg;
+          document.getElementById('pkgInput').value = pkg;
+          labelInput.value = '';
+          pkgInputEl.value = '';
+          addAppDropdown.classList.remove('open');
+        });
+
+        renderAppPresetSelect();
+
+        refreshDevices();
+      })();
+    </script>
+  </body>
+</html>

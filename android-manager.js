@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const os = require('os');
+const net = require('net');
 const { app } = require('electron');
 const extractZip = require('extract-zip');
 const { spawn } = require('child_process');
@@ -100,6 +101,150 @@ const ANDROID_VERSION_CATALOG = {
   },
 };
 
+// Same shape as ANDROID_VERSION_CATALOG[x].sysimg, but for the `google_apis`
+// tag (no Play Store) instead of `google_apis_playstore` — this is the
+// rootable "userdebug" variant, needed for Device Profile spoofing (Play
+// Store images refuse `adb root` outright: "adbd cannot run as root in
+// production builds", verified live). Filenames verified against Google's
+// sys-img2 manifest at dl.google.com/android/repository/sys-img/google_apis/.
+const ANDROID_GOOGLE_APIS_SYSIMG = {
+  28: { 'arm64-v8a': { any: 'arm64-v8a-28_r02.zip' }, 'x86_64': { any: 'x86_64-28_r11.zip' } },
+  29: { 'arm64-v8a': { any: 'arm64-v8a-29_r13.zip' }, 'x86_64': { any: 'x86_64-29_r13.zip' } },
+  30: { 'arm64-v8a': { any: 'arm64-v8a-30_r16.zip' }, 'x86_64': { any: 'x86_64-30_r16.zip' } },
+  31: { 'arm64-v8a': { any: 'arm64-v8a-31_r11.zip' }, 'x86_64': { any: 'x86_64-31_r14.zip' } },
+  33: { 'arm64-v8a': { any: 'arm64-v8a-33_r17.zip' }, 'x86_64': { any: 'x86_64-33_r17.zip' } },
+  34: { 'arm64-v8a': { any: 'arm64-v8a-34_r14.zip' }, 'x86_64': { any: 'x86_64-34_r14.zip' } },
+  35: { 'arm64-v8a': { any: 'arm64-v8a-35_r09.zip' }, 'x86_64': { any: 'x86_64-35_r09.zip' } },
+};
+
+// Real, recognizable device identities to spoof ro.product.{brand,manufacturer,model}
+// as — verified live that this trio (vendor+product partition build.prop edits,
+// see applyDeviceProfile()) is sufficient for apps reading Build.MANUFACTURER/
+// Build.MODEL/Build.BRAND to see a real phone instead of an emulator.
+const DEVICE_PROFILE_PRESETS = {
+  samsung: { label: 'Samsung Galaxy S23', brand: 'samsung', manufacturer: 'samsung', model: 'SM-S911B' },
+  xiaomi: { label: 'Xiaomi 13', brand: 'Xiaomi', manufacturer: 'Xiaomi', model: '2211133C' },
+  oppo: { label: 'OPPO Find X6', brand: 'OPPO', manufacturer: 'OPPO', model: 'PGEM10' },
+  vivo: { label: 'vivo X90', brand: 'vivo', manufacturer: 'vivo', model: 'V2244A' },
+  pixel: { label: 'Google Pixel 8', brand: 'google', manufacturer: 'Google', model: 'Pixel 8' },
+};
+
+/**
+ * Minimal client for the Android Emulator's console protocol (the same
+ * telnet-like interface `telnet localhost <port>` or Android Studio's own
+ * "Extended controls > Phone" panel talks to) — a plain line-based text
+ * protocol, completely separate from the scrcpy protocol StarSync uses.
+ * Every response (including the initial banner) ends with a line that is
+ * exactly "OK" or starts with "KO" (error), so both can be read the same way.
+ */
+class EmulatorConsoleClient {
+  constructor(port) {
+    this.port = port;
+    this.socket = null;
+    this.buffer = '';
+    this.waiters = [];
+  }
+
+  connect(timeoutMs = 5000) {
+    return new Promise((resolve, reject) => {
+      const socket = net.createConnection({ host: '127.0.0.1', port: this.port });
+      const onError = (err) => {
+        cleanup();
+        reject(err);
+      };
+      const onConnect = () => {
+        cleanup();
+        resolve();
+      };
+      const cleanup = () => {
+        socket.removeListener('error', onError);
+        socket.removeListener('connect', onConnect);
+      };
+      socket.once('error', onError);
+      socket.once('connect', onConnect);
+      this.socket = socket;
+    }).then(() => {
+      this.socket.on('data', (chunk) => this._onData(chunk));
+      this.socket.on('close', () => this._onClose());
+      // Consume the greeting banner — it ends with its own "OK" line, so
+      // this uses the exact same wait-for-terminator logic as any command.
+      return this._waitForResult(timeoutMs);
+    });
+  }
+
+  _onData(chunk) {
+    this.buffer += chunk.toString('utf8');
+    this._tryResolve();
+  }
+
+  _tryResolve() {
+    const lines = this.buffer.split(/\r?\n/);
+    let termIdx = -1;
+    let isError = false;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i] === 'OK' || /^OK\b/.test(lines[i])) {
+        termIdx = i;
+        break;
+      }
+      if (lines[i].startsWith('KO')) {
+        termIdx = i;
+        isError = true;
+        break;
+      }
+    }
+    if (termIdx === -1) return; // terminator not fully received yet
+    const dataLines = lines.slice(0, termIdx);
+    this.buffer = lines.slice(termIdx + 1).join('\n');
+    const waiter = this.waiters.shift();
+    if (!waiter) return;
+    if (isError) waiter.reject(new Error(lines[termIdx].replace(/^KO:?\s*/, '') || 'Perintah console emulator gagal'));
+    else waiter.resolve(dataLines);
+  }
+
+  _waitForResult(timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.waiters = this.waiters.filter((w) => w.resolve !== resolvedWrap);
+        reject(new Error('Timeout menunggu respons console emulator'));
+      }, timeoutMs);
+      const resolvedWrap = (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      };
+      this.waiters.push({
+        resolve: resolvedWrap,
+        reject: (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      });
+      this._tryResolve();
+    });
+  }
+
+  send(command, timeoutMs = 5000) {
+    this.socket.write(`${command}\n`);
+    return this._waitForResult(timeoutMs);
+  }
+
+  auth(token) {
+    return this.send(`auth ${token}`);
+  }
+
+  close() {
+    try {
+      this.socket && this.socket.end();
+    } catch (_) {}
+  }
+
+  _onClose() {
+    while (this.waiters.length) {
+      const waiter = this.waiters.shift();
+      waiter.reject(new Error('Koneksi console emulator tertutup'));
+    }
+  }
+}
+
 class AndroidManager {
   constructor(userDataPath = null) {
     this.emulatorProcess = null;
@@ -111,6 +256,8 @@ class AndroidManager {
     // Crash captured after the 15s startup window already handed off to
     // waitForBoot()'s ADB polling — see watchEmulatorAlive().
     this.lastEmulatorExit = new Map();
+    // adbId -> in-progress GPS route simulation state (startGpsRoute/stopGpsRoute).
+    this.gpsRoutes = new Map();
     // Caches the one-time macOS entitlement signing for the whole session.
     // Re-signing rewrites the shared QEMU/emulator binaries in place; doing that
     // while another emulator is running invalidates their signature and macOS
@@ -188,9 +335,20 @@ class AndroidManager {
     // ---- atomic critical section (no await beyond this point) ----
     // firstLaunch (responsible for the one-time ADB reset) is decided here, with
     // reserved ports counted as active, so only the very first start in a batch
-    // sees nothing else active.
+    // sees nothing else active. Must ALSO check adbOccupiedPorts (the live `adb
+    // devices` query above), not just this process's own in-memory tracking —
+    // on Windows the spawned `emulator.exe` is a launcher that can exit while
+    // the real qemu process it handed off to keeps running, so
+    // isTrackedProcessRunning()/getRunningEmulatorEntries() can wrongly say
+    // "nothing running" for a first emulator that is very much still alive.
+    // Without this, starting a second emulator on Windows would wrongly think
+    // it's the first launch and call killAdbServer() on the shared ADB
+    // server while the first emulator is mid-boot, breaking its ADB
+    // connection along with the second emulator's own boot verification.
     const firstLaunch =
-      this.getRunningEmulatorEntries().length === 0 && this.reservedPorts.size === 0;
+      this.getRunningEmulatorEntries().length === 0 &&
+      this.reservedPorts.size === 0 &&
+      adbOccupiedPorts.size === 0;
 
     const occupiedPorts = new Set(adbOccupiedPorts);
     this.getRunningEmulatorEntries().forEach((entry) => {
@@ -397,6 +555,41 @@ class AndroidManager {
     });
   }
 
+  /** `adb reboot` — works the same for a StarBox emulator or a physical device. */
+  async rebootDevice(adbId) {
+    if (!adbId) throw new Error('adbId tidak valid.');
+    await this.runAdbCommand(['-s', adbId, 'reboot'], { timeout: 15000 });
+    return { success: true };
+  }
+
+  /**
+   * Blocks until a device is back up and fully booted after a reboot —
+   * `wait-for-device` only means adbd answers again (the OS can still be
+   * mid-boot at that point), so follow it with polling the standard
+   * "fully booted" prop until it flips to 1.
+   */
+  async waitForDeviceReady(adbId, { timeoutMs = 120000 } = {}) {
+    if (!adbId) throw new Error('adbId tidak valid.');
+    const deadline = Date.now() + timeoutMs;
+    await this.runAdbCommand(['-s', adbId, 'wait-for-device'], {
+      timeout: Math.max(5000, timeoutMs),
+      silent: true,
+    });
+    while (Date.now() < deadline) {
+      try {
+        const out = await this.runAdbCommand(
+          ['-s', adbId, 'shell', 'getprop', 'sys.boot_completed'],
+          { timeout: 8000, silent: true }
+        );
+        if (out.trim() === '1') return { success: true };
+      } catch (_) {
+        // adb shell can transiently fail right as the device comes back up — keep polling.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+    throw new Error('Timeout menunggu device selesai boot ulang.');
+  }
+
   async listConnectedDevices() {
     try {
       const output = await this.runAdbCommand(['devices', '-l'], {
@@ -439,6 +632,518 @@ class AndroidManager {
     } catch (err) {
       console.warn('⚠️ Gagal mendapatkan daftar perangkat ADB:', err.message);
       return [];
+    }
+  }
+
+  /**
+   * Pre-flight check before a multi-step operation (root/profile/reboot
+   * dance) that would otherwise fail deep in the middle with a raw adb
+   * error like "device 'emulator-5554' not found" — that message means the
+   * emulator process itself isn't running anymore (crashed, or was
+   * stopped independently), not something a retry/wait fixes. Surface that
+   * clearly upfront instead.
+   */
+  async assertDeviceOnline(adbId) {
+    const devices = await this.listConnectedDevices();
+    const found = devices.find((d) => d.adbId === adbId);
+    if (!found) {
+      throw new Error(
+        `Device ${adbId} tidak terdeteksi oleh ADB — emulator/device-nya sudah tidak berjalan. Nyalakan lagi lalu coba ulang.`
+      );
+    }
+    if (found.status && found.status !== 'device') {
+      throw new Error(
+        `Device ${adbId} berstatus "${found.status}" (belum siap dipakai) — tunggu sebentar lalu coba lagi.`
+      );
+    }
+  }
+
+  /**
+   * Resolve which AVD is actually booted on a live `emulator-XXXX` adbId by
+   * asking the emulator console directly — works regardless of whether THIS
+   * process is the one that started it (unlike getEmulatorProcessEntry(),
+   * which only knows about emulators this app session's own
+   * this.emulatorProcesses tracked). Needed so an emulator started before
+   * StarBox launched, or in a previous session, is still recognized as
+   * "already running" instead of StarSync trying to boot a second instance
+   * of the same AVD on top of it.
+   */
+  async getAvdNameForAdbId(adbId) {
+    try {
+      const output = await this.runAdbCommand(['-s', adbId, 'emu', 'avd', 'name'], {
+        timeout: 5000,
+        silent: true,
+      });
+      const name = output
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .find((l) => l && l.toUpperCase() !== 'OK');
+      return name ? this.sanitizeAvdName(name) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * Path to the emulator console's auth token, regenerated by the emulator
+   * on every start. Reading it (rather than launching emulators with
+   * `-no-auth`) keeps the console properly access-controlled — anyone with
+   * local shell access could otherwise drive any running emulator's phone
+   * state.
+   */
+  getConsoleAuthToken() {
+    try {
+      return fs.readFileSync(path.join(os.homedir(), '.emulator_console_auth_token'), 'utf8').trim();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * Opens an authenticated emulator console connection for `adbId`, runs
+   * `fn(client)`, and always closes the connection afterwards — regardless
+   * of whether `fn` resolved or threw.
+   */
+  async withEmulatorConsole(adbId, fn) {
+    const match = /^emulator-(\d+)$/.exec(String(adbId || ''));
+    if (!match) {
+      throw new Error('Fitur SIM virtual hanya tersedia untuk emulator (bukan HP fisik).');
+    }
+    const port = Number.parseInt(match[1], 10);
+    const client = new EmulatorConsoleClient(port);
+    await client.connect();
+    try {
+      const token = this.getConsoleAuthToken();
+      if (token) {
+        await client.auth(token);
+      }
+      return await fn(client);
+    } finally {
+      client.close();
+    }
+  }
+
+  /** Sanitizes a phone number for the console protocol: digits and a leading + only. */
+  sanitizePhoneNumber(number) {
+    const cleaned = String(number || '').trim().replace(/[^0-9+]/g, '');
+    return cleaned || '0000000000';
+  }
+
+  /** Simulates an incoming SMS from `from` with body `text` — arrives in the Messages app like a real one. */
+  async simulateIncomingSms(adbId, from, text) {
+    const sender = this.sanitizePhoneNumber(from);
+    const body = String(text || '').replace(/[\r\n]+/g, ' ').trim();
+    if (!body) throw new Error('Isi SMS tidak boleh kosong');
+    return this.withEmulatorConsole(adbId, (c) => c.send(`sms send ${sender} ${body}`));
+  }
+
+  /** Simulates an incoming call from `number` (rings on-device like a real call). */
+  async simulateIncomingCall(adbId, number) {
+    const sender = this.sanitizePhoneNumber(number);
+    return this.withEmulatorConsole(adbId, (c) => c.send(`gsm call ${sender}`));
+  }
+
+  async acceptIncomingCall(adbId, number) {
+    const sender = this.sanitizePhoneNumber(number);
+    return this.withEmulatorConsole(adbId, (c) => c.send(`gsm accept ${sender}`));
+  }
+
+  async cancelCall(adbId, number) {
+    const sender = this.sanitizePhoneNumber(number);
+    return this.withEmulatorConsole(adbId, (c) => c.send(`gsm cancel ${sender}`));
+  }
+
+  /** state: unregistered | home | roaming | searching | denied | off */
+  async setGsmVoiceState(adbId, state) {
+    return this.withEmulatorConsole(adbId, (c) => c.send(`gsm voice ${state}`));
+  }
+
+  /** state: unregistered | home | roaming | searching | denied | off */
+  async setGsmDataState(adbId, state) {
+    return this.withEmulatorConsole(adbId, (c) => c.send(`gsm data ${state}`));
+  }
+
+  /**
+   * profile: none | poor | moderate | good | great — the console command
+   * itself (verified live via `help gsm signal-profile`) takes a bare
+   * strength number 0-4, not these names; map to the friendlier label the
+   * UI shows.
+   */
+  async setSignalProfile(adbId, profile) {
+    const levels = { none: 0, poor: 1, moderate: 2, good: 3, great: 4 };
+    const level = levels[profile];
+    if (level === undefined) {
+      throw new Error(`Profil sinyal tidak dikenal: ${profile}`);
+    }
+    return this.withEmulatorConsole(adbId, (c) => c.send(`gsm signal-profile ${level}`));
+  }
+
+  async getGsmStatus(adbId) {
+    const lines = await this.withEmulatorConsole(adbId, (c) => c.send('gsm status'));
+    return lines.join('\n');
+  }
+
+  /** Sets the emulator's own reported phone number (verified live: `phonenumber <number>`). */
+  async setPhoneNumber(adbId, number) {
+    const sanitized = this.sanitizePhoneNumber(number);
+    return this.withEmulatorConsole(adbId, (c) => c.send(`phonenumber ${sanitized}`));
+  }
+
+  /** Sets a one-shot GPS fix (verified live: `geo fix <longitude> <latitude> [<altitude>]`). */
+  async setGpsLocation(adbId, lat, lon, altitude = 0) {
+    const latitude = Number(lat);
+    const longitude = Number(lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      throw new Error('Koordinat tidak valid');
+    }
+    const alt = Number.isFinite(Number(altitude)) ? Number(altitude) : 0;
+    await this.stopGpsRoute(adbId); // a one-shot fix should win over a running route
+    return this.withEmulatorConsole(adbId, (c) => c.send(`geo fix ${longitude} ${latitude} ${alt}`));
+  }
+
+  /**
+   * Simulates movement (walking/driving) through `waypoints`
+   * ([{lat, lon}, ...], >= 2 points) by sending periodic `geo fix` updates
+   * over one persistent console connection, interpolating between points at
+   * `speedKmh`. Runs in the background — call stopGpsRoute(adbId) to cancel
+   * one already in progress (also happens automatically if a new route or a
+   * one-shot setGpsLocation() is issued for the same device).
+   */
+  async startGpsRoute(adbId, waypoints, { speedKmh = 5, intervalMs = 1000, onWaypoint } = {}) {
+    if (!Array.isArray(waypoints) || waypoints.length < 2) {
+      throw new Error('Butuh minimal 2 titik untuk simulasi pergerakan');
+    }
+    await this.stopGpsRoute(adbId);
+
+    const match = /^emulator-(\d+)$/.exec(String(adbId || ''));
+    if (!match) throw new Error('Simulasi GPS hanya tersedia untuk emulator (bukan HP fisik).');
+    const port = Number.parseInt(match[1], 10);
+    const client = new EmulatorConsoleClient(port);
+    await client.connect();
+    const token = this.getConsoleAuthToken();
+    if (token) await client.auth(token);
+
+    const state = { client, stopped: false };
+    this.gpsRoutes.set(adbId, state);
+
+    const toRad = (d) => (d * Math.PI) / 180;
+    const haversineMeters = (a, b) => {
+      const R = 6371000;
+      const dLat = toRad(b.lat - a.lat);
+      const dLon = toRad(b.lon - a.lon);
+      const s =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+      return 2 * R * Math.asin(Math.sqrt(s));
+    };
+
+    const speedMps = (speedKmh * 1000) / 3600;
+    const stepMeters = Math.max(speedMps * (intervalMs / 1000), 1);
+
+    (async () => {
+      try {
+        for (let i = 0; i < waypoints.length - 1 && !state.stopped; i++) {
+          const from = waypoints[i];
+          const to = waypoints[i + 1];
+          const steps = Math.max(1, Math.round(haversineMeters(from, to) / stepMeters));
+          for (let s = 1; s <= steps && !state.stopped; s++) {
+            const t = s / steps;
+            const lat = from.lat + (to.lat - from.lat) * t;
+            const lon = from.lon + (to.lon - from.lon) * t;
+            try {
+              await client.send(`geo fix ${lon} ${lat}`);
+            } catch (_) {
+              break;
+            }
+            if (typeof onWaypoint === 'function') {
+              try {
+                onWaypoint({ lat, lon, segmentIndex: i, done: false });
+              } catch (_) {}
+            }
+            await new Promise((resolve) => setTimeout(resolve, intervalMs));
+          }
+        }
+        if (!state.stopped && typeof onWaypoint === 'function') {
+          try {
+            onWaypoint({ done: true });
+          } catch (_) {}
+        }
+      } finally {
+        client.close();
+        if (this.gpsRoutes.get(adbId) === state) this.gpsRoutes.delete(adbId);
+      }
+    })();
+
+    return { success: true };
+  }
+
+  async stopGpsRoute(adbId) {
+    const state = this.gpsRoutes.get(adbId);
+    if (!state) return { success: true, wasRunning: false };
+    state.stopped = true;
+    this.gpsRoutes.delete(adbId);
+    return { success: true, wasRunning: true };
+  }
+
+  /**
+   * Swaps the image the "virtual scene" camera shows — live, no restart
+   * needed (verified: `virtualscene-image <wall|table> [path]`). Only takes
+   * effect if the device was started with cameraBack/cameraFront:
+   * 'virtualscene'; omit `imagePath` to restore the default scene. This is
+   * the mechanism for both "gambar/video sebagai kamera virtual" and
+   * "QR code scanner" (point a QR-scanning app at a wall/table showing a
+   * QR code image) — same feature, different image content.
+   */
+  async setVirtualSceneImage(adbId, target, imagePath = null) {
+    if (target !== 'wall' && target !== 'table') {
+      throw new Error("target harus 'wall' atau 'table'");
+    }
+    if (imagePath && !fs.existsSync(imagePath)) {
+      throw new Error(`File gambar tidak ditemukan: ${imagePath}`);
+    }
+    const command = imagePath ? `virtualscene-image ${target} ${imagePath}` : `virtualscene-image ${target}`;
+    return this.withEmulatorConsole(adbId, (c) => c.send(command));
+  }
+
+  /** Presets for applyDeviceProfile() — real, recognizable manufacturer/model combos. */
+  getDeviceProfilePresets() {
+    return Object.entries(DEVICE_PROFILE_PRESETS).map(([id, preset]) => ({ id, ...preset }));
+  }
+
+  /**
+   * Only safe charset for a build.prop value we're about to splice into a
+   * `sed` pattern on the device shell: reject anything else outright rather
+   * than trying to escape it (no `/`, quotes, `;`, `$`, backticks, etc. —
+   * the sed patterns below rely on this to be injection-safe).
+   */
+  sanitizeProfileField(value, label) {
+    const str = String(value || '').trim();
+    if (!/^[A-Za-z0-9 ._+-]{1,64}$/.test(str)) {
+      throw new Error(`${label} tidak valid (hanya huruf/angka/spasi/._+- , maks 64 karakter).`);
+    }
+    return str;
+  }
+
+  /**
+   * Unlocks write access to the system partitions, a one-time (well,
+   * idempotent — safe to re-run) dance verified live against a real
+   * `google_apis` AVD: root → disable-verity → reboot → root → remount.
+   * Requires the device to have been booted with imageVariant: 'google_apis'
+   * AND the `-writable-system` launch flag (startEmulator() adds this
+   * automatically for that variant) — a Play Store device will fail here
+   * with a clear error ("adbd cannot run as root in production builds").
+   */
+  async rootAndUnlockSystem(adbId, { onProgress } = {}) {
+    const notify = (message) => {
+      if (typeof onProgress === 'function') {
+        try {
+          onProgress(message);
+        } catch (_) {}
+      }
+    };
+
+    await this.assertDeviceOnline(adbId);
+    notify('Meminta akses root...');
+    const rootOutput = await this.runAdbCommand(['-s', adbId, 'root'], { timeout: 15000 });
+    if (/cannot run as root/i.test(rootOutput)) {
+      throw new Error(
+        'Device ini pakai varian Play Store (tidak bisa di-root). Device Profile hanya berlaku untuk device dengan varian "Rootable".'
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    notify('Menonaktifkan dm-verity...');
+    await this.runAdbCommand(['-s', adbId, 'disable-verity'], { timeout: 15000 }).catch(() => {});
+
+    notify('Restart device untuk menerapkan mode writable...');
+    await this.runAdbCommand(['-s', adbId, 'reboot'], { timeout: 15000 }).catch(() => {});
+    await this.waitForBoot(adbId, 120000);
+
+    notify('Root ulang & membuka akses tulis partisi sistem...');
+    await this.runAdbCommand(['-s', adbId, 'root'], { timeout: 15000 });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const remountOutput = await this.runAdbCommand(['-s', adbId, 'remount'], { timeout: 20000 }).catch(
+      (err) => err.message || ''
+    );
+    if (!/succeeded|already/i.test(remountOutput)) {
+      throw new Error(
+        `Gagal membuka akses tulis ke partisi sistem: ${remountOutput || 'alasan tidak diketahui'}`
+      );
+    }
+    notify('Partisi sistem siap ditulis.');
+  }
+
+  /**
+   * Spoofs ro.product.{brand,manufacturer,model} so apps reading
+   * Build.MANUFACTURER/Build.MODEL/Build.BRAND see a real phone instead of
+   * an emulator — verified live to persist across full emulator restarts.
+   * Edits both /vendor/build.prop (ro.product.vendor.*) and
+   * /product/build.prop (ro.product.product.*): Android's Treble property
+   * resolution reads ro.product.model etc from whichever of those wins, and
+   * both need to agree or the effective value is unpredictable.
+   */
+  async applyDeviceProfile(adbId, { brand, manufacturer, model }, { onProgress } = {}) {
+    const notify = (message) => {
+      if (typeof onProgress === 'function') {
+        try {
+          onProgress(message);
+        } catch (_) {}
+      }
+    };
+    const safeBrand = this.sanitizeProfileField(brand, 'Brand');
+    const safeManufacturer = this.sanitizeProfileField(manufacturer, 'Manufacturer');
+    const safeModel = this.sanitizeProfileField(model, 'Model');
+
+    await this.rootAndUnlockSystem(adbId, { onProgress });
+
+    notify('Menulis identitas device baru...');
+    const vendorCmd =
+      `sed -i ` +
+      `-e 's/^ro.product.vendor.brand=.*/ro.product.vendor.brand=${safeBrand}/' ` +
+      `-e 's/^ro.product.vendor.manufacturer=.*/ro.product.vendor.manufacturer=${safeManufacturer}/' ` +
+      `-e 's/^ro.product.vendor.model=.*/ro.product.vendor.model=${safeModel}/' ` +
+      `/vendor/build.prop`;
+    const productCmd =
+      `sed -i ` +
+      `-e 's/^ro.product.product.brand=.*/ro.product.product.brand=${safeBrand}/' ` +
+      `-e 's/^ro.product.product.manufacturer=.*/ro.product.product.manufacturer=${safeManufacturer}/' ` +
+      `-e 's/^ro.product.product.model=.*/ro.product.product.model=${safeModel}/' ` +
+      `/product/build.prop`;
+    await this.runAdbCommand(['-s', adbId, 'shell', vendorCmd], { timeout: 15000 });
+    await this.runAdbCommand(['-s', adbId, 'shell', productCmd], { timeout: 15000 });
+
+    notify('Restart untuk menerapkan identitas baru...');
+    await this.runAdbCommand(['-s', adbId, 'reboot'], { timeout: 15000 }).catch(() => {});
+    await this.waitForBoot(adbId, 120000);
+
+    notify('Device profile diterapkan.');
+    return { success: true, brand: safeBrand, manufacturer: safeManufacturer, model: safeModel };
+  }
+
+  /**
+   * Installs Google Play Store (Phonesky) onto a rootable ('google_apis')
+   * device — verified live: google_apis images already ship a
+   * matching-version Google Play Services + Google Services Framework, and
+   * even a pre-populated permission whitelist entry for com.android.vending
+   * — they only omit the Play Store app itself. Can't bundle Phonesky.apk
+   * with StarBox (Google's proprietary app, unlike open-source scrcpy) — so
+   * this "borrows" it from a playstore-variant image of the SAME API level
+   * instead: downloads that variant if not already cached, briefly boots it
+   * headless purely to `adb pull` the APK, stops it again, then pushes it
+   * into the target and reboots.
+   */
+  async installPlayStore(adbId, { onProgress } = {}) {
+    const notify = (message) => {
+      if (typeof onProgress === 'function') {
+        try {
+          onProgress(message);
+        } catch (_) {}
+      }
+    };
+
+    notify('Mengecek apakah Play Store sudah terpasang...');
+    // google_apis images ship a minimal "LicenseChecker" stub already
+    // registered under the com.android.vending package name (verified
+    // live: codePath=/product/app/LicenseChecker, versionName=1.8) so apps
+    // doing a basic "is Play Store present" package check don't immediately
+    // fail — checking package presence alone would treat that stub as
+    // "already installed" and skip a device that has no real Play Store at
+    // all. The real Phonesky.apk always lives under a `Phonesky` path.
+    const existing = await this.runAdbCommand(
+      ['-s', adbId, 'shell', 'pm', 'path', 'com.android.vending'],
+      { timeout: 8000 }
+    ).catch(() => '');
+    if (existing && /phonesky/i.test(existing)) {
+      notify('Play Store sudah terpasang di device ini.');
+      return { success: true, alreadyInstalled: true };
+    }
+
+    const sdkOutput = await this.runAdbCommand(
+      ['-s', adbId, 'shell', 'getprop', 'ro.build.version.sdk'],
+      { timeout: 8000 }
+    );
+    const apiLevel = this.normalizeApiLevel(Number.parseInt(sdkOutput, 10));
+
+    await this.rootAndUnlockSystem(adbId, { onProgress });
+
+    const donorAvdName = this.sanitizeAvdName(`StarBox_GappsDonor_${apiLevel}`);
+    let donorAdbId = null;
+    let donorRunning = false;
+    const tmpApk = path.join(os.tmpdir(), `starbox-phonesky-${apiLevel}-${Date.now()}.apk`);
+
+    try {
+      if (!this.isVersionInstalled(apiLevel, 'playstore')) {
+        notify(`Mengunduh image Play Store API ${apiLevel} untuk mengambil Play Store (sekali saja)...`);
+        await this.downloadAndSetup(
+          (p) => {
+            if (p.message) notify(`Unduh: ${p.message}`);
+          },
+          apiLevel,
+          'playstore'
+        );
+      }
+
+      notify('Menjalankan emulator sementara untuk mengambil Play Store...');
+      const donorResult = await this.startEmulator(donorAvdName, {
+        apiLevel,
+        imageVariant: 'playstore',
+        headless: true,
+        spec: { memoryMb: 1024, cores: 1, resolution: '540x960', density: 213 },
+      });
+      donorAdbId = donorResult.adbId;
+      donorRunning = true;
+
+      notify('Mengambil Phonesky.apk dari emulator sementara...');
+      await this.runAdbCommand(
+        ['-s', donorAdbId, 'pull', '/product/priv-app/Phonesky/Phonesky.apk', tmpApk],
+        { timeout: 60000 }
+      );
+
+      notify('Menghentikan emulator sementara...');
+      await this.stopEmulator(donorAvdName, donorAdbId);
+      donorRunning = false;
+
+      notify('Memasang Play Store ke device...');
+      await this.runAdbCommand(['-s', adbId, 'shell', 'mkdir', '-p', '/product/priv-app/Phonesky'], {
+        timeout: 10000,
+      });
+      await this.runAdbCommand(['-s', adbId, 'push', tmpApk, '/product/priv-app/Phonesky/Phonesky.apk'], {
+        timeout: 60000,
+      });
+      await this.runAdbCommand(
+        ['-s', adbId, 'shell', 'chmod', '644', '/product/priv-app/Phonesky/Phonesky.apk'],
+        { timeout: 10000 }
+      );
+      await this.runAdbCommand(
+        ['-s', adbId, 'shell', 'chown', 'root:root', '/product/priv-app/Phonesky/Phonesky.apk'],
+        { timeout: 10000 }
+      );
+
+      notify('Restart untuk memuat Play Store...');
+      await this.runAdbCommand(['-s', adbId, 'reboot'], { timeout: 15000 }).catch(() => {});
+      await this.waitForBoot(adbId, 120000);
+
+      const verify = await this.runAdbCommand(
+        ['-s', adbId, 'shell', 'pm', 'path', 'com.android.vending'],
+        { timeout: 8000 }
+      ).catch(() => '');
+      if (!verify || !/phonesky/i.test(verify)) {
+        throw new Error(
+          'Play Store terpasang tapi PackageManager masih mengarah ke stub LicenseChecker setelah restart, bukan Phonesky yang sebenarnya.'
+        );
+      }
+
+      notify('Play Store berhasil dipasang.');
+      return { success: true, alreadyInstalled: false };
+    } finally {
+      if (donorRunning && donorAdbId) {
+        try {
+          await this.stopEmulator(donorAvdName, donorAdbId);
+        } catch (_) {}
+      }
+      try {
+        fs.unlinkSync(tmpApk);
+      } catch (_) {}
     }
   }
 
@@ -524,7 +1229,19 @@ class AndroidManager {
       await new Promise((resolve) => setTimeout(resolve, 500));
     } else {
       const { execSync } = require('child_process');
-      ['qemu-system', '/emulator/emulator'].forEach((pattern) => {
+      // qemu-system's own children (netsimd) and the crash reporter
+      // (crashpad_handler, immediately reparented to PID 1 on start) both
+      // survive a plain kill of the qemu process — SIGKILL never propagates
+      // to children, so they'd otherwise linger as background processes
+      // forever. Scoped to the emulator SDK path so this can't ever match
+      // an unrelated crashpad_handler from some other app (e.g. Chrome ships
+      // its own, with a completely different binary path).
+      [
+        'qemu-system',
+        '/emulator/emulator',
+        '/emulator/netsimd',
+        '/emulator/crashpad_handler',
+      ].forEach((pattern) => {
         try {
           execSync(`pkill -9 -f '${pattern}'`, { stdio: 'pipe' });
         } catch (_) {}
@@ -653,11 +1370,34 @@ class AndroidManager {
   }
 
   /**
-   * System image variant: Google Play images include the Play Store app,
-   * plain google_apis images only ship Play Services.
+   * System image variant: Google Play images (default) include the Play
+   * Store app but can never be rooted ("adbd cannot run as root in
+   * production builds", verified live) — plain google_apis images have no
+   * Play Store but ARE rootable (userdebug build), which Device Profile
+   * spoofing (applyDeviceProfile()) requires.
    */
-  getImageTag() {
-    return 'google_apis_playstore';
+  getImageTag(variant = 'playstore') {
+    return variant === 'google_apis' ? 'google_apis' : 'google_apis_playstore';
+  }
+
+  isRootableVariant(variant) {
+    return variant === 'google_apis';
+  }
+
+  /**
+   * API 28 (Android 9)'s emulator system image has a host-GPU bug in its
+   * VirtualDisplay/color-buffer allocation (verified live: every StarSync
+   * connect attempt fails with QEMU logging "FrameBuffer.cpp: Failed to
+   * find ColorBuffer" / "bad color buffer handle 0", then scrcpy-server
+   * exhausts its own encoder-constraint retries and throws
+   * "Capture/encoding error: java.lang.IllegalStateException"). Never
+   * reproduced on any other API level or on a physical device, so this is
+   * a per-image bug, not a generic scrcpy/StarSync problem — block video
+   * mirroring for it specifically rather than let users hit a confusing
+   * crash loop.
+   */
+  isSyncVideoSupported(apiLevel) {
+    return this.normalizeApiLevel(apiLevel) !== 28;
   }
 
   /** Clamp an arbitrary value to a supported API level, defaulting to 30. */
@@ -688,17 +1428,19 @@ class AndroidManager {
   }
 
   /** Resolve the system-image zip filename for a version + this host/ABI. */
-  resolveSystemImageFile(api) {
-    const meta = this.getVersionMeta(api);
+  resolveSystemImageFile(api, variant = 'playstore') {
     const abi = this.getGuestAbi();
-    const perAbi = meta.sysimg[abi] || {};
+    const sysimg = this.isRootableVariant(variant)
+      ? ANDROID_GOOGLE_APIS_SYSIMG[this.normalizeApiLevel(api)]
+      : this.getVersionMeta(api).sysimg;
+    const perAbi = (sysimg && sysimg[abi]) || {};
     return perAbi[this.getHostOsKey()] || perAbi.any || null;
   }
 
-  getSystemImageUrl(api) {
-    const file = this.resolveSystemImageFile(api);
+  getSystemImageUrl(api, variant = 'playstore') {
+    const file = this.resolveSystemImageFile(api, variant);
     return file
-      ? `https://dl.google.com/android/repository/sys-img/${this.getImageTag()}/${file}`
+      ? `https://dl.google.com/android/repository/sys-img/${this.getImageTag(variant)}/${file}`
       : null;
   }
 
@@ -707,14 +1449,14 @@ class AndroidManager {
     return `https://dl.google.com/android/repository/${meta.platform}`;
   }
 
-  getSystemImagesDir(api = DEFAULT_ANDROID_API) {
+  getSystemImagesDir(api = DEFAULT_ANDROID_API, variant = 'playstore') {
     this.initializePaths();
     const level = this.normalizeApiLevel(api);
     return path.join(
       this.sdkPath,
       'system-images',
       `android-${level}`,
-      this.getImageTag(),
+      this.getImageTag(variant),
       this.getGuestAbi()
     );
   }
@@ -734,10 +1476,10 @@ class AndroidManager {
   }
 
   /** System image (and platform) for a specific API level present on disk. */
-  isVersionInstalled(api = DEFAULT_ANDROID_API) {
+  isVersionInstalled(api = DEFAULT_ANDROID_API, variant = 'playstore') {
     this.initializePaths();
     const level = this.normalizeApiLevel(api);
-    const systemImage = path.join(this.getSystemImagesDir(level), 'system.img');
+    const systemImage = path.join(this.getSystemImagesDir(level, variant), 'system.img');
     return fs.existsSync(this.getPlatformsDir(level)) && fs.existsSync(systemImage);
   }
 
@@ -745,8 +1487,8 @@ class AndroidManager {
    * Check if emulator is installed for the given API level (default 30). Combines
    * the shared core with that version's system image.
    */
-  isInstalled(api = DEFAULT_ANDROID_API) {
-    return this.isCoreInstalled() && this.isVersionInstalled(api);
+  isInstalled(api = DEFAULT_ANDROID_API, variant = 'playstore') {
+    return this.isCoreInstalled() && this.isVersionInstalled(api, variant);
   }
 
   /**
@@ -754,7 +1496,7 @@ class AndroidManager {
    * (re)installs idempotent — a partial install only fetches what is missing and
    * never re-extracts over files that may be locked (e.g. a running adb.exe).
    */
-  componentPresent(name, api = DEFAULT_ANDROID_API) {
+  componentPresent(name, api = DEFAULT_ANDROID_API, variant = 'playstore') {
     this.initializePaths();
     const level = this.normalizeApiLevel(api);
     switch (name) {
@@ -765,7 +1507,7 @@ class AndroidManager {
       case 'Platform':
         return fs.existsSync(this.getPlatformsDir(level));
       case 'System Image':
-        return fs.existsSync(path.join(this.getSystemImagesDir(level), 'system.img'));
+        return fs.existsSync(path.join(this.getSystemImagesDir(level, variant), 'system.img'));
       default:
         return false;
     }
@@ -872,6 +1614,29 @@ class AndroidManager {
   }
 
   /**
+   * Host webcams the emulator can use as a camera source (verified live via
+   * `emulator -webcam-list`), for the "webcam PC" virtual-camera option.
+   * Returns [] (not an error) if none are found or the binary isn't ready.
+   */
+  listWebcams() {
+    try {
+      const { execFileSync } = require('child_process');
+      const output = execFileSync(this.getEmulatorBinary(), ['-webcam-list'], {
+        encoding: 'utf8',
+        timeout: 8000,
+      });
+      const names = [];
+      output.split(/\r?\n/).forEach((line) => {
+        const match = /Camera '([^']+)' is connected/.exec(line);
+        if (match) names.push(match[1]);
+      });
+      return names;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /**
    * Get ADB binary path based on platform
    */
   getADBBinary() {
@@ -884,7 +1649,7 @@ class AndroidManager {
   /**
    * Download and setup Android emulator
    */
-  async downloadAndSetup(progressCallback, api = DEFAULT_ANDROID_API) {
+  async downloadAndSetup(progressCallback, api = DEFAULT_ANDROID_API, variant = 'playstore') {
     this.initializePaths();
     const level = this.normalizeApiLevel(api);
 
@@ -892,14 +1657,17 @@ class AndroidManager {
       this.downloadProgressCallbacks.add(progressCallback);
     }
 
-    // One active download per API level — downloading Android 14 must not be
-    // short-circuited by an in-flight Android 11 download (or vice versa).
-    let active = this.activeDownloadPromises.get(level);
+    // One active download per (API level, variant) — downloading Android 14
+    // playstore must not be short-circuited by an in-flight Android 14
+    // google_apis download (or vice versa), same reasoning as per-API-level
+    // before variants existed.
+    const downloadKey = `${level}:${variant}`;
+    let active = this.activeDownloadPromises.get(downloadKey);
     if (!active) {
-      active = this._downloadAndSetup(level).finally(() => {
-        this.activeDownloadPromises.delete(level);
+      active = this._downloadAndSetup(level, variant).finally(() => {
+        this.activeDownloadPromises.delete(downloadKey);
       });
-      this.activeDownloadPromises.set(level, active);
+      this.activeDownloadPromises.set(downloadKey, active);
     }
 
     try {
@@ -911,7 +1679,7 @@ class AndroidManager {
     }
   }
 
-  async _downloadAndSetup(api = DEFAULT_ANDROID_API) {
+  async _downloadAndSetup(api = DEFAULT_ANDROID_API, variant = 'playstore') {
     const level = this.normalizeApiLevel(api);
     this.isDownloading = true;
     this.downloadProgress = 0;
@@ -965,9 +1733,9 @@ class AndroidManager {
       // Download emulator components based on platform. Skip anything already on
       // disk so a partial install only fetches what is missing and never
       // re-extracts over locked files (e.g. a running adb.exe → EBUSY on Windows).
-      const allDownloads = await this.getDownloadUrls(level);
+      const allDownloads = await this.getDownloadUrls(level, variant);
       const downloads = allDownloads.filter((download) => {
-        if (this.componentPresent(download.name, level)) {
+        if (this.componentPresent(download.name, level, variant)) {
           console.log(`✓ ${download.name} already installed, skipping download`);
           return false;
         }
@@ -1050,7 +1818,7 @@ class AndroidManager {
           ),
           message,
         });
-      }, level);
+      }, level, variant);
 
       completedStages += 1;
       this.downloadProgress = Math.min(
@@ -1064,7 +1832,7 @@ class AndroidManager {
         overallProgress: this.downloadProgress,
         message: 'Extraction complete',
       });
-      this.ensureSystemImageLayout(level);
+      this.ensureSystemImageLayout(level, variant);
 
       const setupBase = completedStages * stageWeight;
       emitProgress({
@@ -1084,7 +1852,7 @@ class AndroidManager {
           ),
           message,
         });
-      }, level);
+      }, level, variant);
 
       completedStages += 1;
       this.downloadProgress = Math.min(
@@ -1169,12 +1937,12 @@ class AndroidManager {
    * package and system image. Destinations are suffixed per API so multiple
    * versions can be downloaded/extracted without clobbering each other.
    */
-  async getDownloadUrls(api = DEFAULT_ANDROID_API) {
+  async getDownloadUrls(api = DEFAULT_ANDROID_API, variant = 'playstore') {
     const level = this.normalizeApiLevel(api);
-    const systemImageUrl = this.getSystemImageUrl(level);
+    const systemImageUrl = this.getSystemImageUrl(level, variant);
     if (!systemImageUrl) {
       throw new Error(
-        `Tidak ada system image untuk API ${level} pada arsitektur ${this.getGuestAbi()} / ${this.getHostOsKey()}.`
+        `Tidak ada system image (${this.getImageTag(variant)}) untuk API ${level} pada arsitektur ${this.getGuestAbi()} / ${this.getHostOsKey()}.`
       );
     }
     return [
@@ -1187,7 +1955,7 @@ class AndroidManager {
       {
         name: 'System Image',
         url: systemImageUrl,
-        dest: path.join(this.sdkPath, `system-image-${level}.zip`),
+        dest: path.join(this.sdkPath, `system-image-${level}-${variant}.zip`),
       },
     ];
   }
@@ -1297,7 +2065,7 @@ class AndroidManager {
   /**
    * Extract downloaded files
    */
-  async extractAndSetup(statusCallback = null, api = DEFAULT_ANDROID_API) {
+  async extractAndSetup(statusCallback = null, api = DEFAULT_ANDROID_API, variant = 'playstore') {
     const level = this.normalizeApiLevel(api);
     console.log('Extracting emulator files...');
 
@@ -1352,11 +2120,11 @@ class AndroidManager {
       }
 
       // Extract system image
-      const systemImageZip = path.join(this.sdkPath, `system-image-${level}.zip`);
+      const systemImageZip = path.join(this.sdkPath, `system-image-${level}-${variant}.zip`);
       if (fs.existsSync(systemImageZip)) {
         console.log('Extracting system image...');
         notify('System Image', 'Extracting system image...');
-        const systemImagesPath = this.getSystemImagesDir(level);
+        const systemImagesPath = this.getSystemImagesDir(level, variant);
         if (!fs.existsSync(systemImagesPath)) {
           fs.mkdirSync(systemImagesPath, { recursive: true });
         }
@@ -1429,7 +2197,7 @@ class AndroidManager {
     }
   }
 
-  async createDefaultAVD(avdName = 'StarBox_Default', spec = null, statusCallback = null, api = DEFAULT_ANDROID_API) {
+  async createDefaultAVD(avdName = 'StarBox_Default', spec = null, statusCallback = null, api = DEFAULT_ANDROID_API, variant = 'playstore') {
     avdName = this.sanitizeAvdName(avdName);
     const level = this.normalizeApiLevel(api);
     const avdDir = path.join(this.avdPath, `${avdName}.avd`);
@@ -1490,10 +2258,10 @@ hw.lcd.width=${width}
 hw.lcd.density=${resolvedSpec.density}
 hw.ramSize=${resolvedSpec.memoryMb}
 hw.sdCard=yes
-image.sysdir.1=system-images/android-${level}/${this.getImageTag()}/${this.getGuestAbi()}/
+image.sysdir.1=system-images/android-${level}/${this.getImageTag(variant)}/${this.getGuestAbi()}/
 skin.name=${resolvedSpec.resolution}
-tag.display=Google Play
-tag.id=${this.getImageTag()}
+tag.display=${this.isRootableVariant(variant) ? 'Google APIs' : 'Google Play'}
+tag.id=${this.getImageTag(variant)}
 vm.heapSize=${heapSize}
 hw.arc=false
 hw.audioOutput=yes
@@ -1503,7 +2271,7 @@ fastboot.forceColdBoot=yes
 fastboot.forceFastBoot=no
 snapshot.present=no
 disk.dataPartition.size=4294967296
-PlayStore.enabled=yes
+PlayStore.enabled=${this.isRootableVariant(variant) ? 'no' : 'yes'}
 hw.camera=no
 hw.camera.back=none
 hw.camera.front=none
@@ -1513,9 +2281,9 @@ hw.camera.front=none
     notify('AVD device configuration generated');
   }
 
-  ensureSystemImageLayout(api = DEFAULT_ANDROID_API) {
+  ensureSystemImageLayout(api = DEFAULT_ANDROID_API, variant = 'playstore') {
     try {
-      const systemImagesPath = this.getSystemImagesDir(this.normalizeApiLevel(api));
+      const systemImagesPath = this.getSystemImagesDir(this.normalizeApiLevel(api), variant);
       const nested = path.join(systemImagesPath, this.getGuestAbi());
       if (fs.existsSync(nested) && fs.lstatSync(nested).isDirectory()) {
         fs.readdirSync(nested).forEach((entry) => {
@@ -1879,6 +2647,16 @@ hw.camera.front=none
       progressCallback = null,
       spec: requestedSpec = null,
       apiLevel: requestedApiLevel = DEFAULT_ANDROID_API,
+      // Camera source: 'emulated' (default fake camera), 'none', 'virtualscene'
+      // (a still 3D room whose wall/table image can be swapped live via the
+      // console's virtualscene-image command — see setVirtualSceneImage()),
+      // or a host webcam name from listWebcams() (e.g. 'webcam0').
+      cameraBack = null,
+      cameraFront = null,
+      // 'playstore' (default): has Play Store, can never be rooted. 'google_apis':
+      // no Play Store, but IS rootable — required for Device Profile spoofing
+      // (applyDeviceProfile()), which also needs -writable-system below.
+      imageVariant = 'playstore',
     } = options || {};
 
     const apiLevel = this.normalizeApiLevel(requestedApiLevel);
@@ -1934,14 +2712,14 @@ hw.camera.front=none
     if (!this.isCoreInstalled()) {
       throw new Error('Emulator not installed. Please download first.');
     }
-    if (!this.isVersionInstalled(apiLevel)) {
+    if (!this.isVersionInstalled(apiLevel, imageVariant)) {
       const meta = this.getVersionMeta(apiLevel);
       emitProgress({
         phase: 'download-version',
-        message: `Mengunduh ${meta.label} (system image)...`,
+        message: `Mengunduh ${meta.label} (system image${this.isRootableVariant(imageVariant) ? ', varian rootable' : ''})...`,
       });
       try {
-        await this.downloadAndSetup(progressCallback, apiLevel);
+        await this.downloadAndSetup(progressCallback, apiLevel, imageVariant);
       } catch (error) {
         throw new Error(
           `Gagal mengunduh ${meta.label}: ${error.message}`
@@ -1963,7 +2741,7 @@ hw.camera.front=none
       }
     }
 
-    if (!this.isInstalled(apiLevel)) {
+    if (!this.isInstalled(apiLevel, imageVariant)) {
       throw new Error('Emulator not installed. Please download first.');
     }
 
@@ -1987,7 +2765,7 @@ hw.camera.front=none
       ensurePerms(emulatorBin, 'emulator binary');
       ensurePerms(adbBin, 'ADB binary');
     }
-    this.ensureSystemImageLayout(apiLevel);
+    this.ensureSystemImageLayout(apiLevel, imageVariant);
 
     // Check emulator entitlements on macOS — signed once per session and never
     // while another emulator is running (rewriting in-use binaries triggers a
@@ -2029,6 +2807,26 @@ hw.camera.front=none
     ];
     if (headless) {
       baseArgs.push('-no-window');
+    }
+    if (cameraBack) {
+      baseArgs.push('-camera-back', cameraBack);
+    }
+    if (cameraFront) {
+      // -camera-front only accepts emulated | webcam<N> | none — 'virtualscene'
+      // and 'videoplayback' are back-camera-only (verified live: the
+      // emulator refuses to start at all with "Invalid value for
+      // -camera-front" otherwise). Silently downgrade rather than passing
+      // through an argument combination that's guaranteed to fail to boot.
+      const frontSafe = /^(virtualscene|videoplayback)$/.test(cameraFront) ? 'emulated' : cameraFront;
+      baseArgs.push('-camera-front', frontSafe);
+    }
+    if (this.isRootableVariant(imageVariant)) {
+      // Required for `adb root` + `adb disable-verity` + editing
+      // /vendor/build.prop + /product/build.prop to actually persist
+      // (verified live) — without it, /vendor and /product stay read-only
+      // even as root ("Read-only file system") and Device Profile spoofing
+      // silently doesn't take effect.
+      baseArgs.push('-writable-system');
     }
 
     // Laporkan status akselerasi supaya pengguna tahu kenapa boot cepat/lambat
@@ -2074,7 +2872,8 @@ hw.camera.front=none
         phase: 'setup-avd',
         message,
       }),
-      apiLevel
+      apiLevel,
+      imageVariant
     );
 
     console.log(`Platform: ${this.platform}, Arch: ${process.arch}`);

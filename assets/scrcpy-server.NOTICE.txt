@@ -1,0 +1,16 @@
+scrcpy-server.jar
+
+This file is the server component of scrcpy (https://github.com/Genymobile/scrcpy),
+Copyright (C) Genymobile, licensed under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0).
+
+Bundled version: v4.1
+Source: https://github.com/Genymobile/scrcpy/releases/download/v4.1/scrcpy-server-v4.1
+SHA-256: deacb991ed2509715160ffdc7907e47b4160eb30d1566217e9047fd5b8850cae
+
+StarBox pushes this jar to Android devices/emulators via ADB and communicates
+with it directly over its documented socket protocol for the multi-device
+sync remote control feature (android-sync-manager.js). It is unmodified from
+the upstream release. Do not replace with a different version without also
+updating android-sync-manager.js — the wire protocol (launch arguments,
+socket handshake, control message format) is specific to this exact version.

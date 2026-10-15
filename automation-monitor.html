@@ -558,6 +558,40 @@
           transform: translateY(-2px);
         }
       }
+
+      /* Compact Mini Floating Mode */
+      body.compact-mode header {
+        padding: 6px 10px;
+      }
+      body.compact-mode header .header-text p {
+        display: none !important;
+      }
+      body.compact-mode header h1 {
+        font-size: 0.92rem;
+      }
+      body.compact-mode .status-panel,
+      body.compact-mode #messageList {
+        display: none !important;
+      }
+      body.compact-mode .mini-floating-bar {
+        display: flex !important;
+      }
+      .mini-floating-bar {
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        background: rgba(30, 41, 59, 0.85);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 8px;
+        margin: 6px 10px;
+        font-size: 0.8rem;
+      }
+      .mini-stat-pill {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
     </style>
   </head>
   <body>
@@ -570,6 +604,14 @@
         </p>
       </div>
       <div class="header-actions" style="display: flex; gap: 8px;">
+        <button
+          id="compactModeButton"
+          class="header-action control-btn"
+          type="button"
+          title="Toggle Mini Floating Mode"
+        >
+          📌 Mini
+        </button>
         <button
           id="resetCountdownButton"
           class="header-action control-btn"
@@ -619,6 +661,20 @@
     </header>
 
     <div id="monitorContent">
+      <div class="mini-floating-bar" id="miniFloatingBar">
+        <div class="mini-stat-pill">
+          <span style="color: #94a3b8;">Status:</span>
+          <span id="miniAutomationStatus" style="font-weight: 600; color: #34d399;">RUNNING</span>
+        </div>
+        <div class="mini-stat-pill">
+          <span style="color: #94a3b8;">Antrian:</span>
+          <span id="miniQueueCount" style="font-weight: 700; color: #38bdf8;">0</span>
+        </div>
+        <div class="mini-stat-pill">
+          <span style="color: #94a3b8;">Terkirim:</span>
+          <span id="miniSentCount" style="font-weight: 700; color: #10b981;">0</span>
+        </div>
+      </div>
       <div class="status-panel">
         <div class="status-meta">
           <span id="monitorDevice">Device: -</span>
@@ -760,6 +816,10 @@
       );
       const nextFetchLabel = document.getElementById("monitorNextFetch");
       const copyTokenButton = document.getElementById("copyTokenButton");
+      const compactModeButton = document.getElementById("compactModeButton");
+      const miniAutomationStatus = document.getElementById("miniAutomationStatus");
+      const miniQueueCount = document.getElementById("miniQueueCount");
+      const miniSentCount = document.getElementById("miniSentCount");
       const playPauseButton = document.getElementById("playPauseButton");
       const stopButton = document.getElementById("stopButton");
       const guardToggleButton = document.getElementById("guardToggleButton");
@@ -1164,6 +1224,18 @@
             ? "Tidak dapat memuat data. Lihat rincian di bawah."
             : "Belum ada pesan.";
 
+        if (miniQueueCount) miniQueueCount.textContent = pending;
+        if (miniSentCount) miniSentCount.textContent = done;
+        if (miniAutomationStatus) {
+          miniAutomationStatus.textContent = (automationState || "running").toUpperCase();
+          miniAutomationStatus.style.color =
+            automationState === "running"
+              ? "#34d399"
+              : automationState === "paused"
+              ? "#fcd34d"
+              : "#f87171";
+        }
+
         const deviceText = monitorState.deviceName
           ? `Device: ${monitorState.deviceName}`
           : monitorState.uid
@@ -1498,10 +1570,36 @@
           }
         }
 
+        if (miniAutomationStatus) {
+          miniAutomationStatus.textContent = newState.toUpperCase();
+          miniAutomationStatus.style.color =
+            newState === "running"
+              ? "#34d399"
+              : newState === "paused"
+              ? "#fcd34d"
+              : "#f87171";
+        }
+
         // Send state to main process
         if (window.monitorAPI?.controlAutomation) {
           window.monitorAPI.controlAutomation(monitorState.uid, newState);
         }
+      }
+
+      // Compact / Mini mode button handler
+      let isCompactMode = false;
+      if (compactModeButton) {
+        compactModeButton.addEventListener("click", () => {
+          isCompactMode = !isCompactMode;
+          document.body.classList.toggle("compact-mode", isCompactMode);
+          compactModeButton.textContent = isCompactMode ? "🪟 Normal" : "📌 Mini";
+          compactModeButton.title = isCompactMode
+            ? "Kembali ke Tampilan Penuh"
+            : "Mini Floating Mode";
+          if (window.monitorAPI?.toggleMiniMode) {
+            window.monitorAPI.toggleMiniMode(isCompactMode);
+          }
+        });
       }
 
       // Play/Pause button handler
