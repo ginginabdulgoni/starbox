@@ -1,12 +1,14 @@
 {
   "id": "whatsapp-gateway",
   "name": "WhatsApp Gateway",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Hubungkan nomor WhatsApp lewat Baileys (tanpa browser): kirim pesan, auto-reply, jadwal, broadcast campaign dan log pesan.",
   "author": "StarBox",
   "license": "MIT",
   "icon": "bi-whatsapp",
-  "engine": { "starbox": ">=2.1.0" },
+  "engine": {
+    "starbox": ">=2.1.0"
+  },
   "distribution": "download",
   "main": "main.js",
   "renderer": "renderer.js",
@@ -17,9 +19,17 @@
     "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",
     "https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"
   ],
-  "permissions": ["network"],
-  "sharedDependencies": ["cron-parser"],
-  "coreServices": ["sendSystemInfoReport", "resolveWhatsAppUserAgent", "getMainWindow"],
+  "permissions": [
+    "network"
+  ],
+  "sharedDependencies": [
+    "cron-parser"
+  ],
+  "coreServices": [
+    "sendSystemInfoReport",
+    "resolveWhatsAppUserAgent",
+    "getMainWindow"
+  ],
   "ipc": {
     "invoke": [
       "wa-get-devices",

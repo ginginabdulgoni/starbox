@@ -1244,7 +1244,9 @@ function register(context) {
           ["-s", entry.adbId, "emu", "avd", "name"],
           { timeout: 4000, silent: true }
         );
-        if (String(output || "").trim() === expectedAvdName) {
+        // `adb emu avd name` membalas "<nama>\r\nOK" — bandingkan baris pertama saja
+        const reportedName = String(output || "").split(/\r?\n/)[0].trim();
+        if (reportedName === expectedAvdName) {
           return entry.adbId;
         }
       } catch (_) {}
@@ -4708,8 +4710,10 @@ function register(context) {
     const processEntry = manager.getEmulatorProcessEntry(avdName);
     const processRunning = !!processEntry;
     const adbId = await resolveEmulatorAdbTarget(config).catch(() => null);
-    const running =
-      processRunning || !!adbId || ["running", "active", "starting"].includes(storedStatus);
+    // Hanya proses/ADB yang menentukan; status tersimpan "active" juga di-set
+    // oleh runDevice() sebelum emulator benar-benar dijalankan, sehingga dulu
+    // jendela android-emulator.html mengira emulator sudah berjalan.
+    const running = processRunning || !!adbId || storedStatus === "starting";
 
     if (uid) {
       updateDeviceStatus(uid, running ? "running" : "stopped");
