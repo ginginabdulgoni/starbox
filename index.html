@@ -1201,7 +1201,7 @@
             <button
               type="button"
               class="btn-link"
-              style="margin-top: 8px"
+              style="margin-top: 8px; display: none"
               onclick="toggleAutoSenderDocumentation('autoSenderDoc')"
             >
               🔍 Detail Auto Sender
@@ -1832,7 +1832,7 @@
             <button
               type="button"
               class="btn-link"
-              style="margin-top: 8px"
+              style="margin-top: 8px; display: none"
               onclick="toggleAutoSenderDocumentation('editAutoSenderDoc')"
             >
               🔍 Detail Auto Sender
@@ -3301,6 +3301,21 @@
           }
         };
 
+        // Dokumentasi Auto Sender: cukup tombolnya yang tampil saat aktif;
+        // panel dokumentasi tetap tertutup sampai tombol diklik.
+        function setAutoSenderDocButton(docId, visible) {
+          if (!docId) return;
+          const doc = document.getElementById(docId);
+          const btn = document.querySelector(
+            `button[onclick="toggleAutoSenderDocumentation('${docId}')"]`
+          );
+          if (btn) {
+            btn.style.display = visible ? "" : "none";
+            if (!visible) btn.textContent = "🔍 Detail Auto Sender";
+          }
+          if (doc && !visible) doc.style.display = "none";
+        }
+
         window.refreshAddAutoSenderUI = function () {
           const service = document.getElementById("deviceService")?.value || "";
           const section = document.getElementById("deviceAutoSenderSection");
@@ -3318,7 +3333,7 @@
             if (checkbox) checkbox.checked = false;
             if (options) options.style.display = "none";
             if (callbackInput) callbackInput.value = "";
-            if (doc) doc.style.display = "none";
+            setAutoSenderDocButton(doc?.id, false);
             return;
           }
           section.style.display = allowed ? "block" : "none";
@@ -3326,11 +3341,11 @@
             if (checkbox) checkbox.checked = false;
             if (options) options.style.display = "none";
             if (callbackInput) callbackInput.value = "";
-            if (doc) doc.style.display = "none";
+            setAutoSenderDocButton(doc?.id, false);
           } else {
             const checked = checkbox?.checked;
             if (options) options.style.display = checked ? "block" : "none";
-            if (doc) doc.style.display = checked ? "block" : "none";
+            setAutoSenderDocButton("autoSenderDoc", checked);
           }
         };
 
@@ -3350,7 +3365,7 @@
             if (checkbox) checkbox.checked = false;
             if (options) options.style.display = "none";
             if (callbackInput) callbackInput.value = "";
-            if (doc) doc.style.display = "none";
+            setAutoSenderDocButton(doc?.id, false);
             return;
           }
           section.style.display = allowed ? "block" : "none";
@@ -3358,11 +3373,11 @@
             if (checkbox) checkbox.checked = false;
             if (options) options.style.display = "none";
             if (callbackInput) callbackInput.value = "";
-            if (doc) doc.style.display = "none";
+            setAutoSenderDocButton(doc?.id, false);
           } else {
             const checked = checkbox?.checked;
             if (options) options.style.display = checked ? "block" : "none";
-            if (doc) doc.style.display = checked ? "block" : "none";
+            setAutoSenderDocButton("editAutoSenderDoc", checked);
           }
         };
 
