@@ -243,32 +243,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // StarCapture – Screenshot & Screen Recording
-  starCapture: {
-    screenshotFull:     ()            => ipcRenderer.invoke('starcapture:screenshot-full'),
-    screenshotWindow:   ()            => ipcRenderer.invoke('starcapture:screenshot-window'),
-    screenshotArea:     ()            => ipcRenderer.invoke('starcapture:screenshot-area'),
-    getScreenSources:   ()            => ipcRenderer.invoke('starcapture:get-screen-sources'),
-    getAreaForRecord:   ()            => ipcRenderer.invoke('starcapture:get-area-for-record'),
-    copyImage:          (dataUrl)     => ipcRenderer.invoke('starcapture:copy-image', dataUrl),
-    saveImage:          (opts)        => ipcRenderer.invoke('starcapture:save-image', opts),
-    saveVideo:          (opts)        => ipcRenderer.invoke('starcapture:save-video', opts),
-    openFile:           (filePath)    => ipcRenderer.invoke('starcapture:open-file', filePath),
-    getShortcuts:       ()            => ipcRenderer.invoke('starcapture:get-shortcuts'),
-    setShortcuts:       (s)           => ipcRenderer.invoke('starcapture:set-shortcuts', s),
-    onShortcut: (cb) => {
-      if (typeof cb !== 'function') return () => {};
-      const fn = (_e, mode) => cb(mode);
-      ipcRenderer.on('starcapture:shortcut', fn);
-      return () => ipcRenderer.removeListener('starcapture:shortcut', fn);
-    },
-    onCancelled: (cb) => {
-      if (typeof cb !== 'function') return () => {};
-      const fn = () => cb();
-      ipcRenderer.on('starcapture:cancelled', fn);
-      return () => ipcRenderer.removeListener('starcapture:cancelled', fn);
-    },
-  },
-
   // Remote Control API – kontrol StarBox di komputer lain
   // Modul (CCTV, dst.) – channel hanya diteruskan bila dideklarasikan di
   // manifest modul yang sedang aktif (lihat module-loader.js).

@@ -1,0 +1,168 @@
+      <!-- ═══════════════════════════════════════════════════════ -->
+      <!-- Page: StarCapture                                        -->
+      <!-- ═══════════════════════════════════════════════════════ -->
+      <div id="page-starcapture" class="page-content">
+        <style>
+          #page-starcapture { display:none; flex-direction:column; overflow-y:auto; padding:24px; background:var(--color-dark-purple); color:var(--color-text-light); gap:24px; }
+          #page-starcapture.active { display:flex; }
+          /* Cards */
+          .sc-section-title { font-size:13px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+          .sc-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; }
+          .sc-card { background:#161b22; border:1px solid #30363d; border-radius:14px; padding:20px 16px; cursor:pointer; transition:all 0.18s; display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center; }
+          .sc-card:hover { border-color:#7c6fe0; background:#1c2130; transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,0.3); }
+          .sc-card.active-card { border-color:#10b981; background:rgba(16,185,129,0.08); }
+          .sc-card-icon { width:52px; height:52px; border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:22px; }
+          .sc-card-icon.purple { background:rgba(124,111,224,0.18); color:#a78bfa; }
+          .sc-card-icon.blue   { background:rgba(59,130,246,0.18);  color:#60a5fa; }
+          .sc-card-icon.green  { background:rgba(16,185,129,0.18);  color:#34d399; }
+          .sc-card-icon.red    { background:rgba(239,68,68,0.18);   color:#f87171; }
+          .sc-card-icon.orange { background:rgba(249,115,22,0.18);  color:#fb923c; }
+          .sc-card h3 { margin:0; font-size:14px; font-weight:600; color:#e0e0e0; }
+          .sc-card p  { margin:0; font-size:12px; color:#666; line-height:1.5; }
+          /* Shortcut badges */
+          .sc-shortcuts { display:flex; gap:8px; flex-wrap:wrap; }
+          .sc-kbd { display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,0.04); border:1px solid #30363d; border-radius:8px; padding:6px 12px; font-size:12px; color:#aaa; }
+          .sc-kbd kbd { background:rgba(255,255,255,0.08); border:1px solid #30363d; border-radius:4px; padding:1px 6px; font-size:11px; font-family:monospace; }
+          /* Preview modal */
+          #scPreviewOverlay { display:none; position:fixed; inset:0; z-index:9900; background:rgba(0,0,0,0.8); align-items:center; justify-content:center; }
+          #scPreviewOverlay.open { display:flex; }
+          .sc-preview-box { background:#161b22; border:1px solid #30363d; border-radius:16px; max-width:90vw; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 32px 80px rgba(0,0,0,0.6); }
+          .sc-preview-header { display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid #30363d; flex-shrink:0; }
+          .sc-preview-header h3 { margin:0; font-size:15px; font-weight:600; color:#e0e0e0; flex:1; }
+          .sc-preview-body { flex:1; overflow:auto; display:flex; align-items:center; justify-content:center; padding:16px; background:#0d1117; min-height:200px; }
+          #scPreviewImg { max-width:100%; max-height:60vh; border-radius:8px; display:block; }
+          #scPreviewVideo { max-width:100%; max-height:60vh; border-radius:8px; display:none; }
+          .sc-preview-footer { display:flex; align-items:center; gap:10px; padding:14px 18px; border-top:1px solid #30363d; flex-shrink:0; flex-wrap:wrap; }
+          .sc-preview-info { font-size:12px; color:#666; flex:1; }
+          .sc-btn { padding:8px 18px; border-radius:8px; border:1px solid #30363d; color:#e0e0e0; cursor:pointer; font-size:13px; background:rgba(255,255,255,0.05); transition:all 0.15s; display:flex; align-items:center; gap:6px; }
+          .sc-btn:hover { background:rgba(255,255,255,0.1); }
+          .sc-btn.primary { background:linear-gradient(135deg,#7c6fe0,#a78bfa); border:none; color:#fff; font-weight:600; }
+          .sc-btn.success { background:linear-gradient(135deg,#10b981,#34d399); border:none; color:#fff; font-weight:600; }
+          .sc-btn.danger  { border-color:#ef4444; color:#ef4444; }
+          .sc-btn.danger:hover { background:rgba(239,68,68,0.1); }
+          /* Recording controls bar */
+          #scRecordBar { display:none; position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:rgba(13,17,23,0.97); border:1px solid rgba(239,68,68,0.5); border-radius:50px; padding:10px 20px; gap:14px; align-items:center; z-index:8000; box-shadow:0 8px 32px rgba(0,0,0,0.5); }
+          #scRecordBar.open { display:flex; }
+          .sc-rec-dot { width:10px; height:10px; border-radius:50%; background:#ef4444; animation:scBlink 1s infinite; }
+          @keyframes scBlink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+          .sc-rec-time { font-size:14px; font-weight:600; color:#e0e0e0; font-family:monospace; min-width:60px; }
+          .sc-rec-btn { background:none; border:1px solid #30363d; border-radius:20px; color:#e0e0e0; cursor:pointer; padding:5px 14px; font-size:12px; transition:all 0.15s; }
+          .sc-rec-btn:hover { background:rgba(255,255,255,0.08); }
+          .sc-rec-btn.stop { border-color:#ef4444; color:#ef4444; }
+          .sc-rec-btn.stop:hover { background:rgba(239,68,68,0.1); }
+          /* Loading spinner */
+          .sc-loading { display:flex; flex-direction:column; align-items:center; gap:12px; color:#666; font-size:13px; }
+          .sc-spinner { width:36px; height:36px; border:3px solid #30363d; border-top-color:#7c6fe0; border-radius:50%; animation:spin 0.8s linear infinite; }
+          @keyframes spin { to { transform:rotate(360deg); } }
+          /* Annotation toolbar */
+          #scAnnotateToolbar { display:none; flex-shrink:0; background:#0a0e14; border-bottom:1px solid #30363d; padding:7px 14px; gap:5px; align-items:center; flex-wrap:wrap; }
+          #scAnnotateToolbar.visible { display:flex; }
+          .sc-annot-tool { width:30px; height:30px; border-radius:6px; background:rgba(255,255,255,0.05); border:1px solid #30363d; color:#888; cursor:pointer; font-size:13px; display:flex; align-items:center; justify-content:center; transition:all 0.15s; }
+          .sc-annot-tool:hover { background:rgba(255,255,255,0.1); color:#e0e0e0; }
+          .sc-annot-tool.active { background:rgba(124,111,224,0.25); border-color:#7c6fe0; color:#a78bfa; }
+          .sc-annot-sep { width:1px; height:22px; background:#30363d; margin:0 3px; flex-shrink:0; }
+          .sc-annot-color-dot { width:22px; height:22px; border-radius:50%; border:2px solid #444; cursor:pointer; }
+          .sc-annot-sz { width:28px; height:28px; border-radius:6px; background:rgba(255,255,255,0.04); border:1px solid #30363d; color:#666; cursor:pointer; font-size:9px; display:flex; align-items:center; justify-content:center; transition:all 0.15s; }
+          .sc-annot-sz:hover { color:#e0e0e0; }
+          .sc-annot-sz.active { border-color:#7c6fe0; color:#a78bfa; background:rgba(124,111,224,0.2); }
+          #scAnnotateCanvas { max-width:100%; max-height:60vh; border-radius:8px; display:none; cursor:crosshair; }
+          /* Shortcut customization */
+          .sc-shortcut-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid #1e2530; }
+          .sc-shortcut-row:last-child { border-bottom:none; }
+          .sc-shortcut-label { flex:1; font-size:13px; color:#aaa; }
+          .sc-shortcut-input { background:#0d1117; border:1px solid #30363d; border-radius:6px; color:#e0e0e0; padding:6px 10px; font-size:12px; font-family:monospace; width:220px; }
+          .sc-shortcut-input:focus { outline:none; border-color:#7c6fe0; }
+        </style>
+
+        <!-- Header -->
+        <div>
+          <h2 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#e0e0e0">
+            <i class="bi bi-camera-fill" style="color:#7c6fe0;margin-right:10px"></i><span data-i18n="sc.title">StarCapture</span>
+          </h2>
+          <p style="margin:0;font-size:13px;color:#666" data-i18n="sc.subtitle">Screenshot &amp; screen recording — professional capture tool</p>
+        </div>
+
+        <!-- Keyboard Shortcuts info + Customization -->
+        <div>
+          <div class="sc-section-title"><i class="bi bi-keyboard"></i><span data-i18n="sc.shortcuts">Keyboard Shortcuts</span></div>
+          <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:14px 18px;max-width:560px">
+            <div class="sc-shortcut-row">
+              <span class="sc-shortcut-label"><i class="bi bi-camera" style="color:#a78bfa;margin-right:6px"></i>Screenshot</span>
+              <input class="sc-shortcut-input" id="scKbScreenshot" placeholder="CommandOrControl+Shift+S" title="Tekan tombol kombinasi">
+              <button class="sc-btn" style="padding:5px 12px;font-size:12px" onclick="scSetShortcutFromInput('screenshot')"><i class="bi bi-check-lg"></i></button>
+            </div>
+            <div class="sc-shortcut-row">
+              <span class="sc-shortcut-label"><i class="bi bi-record-circle" style="color:#f87171;margin-right:6px"></i>Screen Record</span>
+              <input class="sc-shortcut-input" id="scKbRecord" placeholder="CommandOrControl+Shift+R" title="Tekan tombol kombinasi">
+              <button class="sc-btn" style="padding:5px 12px;font-size:12px" onclick="scSetShortcutFromInput('record')"><i class="bi bi-check-lg"></i></button>
+            </div>
+            <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <button class="sc-btn primary" style="padding:6px 16px;font-size:12px" onclick="scSaveShortcuts()"><i class="bi bi-floppy"></i> Simpan Pintasan</button>
+              <button class="sc-btn" style="padding:6px 14px;font-size:12px" onclick="scResetShortcuts()"><i class="bi bi-arrow-counterclockwise"></i> Reset Default</button>
+              <span id="scShortcutStatus" style="font-size:12px;color:#10b981;display:none">✓ Tersimpan</span>
+            </div>
+            <p style="margin:10px 0 0;font-size:11px;color:#555">Format: <code style="background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:3px">CommandOrControl+Shift+S</code> · Pisahkan dengan <code style="background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:3px">+</code> · Modifier: Ctrl, Shift, Alt, Meta, CommandOrControl</p>
+          </div>
+          <div class="sc-shortcuts" style="margin-top:10px">
+            <div class="sc-kbd"><kbd>ESC</kbd> <span>Batalkan capture</span></div>
+            <div class="sc-kbd"><kbd>Enter</kbd> <span>Konfirmasi seleksi</span></div>
+          </div>
+        </div>
+
+        <!-- Screenshot section -->
+        <div>
+          <div class="sc-section-title">
+            <i class="bi bi-camera" style="color:#a78bfa"></i><span data-i18n="sc.section.screenshot">Screenshot</span>
+          </div>
+          <div class="sc-cards">
+            <div class="sc-card" onclick="scTakeScreenshot('full')">
+              <div class="sc-card-icon purple"><i class="bi bi-display"></i></div>
+              <h3 data-i18n="sc.ss.full">Full Screen</h3>
+              <p data-i18n="sc.ss.full_desc">Capture the entire screen</p>
+            </div>
+            <div class="sc-card" onclick="scTakeScreenshot('area')">
+              <div class="sc-card-icon blue"><i class="bi bi-crop"></i></div>
+              <h3 data-i18n="sc.ss.area">Selected Area</h3>
+              <p data-i18n="sc.ss.area_desc">Drag to select a region</p>
+            </div>
+            <div class="sc-card" onclick="scTakeScreenshot('window')">
+              <div class="sc-card-icon green"><i class="bi bi-window"></i></div>
+              <h3 data-i18n="sc.ss.window">Active Window</h3>
+              <p data-i18n="sc.ss.window_desc">Capture the active window</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recording section -->
+        <div>
+          <div class="sc-section-title">
+            <i class="bi bi-record-circle" style="color:#f87171"></i><span data-i18n="sc.section.record">Screen Recording</span>
+          </div>
+          <div class="sc-cards">
+            <div class="sc-card" onclick="scStartRecord('full')">
+              <div class="sc-card-icon red"><i class="bi bi-display-fill"></i></div>
+              <h3 data-i18n="sc.rec.full">Full Screen</h3>
+              <p data-i18n="sc.rec.full_desc">Record the entire screen</p>
+            </div>
+            <div class="sc-card" onclick="scStartRecord('area')">
+              <div class="sc-card-icon orange"><i class="bi bi-bounding-box"></i></div>
+              <h3 data-i18n="sc.rec.area">Selected Area</h3>
+              <p data-i18n="sc.rec.area_desc">Record a selected region</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent captures gallery placeholder -->
+        <div id="scGallery" style="display:none">
+          <div class="sc-section-title"><i class="bi bi-images" style="color:#60a5fa"></i><span data-i18n="sc.gallery">Recent Captures</span></div>
+          <div id="scGalleryGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px"></div>
+        </div>
+      </div>
+
+      <!-- Recording floating controls bar -->
+      <div id="scRecordBar">
+        <div class="sc-rec-dot"></div>
+        <span id="scRecordTime" class="sc-rec-time">00:00</span>
+        <button class="sc-rec-btn" onclick="scPauseRecord()" id="scBtnPause" data-i18n="sc.rec.pause">Pause</button>
+        <button class="sc-rec-btn stop" onclick="scStopRecord()" data-i18n="sc.rec.stop">■ Stop</button>
+      </div>

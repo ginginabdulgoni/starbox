@@ -17,6 +17,8 @@
     filesystem: { icon: "bi-folder2-open", label: "Akses file di luar folder modul" },
     dialog: { icon: "bi-window-stack", label: "Dialog simpan/buka file" },
     "system-install": { icon: "bi-box-seam", label: "Memasang software sistem" },
+    "screen-capture": { icon: "bi-camera", label: "Menangkap / merekam layar" },
+    "global-shortcut": { icon: "bi-keyboard", label: "Shortcut keyboard global" },
   };
 
   let rendererConfig = [];

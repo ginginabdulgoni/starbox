@@ -1,0 +1,82 @@
+{
+  "id": "starcapture",
+  "name": "StarCapture",
+  "version": "1.0.0",
+  "description": "Screenshot (layar penuh, jendela, area) dan rekam layar dengan shortcut global, multi-layar, salin ke clipboard atau simpan ke file.",
+  "author": "StarBox",
+  "license": "MIT",
+  "icon": "bi-camera-fill",
+  "engine": {
+    "starbox": ">=2.1.0"
+  },
+  "distribution": "download",
+  "main": "main.js",
+  "renderer": "renderer.js",
+  "page": "page.html",
+  "i18n": "i18n.json",
+  "pageAfter": [
+    "resource-monitor",
+    "cron",
+    "cctv",
+    "os-virtual",
+    "mikrotik",
+    "remox",
+    "android-ios",
+    "web-emulator"
+  ],
+  "sidebar": {
+    "page": "starcapture",
+    "label": "StarCapture",
+    "labelKey": "sidebar.starcapture",
+    "icon": "bi-camera-fill",
+    "after": [
+      "resource-monitor",
+      "cron",
+      "cctv",
+      "os-virtual",
+      "mikrotik",
+      "remox",
+      "android-ios",
+      "web-emulator"
+    ],
+    "order": 70,
+    "statsLabel": "📸 StarCapture"
+  },
+  "permissions": [
+    "screen-capture",
+    "global-shortcut",
+    "dialog",
+    "filesystem"
+  ],
+  "coreServices": [
+    "getStore"
+  ],
+  "ipc": {
+    "invoke": [
+      "starcapture:get-shortcuts",
+      "starcapture:set-shortcuts",
+      "starcapture:overlay-get-mode",
+      "starcapture:overlay-copy",
+      "starcapture:overlay-save",
+      "starcapture:screenshot-full",
+      "starcapture:screenshot-window",
+      "starcapture:screenshot-area",
+      "starcapture:get-screen-sources",
+      "starcapture:get-area-for-record",
+      "starcapture:copy-image",
+      "starcapture:save-image",
+      "starcapture:save-video",
+      "starcapture:open-file"
+    ],
+    "send": [
+      "starcapture:area-confirmed",
+      "starcapture:capture-confirmed",
+      "starcapture:overlay-cancel",
+      "starcapture:overlay-close"
+    ],
+    "events": [
+      "starcapture:shortcut",
+      "starcapture:cancelled"
+    ]
+  }
+}

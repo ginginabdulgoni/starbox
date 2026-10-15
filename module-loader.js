@@ -24,6 +24,8 @@ const KNOWN_PERMISSIONS = new Set([
   "filesystem",     // baca/tulis file di luar folder data modul
   "dialog",         // membuka dialog simpan/buka file
   "system-install", // memasang software sistem (brew/apt/winget)
+  "screen-capture", // menangkap / merekam layar
+  "global-shortcut", // shortcut keyboard global (aktif walau StarBox tidak fokus)
 ]);
 
 function compareVersions(a, b) {
