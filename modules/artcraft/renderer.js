@@ -57,7 +57,7 @@ const artcraftApi = (() => {
     }
     if (app.installed) {
       b.push(`<button class="mod-btn" onclick="artcraftOpen('${id}')"><i class="bi bi-box-arrow-up-right"></i> Buka</button>`);
-      if (app.installed.source === "starbox") b.push(`<button class="mod-btn" onclick="artcraftUninstall('${id}')" title="Hapus"><i class="bi bi-trash"></i></button>`);
+      if (["starbox", "msi"].includes(app.installed.source)) b.push(`<button class="mod-btn" onclick="artcraftUninstall('${id}')" title="Hapus"><i class="bi bi-trash"></i></button>`);
     }
     if (!app.installable && !app.installed) b.push('<span class="art-summary">Belum ada build untuk OS ini</span>');
     return b.join("");

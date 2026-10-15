@@ -149,7 +149,7 @@ function wantedPackages() {
   if (PLATFORM.os === "macos") return [{ os: "macos", arch: "universal", type: "dmg" }];
   if (PLATFORM.os === "windows") {
     const archs = PLATFORM.arch === "arm64" ? ["arm64", "x64"] : PLATFORM.arch === "x86" ? ["x86"] : ["x64"];
-    return archs.map((arch) => ({ os: "windows", arch, type: "portable_zip" }));
+    return archs.map((arch) => ({ os: "windows", arch, type: "msi" }));
   }
   if (PLATFORM.os === "linux") return [{ os: "linux", arch: PLATFORM.arch, type: "app_image" }];
   return [];
@@ -264,17 +264,87 @@ function readMacBundle(app, bundlePath) {
   }
 }
 
-function readWindowsRegistry(app) {
-  // Aplikasi yang dipasang lewat MSI resmi (oleh user / ArtCraft Launcher)
-  for (const hive of ["HKCU", "HKLM"]) {
-    const r = spawnSync("reg", ["query", `${hive}\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall`, "/s", "/f", app.name, "/d"], { encoding: "utf8", timeout: 8000, windowsHide: true });
-    if (r.status !== 0 || !r.stdout) continue;
-    for (const block of r.stdout.split(/\r?\n\r?\n/)) {
-      if (!new RegExp(`DisplayName\\s+REG_SZ\\s+${app.name}\\s*$`, "m").test(block)) continue;
-      const ver = block.match(/DisplayVersion\s+REG_SZ\s+(\S+)/);
-      const loc = block.match(/InstallLocation\s+REG_SZ\s+(.+)/);
-      return { version: ver ? ver[1] : null, path: loc ? loc[1].trim() : null, source: "msi" };
+// ── Windows: sama seperti ArtCraft Launcher (crates/native/src/detect.rs) ────
+// Aplikasi dipasang lewat MSI resmi (Program Files, entri "Apps & features").
+// Deteksi: entri Uninstall dengan DisplayName = nama app & Publisher di bawah,
+// exe dicari lewat App Paths → InstallLocation → Program Files\<App>\<id>.exe.
+const WIN_PUBLISHER = "Learning Machines LLC";
+const FORMER = { pdfcraft: { ids: ["printcraft"], names: ["PrintCraft"] } };
+const appNames = (app) => [app.name, ...(FORMER[app.id]?.names || [])];
+const appStems = (app) => [app.id, ...(FORMER[app.id]?.ids || [])];
+const UNINSTALL_KEY = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
+
+function regQuery(args) {
+  const r = spawnSync("reg", ["query", ...args], { encoding: "utf8", timeout: 15000, windowsHide: true, maxBuffer: 32 * 1024 * 1024 });
+  return r.status === 0 ? r.stdout || "" : "";
+}
+
+/** Parse keluaran `reg query /s` → [{ key, values: { Name: data } }] */
+function parseRegOutput(text) {
+  const out = [];
+  let cur = null;
+  for (const line of String(text).split(/\r?\n/)) {
+    if (/^HKEY_/.test(line)) {
+      cur = { key: line.trim(), values: {} };
+      out.push(cur);
+      continue;
     }
+    const m = cur && line.match(/^\s{2,}(.+?)\s{2,}(REG_\w+)\s{2,}(.*)$/);
+    if (m) cur.values[m[1] === "(Default)" ? "" : m[1]] = m[3].trim();
+  }
+  return out;
+}
+
+let uninstallCache = { at: 0, entries: [] };
+function uninstallEntries() {
+  if (Date.now() - uninstallCache.at < 5000) return uninstallCache.entries;
+  const entries = [];
+  for (const [hive, view] of [["HKLM", "/reg:64"], ["HKLM", "/reg:32"], ["HKCU", null]]) {
+    const args = [`${hive}\\${UNINSTALL_KEY}`, "/s"];
+    if (view) args.push(view);
+    for (const e of parseRegOutput(regQuery(args))) {
+      const code = e.key.split("\\").pop();
+      if (e.values.DisplayName && !entries.some((x) => x.code === code)) entries.push({ code, ...e.values });
+    }
+  }
+  uninstallCache = { at: Date.now(), entries };
+  return entries;
+}
+
+function msiInstalls(app) {
+  const names = appNames(app);
+  return uninstallEntries()
+    .filter((e) => e.Publisher === WIN_PUBLISHER && names.includes(e.DisplayName))
+    .sort((a, b) => compareVersions(b.DisplayVersion, a.DisplayVersion));
+}
+
+function winExePath(app, installLocation) {
+  for (const stem of appStems(app)) {
+    for (const view of ["/reg:64", "/reg:32"]) {
+      const out = parseRegOutput(regQuery([`HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${stem}.exe`, "/ve", view]));
+      const p = out[0]?.values[""]?.replace(/^"|"$/g, "");
+      if (p && fs.existsSync(p)) return p;
+    }
+  }
+  const roots = ["ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"].map((v) => process.env[v]).filter(Boolean);
+  const dirs = [installLocation, ...roots.flatMap((r) => appNames(app).map((n) => path.join(r, n)))].filter(Boolean);
+  for (const d of dirs) for (const stem of appStems(app)) {
+    const p = path.join(d, `${stem}.exe`);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+function detectWindows(app) {
+  const m = msiInstalls(app)[0];
+  if (m) {
+    return { version: m.DisplayVersion || null, path: winExePath(app, m.InstallLocation), source: "msi", productCode: m.code };
+  }
+  // Salinan portable dari StarBox ArtCraft Apps versi lama (sebelum memakai MSI)
+  const state = readState()[app.id];
+  if (state?.path && fs.existsSync(state.path)) {
+    const exe = fs.statSync(state.path).isDirectory() ? findExe(state.path, app) : state.path;
+    return { version: state.version, path: exe, source: "starbox", legacyDir: state.path };
   }
   return null;
 }
@@ -282,8 +352,8 @@ function readWindowsRegistry(app) {
 function findExe(dir, app) {
   try {
     const names = fs.readdirSync(dir);
-    const exact = names.find((n) => n.toLowerCase() === `${app.id}.exe`);
-    return path.join(dir, exact || names.find((n) => n.toLowerCase().endsWith(".exe")) || "");
+    const hit = names.find((n) => appStems(app).some((s) => n.toLowerCase() === `${s}.exe`)) || names.find((n) => n.toLowerCase().endsWith(".exe"));
+    return hit ? path.join(dir, hit) : null;
   } catch {
     return null;
   }
@@ -298,10 +368,7 @@ function detect(app) {
     }
     return null;
   }
-  if (PLATFORM.os === "windows") {
-    if (state && fs.existsSync(state.path)) return { version: state.version, path: state.path, source: "starbox" };
-    return readWindowsRegistry(app);
-  }
+  if (PLATFORM.os === "windows") return detectWindows(app);
   if (PLATFORM.os === "linux") {
     if (state && fs.existsSync(state.path)) return { version: state.version, path: state.path, source: "starbox" };
     const p = path.join(linuxAppsDir(), `${app.name}.AppImage`);
@@ -355,19 +422,41 @@ function installMac(app, file) {
   }
 }
 
-async function installWindows(app, file, extractZip) {
-  const target = path.join(winAppsDir(), app.id);
-  const staged = `${target}.starbox-new`;
-  fs.rmSync(staged, { recursive: true, force: true });
-  await extractZip(file, { dir: staged });
-  // zip portable: exe di akar, atau di satu folder di dalamnya
-  let root = staged;
-  const entries = fs.readdirSync(staged);
-  if (entries.length === 1 && fs.statSync(path.join(staged, entries[0])).isDirectory()) root = path.join(staged, entries[0]);
-  fs.rmSync(target, { recursive: true, force: true });
-  fs.renameSync(root, target);
-  fs.rmSync(staged, { recursive: true, force: true });
-  return target;
+const msiexec = () => path.join(process.env.SystemRoot || "C:\\Windows", "System32", "msiexec.exe");
+let msiBusy = Promise.resolve(); // satu job Windows Installer pada satu waktu (error 1618)
+
+function explainMsi(code) {
+  if ([0, 3010, 1641].includes(code)) return null;
+  if (code === 1602) return "Dibatalkan.";
+  if (code === 1618) return "Ada instalasi Windows lain yang sedang berjalan. Tunggu sampai selesai, lalu coba lagi.";
+  if (code === 1925 || code === 1303) return "Windows tidak mengizinkan instalasi (perlu izin administrator).";
+  return `Windows Installer berhenti dengan kode ${code}.`;
+}
+
+function runMsi(args) {
+  const job = msiBusy.then(() => new Promise((resolve, reject) => {
+    const child = spawn(msiexec(), args, { windowsHide: false });
+    child.on("error", (e) => reject(new Error(`Tidak bisa menjalankan Windows Installer (${e.message})`)));
+    child.on("exit", (code) => {
+      const err = explainMsi(code);
+      if (err) reject(new Error(err)); else resolve();
+    });
+  }));
+  msiBusy = job.catch(() => {});
+  return job;
+}
+
+async function installWindows(app, file) {
+  // Sama dengan ArtCraft Launcher: MSI resmi, progres ditampilkan Windows, tanpa restart.
+  // Windows sendiri yang meminta izin (UAC) — tidak ada elevasi diam-diam.
+  await runMsi(["/i", file, "/passive", "/norestart"]);
+  uninstallCache.at = 0;
+  const found = detectWindows(app);
+  if (!found || found.source !== "msi") throw new Error("MSI selesai tetapi aplikasi tidak terdaftar di Windows.");
+  // Bersihkan salinan portable dari StarBox versi lama
+  const state = readState()[app.id];
+  if (state?.path && state.path.startsWith(winAppsDir())) fs.rmSync(state.path, { recursive: true, force: true });
+  return found.path || app.name;
 }
 
 function installLinux(app, file) {
@@ -384,7 +473,6 @@ function installLinux(app, file) {
 
 function register(context) {
   const { ipcMain, app: electronApp, shell } = context.electron;
-  const extractZip = context.requireShared("extract-zip");
   statePath = path.join(context.paths.data, "state.json");
   const busy = new Set();
 
@@ -448,11 +536,15 @@ function register(context) {
       send("install", 100, `Memasang ${app.name}…`);
       let target;
       if (PLATFORM.os === "macos") target = installMac(app, file);
-      else if (PLATFORM.os === "windows") target = await installWindows(app, file, extractZip);
+      else if (PLATFORM.os === "windows") {
+        send("install", 100, `Memasang ${app.name} — Windows mungkin meminta izin administrator…`);
+        target = await installWindows(app, file);
+      }
       else target = installLinux(app, file);
 
       const state = readState();
-      state[id] = { version: rel.version, path: target, installedAt: new Date().toISOString() };
+      if (PLATFORM.os === "windows") delete state[id]; // tercatat di Windows Installer
+      else state[id] = { version: rel.version, path: target, installedAt: new Date().toISOString() };
       writeState(state);
       send("done", 100, `${app.name} ${rel.version} terpasang`);
       return { success: true, version: rel.version, path: target };
@@ -482,13 +574,16 @@ function register(context) {
   ipcMain.handle("artcraft:open", async (_e, id) => {
     const app = findApp(id);
     const installed = app && detect(app);
-    if (!installed?.path) return { success: false, error: "Aplikasi belum terpasang" };
+    if (!installed) return { success: false, error: "Aplikasi belum terpasang" };
+    if (!installed.path && PLATFORM.os !== "windows") return { success: false, error: "Lokasi aplikasi tidak ditemukan" };
     try {
       if (PLATFORM.os === "macos") {
         spawn("/usr/bin/open", [installed.path], { detached: true, stdio: "ignore" }).unref();
       } else if (PLATFORM.os === "windows") {
-        const exe = fs.statSync(installed.path).isDirectory() ? findExe(installed.path, app) : installed.path;
-        if (!exe || !fs.existsSync(exe)) return { success: false, error: "File .exe tidak ditemukan" };
+        const exe = installed.path;
+        if (!exe || !fs.existsSync(exe)) {
+          return { success: false, error: `${app.name} terdaftar di Windows tetapi file .exe-nya tidak ditemukan. Coba Perbarui/Pasang ulang.` };
+        }
         spawn(exe, [], { detached: true, stdio: "ignore", cwd: path.dirname(exe) }).unref();
       } else {
         spawn(installed.path, [], { detached: true, stdio: "ignore" }).unref();
@@ -503,13 +598,23 @@ function register(context) {
     const app = findApp(id);
     const installed = app && detect(app);
     if (!installed) return { success: false, error: "Aplikasi belum terpasang" };
+    if (installed.source === "msi") {
+      // Uninstall resmi Windows (sama seperti ArtCraft Launcher)
+      try {
+        for (const m of msiInstalls(app)) await runMsi(["/x", m.code, "/passive", "/norestart"]);
+        uninstallCache.at = 0;
+        return { success: true };
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    }
     if (installed.source !== "starbox") {
       return { success: false, error: "Aplikasi ini tidak dipasang oleh StarBox — hapus lewat sistem operasi." };
     }
     if (isRunning(installed)) return { success: false, error: `${app.name} sedang berjalan. Tutup dulu.` };
     try {
       if (PLATFORM.os === "macos") await shell.trashItem(installed.path);
-      else fs.rmSync(installed.path, { recursive: true, force: true });
+      else fs.rmSync(installed.legacyDir || installed.path, { recursive: true, force: true });
       const state = readState();
       delete state[id];
       writeState(state);
