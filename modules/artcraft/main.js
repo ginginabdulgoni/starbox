@@ -45,6 +45,8 @@ const DETAILS = (() => {
 })();
 
 // Craft App Suite (urutan & tagline dari craft-launcher core/catalog.rs)
+const findApp = (id) => SUITE.find((a) => a.id === id) || (feedCache?.extraApps || []).find((a) => a.id === id);
+
 const SUITE = [
   { id: "photocraft", name: "PhotoCraft", tagline: "Image editing", color: "#2f7bf5" },
   { id: "vectorcraft", name: "VectorCraft", tagline: "Vector illustration", color: "#e8573f" },
@@ -200,12 +202,20 @@ let feedError = null;
 async function loadReleases(force = false) {
   if (!force && feedCache && Date.now() - feedFetchedAt < FEED_TTL_MS) return feedCache;
   const releases = {};
+  const extraApps = [];
   let notices = { announcements: [], alerts: [] };
   feedError = null;
   try {
     const feed = await getJson(FEED_URL);
     const apps = feed?.release_info?.apps || {};
     for (const app of SUITE) if (apps[app.id]?.latest_release) releases[app.id] = apps[app.id].latest_release;
+    // Aplikasi Craft baru yang belum dikenal modul ini → ikut tampil otomatis
+    for (const [id, entry] of Object.entries(apps)) {
+      if (id === "artcraft-launcher" || SUITE.some((a) => a.id === id) || !/^[a-z0-9-]+$/.test(id)) continue;
+      if (!String(entry?.repo || "").startsWith(`${OWNER}/`) || !entry.latest_release) continue;
+      extraApps.push({ id, name: String(entry.name || id), tagline: "", color: "#7c3aed" });
+      releases[id] = entry.latest_release;
+    }
     notices = feed?.important_notices || notices;
   } catch (err) {
     feedError = err.message;
@@ -216,7 +226,7 @@ async function loadReleases(force = false) {
       releases[a.id] = await releaseFromGithub(a.id);
     } catch (_) {}
   }));
-  feedCache = { releases, notices };
+  feedCache = { releases, notices, extraApps };
   feedFetchedAt = Date.now();
   return feedCache;
 }
@@ -379,8 +389,8 @@ function register(context) {
   const busy = new Set();
 
   async function list(force = false) {
-    const { releases, notices } = await loadReleases(force);
-    const apps = SUITE.map((app) => {
+    const { releases, notices, extraApps } = await loadReleases(force);
+    const apps = [...SUITE, ...(extraApps || [])].map((app) => {
       const rel = releases[app.id] || null;
       const installed = detect(app);
       const asset = rel ? pickAsset(rel) : null;
@@ -405,7 +415,7 @@ function register(context) {
   }
 
   async function install(event, id) {
-    const app = SUITE.find((a) => a.id === id);
+    const app = findApp(id);
     if (!app) throw new Error("Aplikasi tidak dikenal");
     if (busy.has(id)) throw new Error(`${app.name} sedang diproses`);
     const send = (phase, pct, message) => {
@@ -469,7 +479,7 @@ function register(context) {
   });
 
   ipcMain.handle("artcraft:open", async (_e, id) => {
-    const app = SUITE.find((a) => a.id === id);
+    const app = findApp(id);
     const installed = app && detect(app);
     if (!installed?.path) return { success: false, error: "Aplikasi belum terpasang" };
     try {
@@ -489,7 +499,7 @@ function register(context) {
   });
 
   ipcMain.handle("artcraft:uninstall", async (_e, id) => {
-    const app = SUITE.find((a) => a.id === id);
+    const app = findApp(id);
     const installed = app && detect(app);
     if (!installed) return { success: false, error: "Aplikasi belum terpasang" };
     if (installed.source !== "starbox") {
