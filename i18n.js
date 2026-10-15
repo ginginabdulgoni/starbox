@@ -23,7 +23,6 @@
       // ── Sidebar ────────────────────────────────────────────
       'sidebar.web_emulator': 'Web Emulator',
       'sidebar.whatsapp_gateway': 'WhatsApp Gateway',
-      'sidebar.android_ios': 'Android / iOS',
       'sidebar.resource_monitor': 'Resource Monitor',
       'sidebar.support_us': 'Support Us',
       'sidebar.logs': 'Logs',
@@ -49,12 +48,6 @@
       'search.placeholder': 'Search device name, service, or URL...',
 
       // ── Toolbar – Android / iOS ────────────────────────────
-      'toolbar.add_device_android': 'Add Device',
-      'toolbar.ios_simulator': 'iOS Simulator',
-      'toolbar.adb_tutorial': 'ADB Tutorial',
-      'toolbar.adb_tutorial.title': 'View guide for Developer Options, USB Debugging, and ADB Wireless',
-      'toolbar.fix_android': 'Fix Android',
-      'toolbar.fix_android.title': 'Fix busy ADB or Android emulator errors',
 
       // ── Toolbar – WA Gateway ──────────────────────────────
       'toolbar.add_device_wa': 'Add WA Device',
@@ -70,9 +63,6 @@
       'version.preparing': 'Preparing download...',
 
       // ── scrcpy Notice ─────────────────────────────────────
-      'android.scrcpy_required': 'Phone screen display requires scrcpy.',
-      'android.scrcpy_not_detected': 'scrcpy not detected. Click the button to install automatically via Homebrew/Chocolatey.',
-      'android.install_scrcpy': 'Auto install scrcpy',
 
       // ── Ads ───────────────────────────────────────────────
       'ads.eyebrow': 'Featured recommendations',
@@ -92,9 +82,6 @@
       'dialog.delete_device.cancel': 'Cancel',
 
       // ── Dialogs – Android Emulator ────────────────────────
-      'dialog.delete_emulator.title': 'Delete emulator?',
-      'dialog.delete_emulator.confirm': 'Yes, delete',
-      'dialog.delete_emulator.cancel': 'Cancel',
 
       // ── Toast messages ────────────────────────────────────
       'toast.logout.success': 'Successfully logged out.',
@@ -105,8 +92,6 @@
       'toast.device.deleted': 'Device deleted successfully.',
       'toast.device.delete_error': 'Failed to delete device.',
       'toast.device.comm_error': 'Communication error when trying to delete device.',
-      'toast.emulator.deleted': 'Emulator deleted.',
-      'toast.emulator.delete_error': 'Delete error: ',
 
 
       // ── Resource Monitor page ─────────────────────────────
@@ -333,7 +318,6 @@
       // ── Sidebar ────────────────────────────────────────────
       'sidebar.web_emulator': 'Web Emulator',
       'sidebar.whatsapp_gateway': 'WhatsApp Gateway',
-      'sidebar.android_ios': 'Android / iOS',
       'sidebar.resource_monitor': 'Resource Monitor',
       'sidebar.support_us': 'Support Us',
       'sidebar.logs': 'Log',
@@ -359,12 +343,6 @@
       'search.placeholder': 'Cari nama device, layanan, atau URL...',
 
       // ── Toolbar – Android / iOS ────────────────────────────
-      'toolbar.add_device_android': 'Tambah Device',
-      'toolbar.ios_simulator': 'iOS Simulator',
-      'toolbar.adb_tutorial': 'Tutorial ADB',
-      'toolbar.adb_tutorial.title': 'Lihat panduan Developer Options, USB Debugging, dan ADB Wireless',
-      'toolbar.fix_android': 'Fix Android',
-      'toolbar.fix_android.title': 'Perbaiki masalah ADB busy atau error emulator Android',
 
       // ── Toolbar – WA Gateway ──────────────────────────────
       'toolbar.add_device_wa': 'Tambah Device WA',
@@ -380,9 +358,6 @@
       'version.preparing': 'Menyiapkan unduhan...',
 
       // ── scrcpy Notice ─────────────────────────────────────
-      'android.scrcpy_required': 'Tampilan layar HP membutuhkan scrcpy.',
-      'android.scrcpy_not_detected': 'scrcpy belum terdeteksi. Klik tombol di samping untuk menginstal otomatis melalui Homebrew/Chocolatey.',
-      'android.install_scrcpy': 'Install scrcpy otomatis',
 
       // ── Ads ───────────────────────────────────────────────
       'ads.eyebrow': 'Rekomendasi pilihan',
@@ -402,9 +377,6 @@
       'dialog.delete_device.cancel': 'Batal',
 
       // ── Dialogs – Android Emulator ────────────────────────
-      'dialog.delete_emulator.title': 'Hapus emulator?',
-      'dialog.delete_emulator.confirm': 'Ya, hapus',
-      'dialog.delete_emulator.cancel': 'Batal',
 
       // ── Toast messages ────────────────────────────────────
       'toast.logout.success': 'Berhasil logout.',
@@ -415,8 +387,6 @@
       'toast.device.deleted': 'Device berhasil dihapus.',
       'toast.device.delete_error': 'Gagal menghapus device.',
       'toast.device.comm_error': 'Terjadi kesalahan komunikasi saat mencoba menghapus device.',
-      'toast.emulator.deleted': 'Emulator dihapus.',
-      'toast.emulator.delete_error': 'Error hapus: ',
 
 
       // ── Resource Monitor page ─────────────────────────────

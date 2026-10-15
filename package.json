@@ -68,6 +68,7 @@
       "!modules/mikrotik/**/*",
       "!modules/os-virtual/**/*",
       "!modules/starcapture/**/*",
+      "!modules/android-ios/**/*",
       "!dist-modules/**/*"
     ],
     "mac": {

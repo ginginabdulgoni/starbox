@@ -71,6 +71,9 @@
     const firstExisting = (cands, makeSel) =>
       [].concat(cands || []).map((c) => document.querySelector(makeSel(c))).find(Boolean) || null;
 
+    // Bila tak satu pun anchor "after" ada, sisipkan setelah item modul
+    // sebelumnya (urutan tetap) atau setelah Web Emulator.
+    let lastModuleItem = null;
     for (const mod of ordered) {
       for (const [lang, dict] of Object.entries(mod.i18n || {})) {
         if (typeof window.registerTranslations === "function") window.registerTranslations(lang, dict);
@@ -105,10 +108,11 @@
         item.innerHTML = `<i class="bi ${esc(sb.icon || "bi-puzzle")}"></i>` +
           `<span${sb.labelKey ? ` data-i18n="${esc(sb.labelKey)}"` : ""}>${esc(sb.label || mod.name)}</span>`;
 
-        const after = firstExisting(sb.after, (p) => `.sidebar-item[data-page="${p}"]`);
-        const fallback = [...document.querySelectorAll(".sidebar-item[data-page]")].pop();
+        const after = firstExisting(sb.after, (p) => `.sidebar-item[data-page="${p}"]`)
+          || lastModuleItem
+          || document.querySelector('.sidebar-item[data-page="web-emulator"]');
         if (after) insertAfter(after, item);
-        else if (fallback) insertAfter(fallback, item);
+        lastModuleItem = item;
       }
 
       if (mod.pageHtml) {

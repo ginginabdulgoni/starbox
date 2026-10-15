@@ -247,6 +247,7 @@
       </div>
     </div>
 
+    <script src="api-shim.js"></script>
     <script>
       (function () {
         const params = new URLSearchParams(window.location.search);
@@ -584,7 +585,7 @@
         async function checkInstallation() {
           startInitializationWatch();
           appendLog("info", "Memeriksa status instalasi emulator...");
-          if (!electronAPI || !electronAPI.android) {
+          if (!androidEmuApi) {
             appendLog("error", "Bridge Electron tidak tersedia.");
             statusDetail.textContent = "Bridge Electron tidak tersedia.";
             startBtn.disabled = true;
@@ -592,9 +593,9 @@
             return;
           }
           try {
-            const result = await electronAPI.android.checkInstallation();
+            const result = await androidEmuApi.checkInstallation();
             const runtimeStatus = uid
-              ? await electronAPI.android.getStatus(uid)
+              ? await androidEmuApi.getStatus(uid)
               : null;
             if (runtimeStatus && runtimeStatus.running) {
               statusText.textContent = "Emulator Berjalan!";
@@ -667,7 +668,7 @@
           resetLog();
           appendLog("info", "Memeriksa instalasi emulator...");
 
-          if (!electronAPI || !electronAPI.android) {
+          if (!androidEmuApi) {
             appendLog("error", "Bridge Electron tidak tersedia.");
             statusText.textContent = "Error Inisialisasi";
             statusDetail.textContent = "Bridge Electron tidak tersedia.";
@@ -677,7 +678,7 @@
 
           let installCheck;
           try {
-            installCheck = await electronAPI.android.checkInstallation();
+            installCheck = await androidEmuApi.checkInstallation();
           } catch (err) {
             const message = err && err.message ? err.message : "Gagal memeriksa status instalasi";
             appendLog("error", message);
@@ -696,7 +697,7 @@
             appendLog("info", "Emulator belum terpasang. Mengunduh komponen...");
 
             try {
-              await electronAPI.android.download(uid);
+              await androidEmuApi.download(uid);
               statusText.textContent = "Unduhan Selesai!";
               statusDetail.textContent = "Memulai emulator...";
               progressContainer.style.display = "none";
@@ -719,7 +720,7 @@
           setBootSplash(true, "Menyiapkan emulator Android...");
 
           try {
-            const result = await electronAPI.android.start(uid, {});
+            const result = await androidEmuApi.start(uid, {});
             setBootSplash(false);
             if (result && result.success) {
               statusText.textContent = "Emulator Berjalan!";
@@ -756,7 +757,7 @@
           statusText.textContent = "Menghentikan...";
           appendLog("info", "Menghentikan emulator...");
 
-          if (!electronAPI || !electronAPI.android) {
+          if (!androidEmuApi) {
             appendLog("error", "Bridge Electron tidak tersedia.");
             statusDetail.textContent = "Bridge Electron tidak tersedia.";
             stopBtn.disabled = false;
@@ -764,7 +765,7 @@
           }
 
           try {
-            await electronAPI.android.stop(uid);
+            await androidEmuApi.stop(uid);
             statusText.textContent = "Emulator Dihentikan";
             statusDetail.textContent = "";
             stopBtn.style.display = "none";
@@ -784,10 +785,10 @@
         stopBtn.addEventListener("click", stopEmulator);
 
         const electronAPI = window.electronAPI;
-        if (electronAPI && electronAPI.android) {
+        if (electronAPI && androidEmuApi) {
           appendLog("success", "Bridge Electron tersedia.");
-          electronAPI.android.onDownloadProgress(handleDownloadProgress);
-          electronAPI.android.onStartProgress(handleStartProgress);
+          androidEmuApi.onDownloadProgress(handleDownloadProgress);
+          androidEmuApi.onStartProgress(handleStartProgress);
           if (!uid) {
             appendLog("error", "UID perangkat tidak ditemukan di query parameter.");
             statusDetail.textContent = "UID perangkat tidak ditemukan.";

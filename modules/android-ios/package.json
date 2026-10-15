@@ -1,0 +1,10 @@
+{
+  "name": "starbox-module-android-ios",
+  "version": "1.0.0",
+  "private": true,
+  "description": "StarBox module: Android emulator, ADB remote, StarSync & iOS Simulator",
+  "license": "MIT",
+  "dependencies": {
+    "extract-zip": "2.0.1"
+  }
+}

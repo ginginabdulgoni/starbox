@@ -166,3 +166,58 @@
         <button class="sc-rec-btn" onclick="scPauseRecord()" id="scBtnPause" data-i18n="sc.rec.pause">Pause</button>
         <button class="sc-rec-btn stop" onclick="scStopRecord()" data-i18n="sc.rec.stop">■ Stop</button>
       </div>
+
+      <!-- Preview overlay (screenshot result) -->
+      <div id="scPreviewOverlay">
+        <div class="sc-preview-box" style="min-width:min(700px,90vw)">
+          <div class="sc-preview-header">
+            <i class="bi bi-image" id="scPreviewIcon" style="font-size:18px;color:#7c6fe0"></i>
+            <h3 id="scPreviewTitle" data-i18n="sc.preview.title">Screenshot Preview</h3>
+            <button onclick="scClosePreview()" style="background:none;border:none;color:#666;cursor:pointer;font-size:20px;line-height:1;padding:0 4px">×</button>
+          </div>
+          <!-- Annotation Toolbar (screenshot only) -->
+          <div id="scAnnotateToolbar">
+            <button class="sc-annot-tool active" id="scToolArrow"   title="Arrow"      onclick="scAnnotation.setTool('arrow')"><i class="bi bi-arrow-up-right"></i></button>
+            <button class="sc-annot-tool"        id="scToolRect"    title="Rectangle"  onclick="scAnnotation.setTool('rect')"><i class="bi bi-square"></i></button>
+            <button class="sc-annot-tool"        id="scToolEllipse" title="Ellipse"    onclick="scAnnotation.setTool('ellipse')"><i class="bi bi-circle"></i></button>
+            <button class="sc-annot-tool"        id="scToolPencil"  title="Freehand"   onclick="scAnnotation.setTool('pencil')"><i class="bi bi-pencil"></i></button>
+            <button class="sc-annot-tool"        id="scToolText"    title="Text"       onclick="scAnnotation.setTool('text')"><i class="bi bi-fonts"></i></button>
+            <button class="sc-annot-tool"        id="scToolBlur"    title="Censor/Blur" onclick="scAnnotation.setTool('blur')"><i class="bi bi-eye-slash"></i></button>
+            <div class="sc-annot-sep"></div>
+            <label title="Color" style="position:relative;cursor:pointer;display:flex;align-items:center;">
+              <div id="scAnnotColorDot" class="sc-annot-color-dot" style="background:#000000"></div>
+              <input type="color" id="scAnnotColor" value="#000000" style="position:absolute;opacity:0;width:100%;height:100%;cursor:pointer" onchange="scAnnotation.setColor(this.value)">
+            </label>
+            <div class="sc-annot-sep"></div>
+            <button class="sc-annot-sz active" id="scAnnotSz2" title="Thin (2px)"   onclick="scAnnotation.setWidth(2, this)"><i class="bi bi-dash"></i></button>
+            <button class="sc-annot-sz"        id="scAnnotSz4" title="Medium (4px)" onclick="scAnnotation.setWidth(4, this)">━</button>
+            <button class="sc-annot-sz"        id="scAnnotSz8" title="Thick (8px)"  onclick="scAnnotation.setWidth(8, this)"><b>═</b></button>
+            <div class="sc-annot-sep"></div>
+            <button class="sc-btn" style="padding:4px 10px;font-size:12px" onclick="scAnnotation.undo()" title="Undo"><i class="bi bi-arrow-counterclockwise"></i></button>
+            <button class="sc-btn" style="padding:4px 10px;font-size:12px" onclick="scAnnotation.clear()" title="Clear all"><i class="bi bi-trash"></i></button>
+          </div>
+          <div class="sc-preview-body">
+            <div id="scPreviewLoading" class="sc-loading">
+              <div class="sc-spinner"></div>
+              <span data-i18n="sc.preview.loading">Capturing...</span>
+            </div>
+            <canvas id="scAnnotateCanvas"></canvas>
+            <video id="scPreviewVideo" controls></video>
+          </div>
+          <div class="sc-preview-footer">
+            <span class="sc-preview-info" id="scPreviewMeta"></span>
+            <button class="sc-btn" onclick="scCopyToClipboard()" id="scBtnCopy">
+              <i class="bi bi-clipboard"></i><span data-i18n="sc.preview.copy">Copy ke Clipboard</span>
+            </button>
+            <button class="sc-btn success" onclick="scSaveFile()" id="scBtnSave">
+              <i class="bi bi-floppy"></i><span data-i18n="sc.preview.save">Simpan ke File</span>
+            </button>
+            <button class="sc-btn primary" onclick="scSaveBoth()" id="scBtnBoth">
+              <i class="bi bi-archive"></i><span data-i18n="sc.preview.both">Copy &amp; Simpan</span>
+            </button>
+            <button class="sc-btn danger" onclick="scClosePreview()">
+              <i class="bi bi-x-lg"></i><span data-i18n="sc.preview.discard">Buang</span>
+            </button>
+          </div>
+        </div>
+      </div>

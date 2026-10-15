@@ -287,6 +287,7 @@
       </div>
     </div>
 
+    <script src="api-shim.js"></script>
     <script>
       const uid = "ios-simulator";
       let currentDevices = [];
@@ -317,7 +318,7 @@
       async function loadDevices() {
         try {
           appendLog("info", "Memuat daftar iOS simulators...");
-          const result = await electronAPI.ios.getDevices();
+          const result = await iosApi.getDevices();
 
           if (result.success && result.devices) {
             currentDevices = result.devices;
@@ -405,7 +406,7 @@
         statusDetail.textContent = "Tunggu 5-10 detik...";
 
         try {
-          const result = await electronAPI.ios.boot(selectedDeviceUDID);
+          const result = await iosApi.boot(selectedDeviceUDID);
 
           if (result.success) {
             appendLog("success", "Simulator berhasil boot!");
@@ -446,7 +447,7 @@
         statusText.textContent = "Shutting Down...";
 
         try {
-          const result = await electronAPI.ios.shutdown(selectedDeviceUDID);
+          const result = await iosApi.shutdown(selectedDeviceUDID);
 
           if (result.success) {
             appendLog("success", "Simulator berhasil dimatikan");
@@ -491,8 +492,8 @@
       });
 
       // Listen for boot progress
-      if (electronAPI && electronAPI.ios && electronAPI.ios.onBootProgress) {
-        electronAPI.ios.onBootProgress((data) => {
+      if (iosApi.onBootProgress) {
+        iosApi.onBootProgress((data) => {
           const phase = data.phase || "";
           const message = data.message || "";
 
@@ -512,7 +513,7 @@
 
       // Initialize
       (async () => {
-        if (!electronAPI || !electronAPI.ios) {
+        if (!iosApi) {
           appendLog("error", "iOS API tidak tersedia.");
           statusText.textContent = "Error";
           statusDetail.textContent = "iOS API tidak tersedia";
@@ -520,7 +521,7 @@
         }
 
         // Check if iOS simulators are available
-        const checkResult = await electronAPI.ios.checkAvailability();
+        const checkResult = await iosApi.checkAvailability();
         if (!checkResult.available) {
           appendLog("error", "Xcode atau simctl tidak ditemukan.");
           statusText.textContent = "Xcode Tidak Ditemukan";

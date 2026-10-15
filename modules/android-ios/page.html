@@ -1,0 +1,1396 @@
+      <!-- Page: Android / iOS -->
+      <div id="page-android-ios" class="page-content">
+        <main class="page-main">
+          <!-- Hero Card: Android & iOS Device Hub -->
+          <div class="android-hero-card">
+            <div class="android-hero-top">
+              <div class="android-badge-wrap">
+                <span class="android-hero-badge"><i class="bi bi-android2"></i> Android & iOS Hub</span>
+                <span class="android-hero-badge-sub"><i class="bi bi-cpu"></i> Hardware Acceleration</span>
+                <span class="android-hero-badge-sync"><i class="bi bi-grid-3x3-gap"></i> StarSync Multi-Control</span>
+              </div>
+            </div>
+            <div class="android-hero-body">
+              <h1 class="android-hero-title">
+                <i class="bi bi-phone-fill android-hero-icon"></i>
+                <span>Android Emulator & Device Center</span>
+              </h1>
+              <p class="android-hero-desc">
+                Pusat manajemen Android Virtual Emulator berkinerja tinggi, HP fisik via ADB USB & Wireless, serta integrasi iOS Simulator untuk otomatisasi, testing, dan sinkronisasi multi-device.
+              </p>
+            </div>
+            <div class="android-hero-highlights">
+              <div class="android-hl-item"><i class="bi bi-lightning-charge-fill" style="color:#fbbf24;"></i> KVM / Hypervisor GPU Boost</div>
+              <div class="android-hl-item"><i class="bi bi-display" style="color:#34d399;"></i> Ultra-low Latency Scrcpy Mirror</div>
+              <div class="android-hl-item"><i class="bi bi-broadcast" style="color:#60a5fa;"></i> ADB Wireless Instant Connect</div>
+              <div class="android-hl-item"><i class="bi bi-shield-check" style="color:#a78bfa;"></i> Root & Play Store Support</div>
+            </div>
+          </div>
+
+          <!-- Dashboard Summary Metrics -->
+          <div class="android-dashboard-metrics" id="androidDashboardMetrics">
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(61, 220, 132, 0.15); color: #3ddc84;">
+                <i class="bi bi-phone"></i>
+              </div>
+              <div class="metric-content">
+                <span class="metric-label">Total Devices</span>
+                <span class="metric-value" id="metricAndroidTotal">0</span>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(16, 185, 129, 0.15); color: #34d399;">
+                <i class="bi bi-play-circle-fill"></i>
+              </div>
+              <div class="metric-content">
+                <span class="metric-label">Running</span>
+                <span class="metric-value" id="metricAndroidRunning">0</span>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(139, 92, 246, 0.15); color: #a78bfa;">
+                <i class="bi bi-cpu"></i>
+              </div>
+              <div class="metric-content">
+                <span class="metric-label">Emulators</span>
+                <span class="metric-value" id="metricAndroidEmus">0</span>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa;">
+                <i class="bi bi-usb-symbol"></i>
+              </div>
+              <div class="metric-content">
+                <span class="metric-label">Fisik (ADB)</span>
+                <span class="metric-value" id="metricAndroidPhysical">0</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Modern Toolbar -->
+          <div class="toolbar android-toolbar">
+            <div class="android-toolbar-left">
+              <button type="button" class="btn-primary-android" onclick="openModalAndroid()">
+                <i class="bi bi-plus-circle-fill"></i> <span data-i18n="toolbar.add_device_android">Tambah Device</span>
+              </button>
+              <button
+                type="button"
+                id="androidSyncButton"
+                class="btn-sync-android"
+                onclick="openAndroidSyncWindow()"
+                title="Kontrol serentak banyak device Android (emulator & HP fisik) dalam satu grid"
+              >
+                <i class="bi bi-grid-3x3-gap-fill"></i> <span>StarSync Multi-Control</span>
+              </button>
+              <button
+                type="button"
+                class="secondary"
+                onclick="openAdbTutorialModal()"
+                data-i18n-title="toolbar.adb_tutorial.title"
+                title="Panduan Opsi Pengembang, USB Debugging, dan ADB Wireless"
+              >
+                <i class="bi bi-journal-check"></i> <span data-i18n="toolbar.adb_tutorial">Panduan ADB</span>
+              </button>
+              <button
+                type="button"
+                id="fixAndroidButtonAndroid"
+                class="secondary"
+                onclick="fixAndroidEmulator()"
+                data-i18n-title="toolbar.fix_android.title"
+                title="Perbaiki masalah ADB busy atau error emulator Android"
+              >
+                <i class="bi bi-tools"></i> <span data-i18n="toolbar.fix_android">Fix Android</span>
+              </button>
+              <button
+                type="button"
+                id="iosSimulatorButtonAndroid"
+                class="secondary"
+                onclick="openIOSSimulator()"
+                style="display: none"
+              >
+                <i class="bi bi-apple"></i> <span data-i18n="toolbar.ios_simulator">iOS Simulator</span>
+              </button>
+            </div>
+
+            <div class="device-search-wrapper android-search-wrap">
+              <i class="bi bi-search"></i>
+              <input
+                type="text"
+                id="androidSearchInput"
+                placeholder="Cari nama device, alias, atau ADB ID..."
+                oninput="window.filterAndroidBySearch(this.value)"
+              />
+            </div>
+          </div>
+
+          <!-- Quick Filter Chips -->
+          <div class="device-filter-chips android-filter-chips" id="androidFilterChips">
+            <span class="filter-chips-label"><i class="bi bi-funnel-fill"></i> Filter:</span>
+            <button type="button" class="filter-chip is-active" data-filter="all" onclick="window.applyAndroidFilter('all')">
+              <span>Semua</span>
+              <span class="filter-badge" id="badgeAndroidAll">0</span>
+            </button>
+            <button type="button" class="filter-chip" data-filter="running" onclick="window.applyAndroidFilter('running')">
+              <i class="bi bi-circle-fill" style="color: #34d399; font-size: 0.55rem;"></i>
+              <span>Running</span>
+              <span class="filter-badge" id="badgeAndroidRunning">0</span>
+            </button>
+            <button type="button" class="filter-chip" data-filter="emulator" onclick="window.applyAndroidFilter('emulator')">
+              <i class="bi bi-cpu" style="color: #a78bfa;"></i>
+              <span>Emulator</span>
+              <span class="filter-badge" id="badgeAndroidEmulator">0</span>
+            </button>
+            <button type="button" class="filter-chip" data-filter="physical" onclick="window.applyAndroidFilter('physical')">
+              <i class="bi bi-phone" style="color: #3ddc84;"></i>
+              <span>HP Fisik (ADB)</span>
+              <span class="filter-badge" id="badgeAndroidPhysical">0</span>
+            </button>
+            <button type="button" class="filter-chip" data-filter="stopped" onclick="window.applyAndroidFilter('stopped')">
+              <i class="bi bi-pause-circle"></i>
+              <span>Stopped</span>
+              <span class="filter-badge" id="badgeAndroidStopped">0</span>
+            </button>
+          </div>
+
+          <!-- Hardware Acceleration Status Panel -->
+          <div id="accelInfoPanel" class="accel-panel" style="display:none;">
+            <div class="accel-panel-head">
+              <i id="accelInfoIcon" class="bi bi-cpu"></i>
+              <div class="accel-panel-text">
+                <div id="accelInfoTitle" class="accel-panel-title">Memeriksa akselerasi hardware...</div>
+                <div id="accelInfoSub" class="accel-panel-sub"></div>
+              </div>
+              <div class="accel-panel-actions">
+                <button type="button" class="accel-btn ghost" onclick="refreshAccelStatus()">
+                  <i class="bi bi-arrow-clockwise"></i> Cek Ulang
+                </button>
+                <button type="button" id="accelEnableBtn" class="accel-btn primary" style="display:none;" onclick="tryEnableAcceleration()">
+                  <i class="bi bi-lightning-charge-fill"></i> Aktifkan Otomatis
+                </button>
+              </div>
+            </div>
+            <div id="accelInfoSteps" class="accel-panel-steps" style="display:none;"></div>
+          </div>
+
+          <div
+            id="device-limit-info-android"
+            class="device-limit-info"
+            role="status"
+            aria-live="polite"
+          ></div>
+
+          <!-- Scrcpy Notice -->
+          <div
+            id="scrcpyStatusNotice"
+            class="device-limit-info scrcpy-notice"
+            style="display: none"
+          >
+            <div class="scrcpy-notice-text">
+              <strong data-i18n="android.scrcpy_required">Mirroring layar HP membutuhkan scrcpy.</strong>
+              <p id="scrcpyStatusText" data-i18n="android.scrcpy_not_detected">
+                scrcpy belum terdeteksi di sistem Anda. Klik tombol di samping untuk menginstal otomatis.
+              </p>
+            </div>
+            <button id="installScrcpyButton" type="button" class="btn-install-scrcpy">
+              <i class="bi bi-download"></i> <span data-i18n="android.install_scrcpy">Auto Install scrcpy</span>
+            </button>
+          </div>
+
+          <!-- Device List Grid -->
+          <div id="device-list-android" class="device-list android-remote-list">
+            Loading...
+          </div>
+        </main>
+      </div>
+      <!-- End Page: Android / iOS -->
+
+      <!-- Modal: Add Android Device -->
+      <div id="addModalAndroid" class="modal">
+        <div class="modal-content" style="max-width: 520px">
+          <span class="close" onclick="closeModalAndroid()">&times;</span>
+          <h3 id="addAndroidModalTitle"><i class="bi bi-android2"></i> Tambah Android</h3>
+
+          <!-- Type Toggle -->
+          <div style="display:flex;gap:0;margin-bottom:16px;border:1px solid #30363d;border-radius:8px;overflow:hidden">
+            <button id="btnAndroidTypeAdb" onclick="switchAndroidAddType('adb')"
+              style="flex:1;padding:9px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all .15s;
+                background:rgba(61,220,132,0.15);color:#3ddc84;">
+              <i class="bi bi-phone"></i> ADB / Remote
+            </button>
+            <button id="btnAndroidTypeEmu" onclick="switchAndroidAddType('emulator')"
+              style="flex:1;padding:9px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all .15s;
+                background:transparent;color:#888;">
+              <i class="bi bi-cpu"></i> Android Emulator
+            </button>
+          </div>
+
+          <label for="deviceNameAndroid">Nama Device</label>
+          <input
+            type="text"
+            id="deviceNameAndroid"
+            placeholder="Misal: Samsung WA 1"
+          />
+
+          <div id="androidFormTypeAdb">
+          <label for="androidAdbDeviceSelect" style="margin-top: 12px"
+            >Pilih Perangkat ADB</label
+          >
+          <div class="adb-select-row">
+            <select
+              id="androidAdbDeviceSelect"
+              class="adb-device-select"
+            ></select>
+            <button
+              type="button"
+              class="ghost"
+              onclick="refreshAdbDeviceOptions('androidAdbDeviceSelect')"
+              title="Refresh daftar ADB"
+              id="btnRefreshAdb"
+            >
+              <i class="bi bi-arrow-repeat"></i>
+            </button>
+          </div>
+
+          <!-- Progress Bar untuk Scanning -->
+          <div id="adbScanProgress" style="display: none; margin-top: 8px">
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 4px;
+              "
+            >
+              <span id="adbScanStatus" style="font-size: 12px; color: #666"
+                >Scanning...</span
+              >
+              <span
+                id="adbScanPercent"
+                style="font-size: 12px; font-weight: 600; color: #3ddc84"
+                >0%</span
+              >
+            </div>
+            <div
+              style="
+                width: 100%;
+                height: 8px;
+                background: #e0e0e0;
+                border-radius: 4px;
+                overflow: hidden;
+              "
+            >
+              <div
+                id="adbScanProgressBar"
+                style="
+                  width: 0%;
+                  height: 100%;
+                  background: linear-gradient(90deg, #3ddc84, #2ecc71);
+                  transition: width 0.3s ease;
+                "
+              ></div>
+            </div>
+          </div>
+
+          <!-- Mode Selection: Scan vs Manual Input -->
+          <div
+            style="
+              margin-top: 12px;
+              padding: 10px;
+              background: rgba(61, 220, 132, 0.05);
+              border: 1px solid rgba(61, 220, 132, 0.2);
+              border-radius: 6px;
+            "
+          >
+            <div
+              style="
+                font-size: 12px;
+                font-weight: 600;
+                margin-bottom: 8px;
+                color: #333;
+              "
+            >
+              Pilih Metode:
+            </div>
+
+            <!-- Mode Toggle -->
+            <div style="display: flex; gap: 12px; margin-bottom: 12px">
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  cursor: pointer;
+                  user-select: none;
+                "
+              >
+                <input
+                  type="radio"
+                  name="adbInputMode"
+                  id="adbModeScan"
+                  value="scan"
+                  checked
+                  onchange="toggleAdbInputMode()"
+                  style="margin-right: 6px; cursor: pointer"
+                />
+                <span style="font-size: 12px; font-weight: 600"
+                  >🔍 Scan Otomatis</span
+                >
+              </label>
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  cursor: pointer;
+                  user-select: none;
+                "
+              >
+                <input
+                  type="radio"
+                  name="adbInputMode"
+                  id="adbModeManual"
+                  value="manual"
+                  onchange="toggleAdbInputMode()"
+                  style="margin-right: 6px; cursor: pointer"
+                />
+                <span style="font-size: 12px; font-weight: 600"
+                  >✏️ Input Manual</span
+                >
+              </label>
+            </div>
+
+            <!-- Scan Options (shown when Scan mode selected) -->
+            <div id="adbScanOptionsSection">
+              <div
+                style="
+                  font-size: 12px;
+                  font-weight: 600;
+                  margin-bottom: 8px;
+                  color: #333;
+                "
+              >
+                Pilih Mode Scan:
+              </div>
+
+              <!-- USB Scan Option -->
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  cursor: pointer;
+                  user-select: none;
+                  margin-bottom: 6px;
+                "
+              >
+                <input
+                  type="checkbox"
+                  id="adbScanUsb"
+                  checked
+                  style="margin-right: 8px; cursor: pointer"
+                />
+                <span style="font-size: 12px">
+                  <strong>USB/Kabel</strong>
+                  <span style="color: #666; font-weight: normal"
+                    >(&lt;1 detik)</span
+                  >
+                </span>
+              </label>
+
+              <!-- WiFi Quick Scan -->
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  cursor: pointer;
+                  user-select: none;
+                  margin-bottom: 6px;
+                "
+              >
+                <input
+                  type="checkbox"
+                  id="adbScanWifiQuick"
+                  style="margin-right: 8px; cursor: pointer"
+                />
+                <span style="font-size: 12px">
+                  <strong>WiFi Quick</strong>
+                  <span style="color: #666; font-weight: normal"
+                    >(30+ port umum, ~30-60 detik)</span
+                  >
+                </span>
+              </label>
+
+              <!-- WiFi Deep Scan -->
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  cursor: pointer;
+                  user-select: none;
+                "
+              >
+                <input
+                  type="checkbox"
+                  id="adbScanWifiDeep"
+                  style="margin-right: 8px; cursor: pointer"
+                />
+                <span style="font-size: 12px">
+                  <strong>WiFi Deep</strong>
+                  <span style="color: #666; font-weight: normal"
+                    >(port 30000-49999, ~2-5 menit)</span
+                  >
+                </span>
+              </label>
+
+              <p
+                style="
+                  font-size: 10px;
+                  color: #999;
+                  margin: 8px 0 0 0;
+                  line-height: 1.3;
+                "
+              >
+                💡 Tip: Pilih USB saja untuk scan cepat, atau tambahkan WiFi
+                jika device tidak terdeteksi.
+              </p>
+            </div>
+
+            <!-- Manual Input Section (hidden by default) -->
+            <div id="adbManualInputSection" style="display: none">
+              <div style="margin-bottom: 8px">
+                <label
+                  for="adbManualIp"
+                  style="
+                    font-size: 12px;
+                    font-weight: 600;
+                    display: block;
+                    margin-bottom: 4px;
+                  "
+                >
+                  IP Address:
+                </label>
+                <input
+                  type="text"
+                  id="adbManualIp"
+                  placeholder="Misal: 192.168.100.21"
+                  style="
+                    width: 100%;
+                    padding: 6px 8px;
+                    font-size: 12px;
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                  "
+                />
+              </div>
+              <div>
+                <label
+                  for="adbManualPort"
+                  style="
+                    font-size: 12px;
+                    font-weight: 600;
+                    display: block;
+                    margin-bottom: 4px;
+                  "
+                >
+                  Port:
+                </label>
+                <input
+                  type="text"
+                  id="adbManualPort"
+                  placeholder="Misal: 43393"
+                  style="
+                    width: 100%;
+                    padding: 6px 8px;
+                    font-size: 12px;
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                  "
+                />
+              </div>
+              <button
+                type="button"
+                onclick="connectManualAdbDevice()"
+                style="
+                  margin-top: 8px;
+                  width: 100%;
+                  padding: 8px;
+                  background: #3ddc84;
+                  color: white;
+                  border: none;
+                  border-radius: 4px;
+                  font-size: 12px;
+                  font-weight: 600;
+                  cursor: pointer;
+                "
+              >
+                <i class="bi bi-plug"></i> Connect Device
+              </button>
+              <p
+                style="
+                  font-size: 10px;
+                  color: #999;
+                  margin: 8px 0 0 0;
+                  line-height: 1.3;
+                "
+              >
+                💡 Tip: Pastikan ADB wireless debugging sudah aktif di HP. IP
+                dan port bisa dilihat di Settings > Developer Options > Wireless
+                debugging.
+              </p>
+            </div>
+          </div>
+
+          <p class="small-text" style="margin-top: 8px">
+            Pastikan HP sudah terhubung melalui USB atau jaringan dan terdeteksi
+            oleh perintah <code>adb devices</code>.
+          </p>
+
+          <label for="androidRemoteServiceSelect" style="margin-top: 12px"
+            >Jenis Layanan</label
+          >
+          <select
+            id="androidRemoteServiceSelect"
+            onchange="toggleAddWhatsAppFields()"
+          >
+            <option value="" disabled selected>-- Pilih Layanan --</option>
+            <option value="android-general">General (SCRCPY)</option>
+            <option value="android-whatsapp">WhatsApp Automation</option>
+          </select>
+          <p class="small-text" style="margin-top: 4px">
+            Tentukan layanan utama yang akan dijalankan di perangkat fisik
+            (WhatsApp, TikTok, YouTube, dll).
+          </p>
+
+          <!-- WhatsApp Automation Fields (conditional) -->
+          <div
+            id="addWhatsAppAutomationFields"
+            style="
+              display: none;
+              margin-top: 16px;
+              padding: 12px;
+              background: rgba(37, 211, 102, 0.05);
+              border: 1px solid rgba(37, 211, 102, 0.2);
+              border-radius: 8px;
+            "
+          >
+            <div
+              style="
+                font-size: 13px;
+                font-weight: 600;
+                margin-bottom: 12px;
+                color: #25d366;
+              "
+            >
+              <i class="bi bi-whatsapp"></i> WhatsApp Automation Settings
+            </div>
+
+            <label for="addWhatsAppVariant">Jenis WhatsApp</label>
+            <select id="addWhatsAppVariant">
+              <option value="consumer" selected>WhatsApp Biasa</option>
+              <option value="business">WhatsApp Business</option>
+            </select>
+            <p class="small-text" style="margin: 4px 0 12px 0; color: #666">
+              Pilih aplikasi yang dipakai di HP fisik.
+            </p>
+
+            <label for="addWhatsAppBaseUrl">Base URL (Fetch Messages)</label>
+            <input
+              type="url"
+              id="addWhatsAppBaseUrl"
+              placeholder="https://yourapi.com/api/messages"
+              style="font-family: monospace; font-size: 12px"
+            />
+            <p class="small-text" style="margin: 4px 0 12px 0; color: #666">
+              POST ke URL ini dengan <code>{ uid: "device-uid" }</code> untuk
+              mendapatkan pending messages
+            </p>
+
+            <label for="addWhatsAppCallbackUrl"
+              >Callback URL (Status Update)</label
+            >
+            <input
+              type="url"
+              id="addWhatsAppCallbackUrl"
+              placeholder="https://yourapi.com/api/callback"
+              style="font-family: monospace; font-size: 12px"
+            />
+            <p class="small-text" style="margin: 4px 0 0 0; color: #666">
+              POST ke URL ini dengan <code>{ id, status: "done" }</code> setelah
+              message terkirim
+            </p>
+          </div>
+
+          </div><!-- end androidFormTypeAdb -->
+
+          <!-- Emulator Form -->
+          <div id="androidFormTypeEmulator" style="display:none">
+            <div style="margin-bottom:14px;padding:10px 12px;background:rgba(61,220,132,0.06);border:1px solid rgba(61,220,132,0.2);border-radius:8px;font-size:12px;color:#aaa;line-height:1.5">
+              <i class="bi bi-info-circle" style="color:#3ddc84"></i>
+              Emulator Android lokal menggunakan Android SDK (~1.5GB). SDK hanya diunduh sekali.
+            </div>
+            <label for="androidEmulatorServiceSelect" style="margin-top: 12px"
+              >Jenis Layanan</label
+            >
+            <select
+              id="androidEmulatorServiceSelect"
+              onchange="toggleEmulatorWhatsAppFields()"
+            ></select>
+            <p class="small-text" style="margin-top: 4px">
+              Pilih mode remote untuk emulator. WhatsApp Automation memakai engine
+              ADB yang sama seperti Android Remote Device.
+            </p>
+
+            <div
+              id="addEmuWhatsAppAutomationFields"
+              style="
+                display: none;
+                margin-top: 16px;
+                margin-bottom: 16px;
+                padding: 12px;
+                background: rgba(37, 211, 102, 0.05);
+                border: 1px solid rgba(37, 211, 102, 0.2);
+                border-radius: 8px;
+              "
+            >
+              <div
+                style="
+                  font-size: 13px;
+                  font-weight: 600;
+                  margin-bottom: 12px;
+                  color: #25d366;
+                "
+              >
+                <i class="bi bi-whatsapp"></i> WhatsApp Automation Emulator
+              </div>
+
+              <label for="addEmuWhatsAppVariant">Jenis WhatsApp</label>
+              <select id="addEmuWhatsAppVariant">
+                <option value="consumer" selected>WhatsApp Biasa</option>
+                <option value="business">WhatsApp Business</option>
+              </select>
+
+              <label for="addEmuDisplayMode" style="margin-top: 12px"
+                >Mode Tampilan</label
+              >
+              <select id="addEmuDisplayMode">
+                <option value="readonly" selected>
+                  Read-Only (headless + mirror, tidak bisa dikontrol)
+                </option>
+                <option value="native">
+                  Native Penuh (window emulator, kontrol penuh)
+                </option>
+              </select>
+
+              <label for="addEmuWhatsAppBaseUrl" style="margin-top: 12px"
+                >Base URL (Fetch Messages)</label
+              >
+              <input
+                type="url"
+                id="addEmuWhatsAppBaseUrl"
+                placeholder="https://yourapi.com/api/messages"
+                style="font-family: monospace; font-size: 12px"
+              />
+
+              <label for="addEmuWhatsAppCallbackUrl" style="margin-top: 12px"
+                >Callback URL (Status Update)</label
+              >
+              <input
+                type="url"
+                id="addEmuWhatsAppCallbackUrl"
+                placeholder="https://yourapi.com/api/callback"
+                style="font-family: monospace; font-size: 12px"
+              />
+            </div>
+            <label for="addAndroidVersion" style="font-size:12px;font-weight:600;display:block;margin-bottom:8px">Versi Android</label>
+            <select id="addAndroidVersion" style="width:100%;margin-bottom:6px"></select>
+            <p style="font-size:11px;color:#666;margin:0 0 16px">Versi yang belum terunduh akan diunduh otomatis saat pertama dijalankan.</p>
+
+            <label for="addAndroidVariant" style="font-size:12px;font-weight:600;display:block;margin-bottom:8px">Varian Sistem</label>
+            <select id="addAndroidVariant" style="width:100%;margin-bottom:6px">
+              <option value="google_apis">🔓 Root — bisa Device Profile, Play Store dipasang otomatis</option>
+              <option value="playstore">🔒 Standar — Play Store bawaan, tidak bisa di-root</option>
+            </select>
+            <p style="font-size:11px;color:#666;margin:0 0 16px">Root: bisa ganti identitas device (Device Profile), Google Play Store dipasang otomatis saat pertama kali start (~2.4 GB, sekali per versi). Standar: sudah ada Play Store bawaan tapi tidak bisa di-root.</p>
+
+            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:8px">Spec Preset</label>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid #30363d;border-radius:8px;cursor:pointer;transition:border-color .15s"
+                id="emuSpecLite" onclick="selectEmuSpec('lite')">
+                <input type="radio" name="emuSpec" value="lite" style="margin-top:3px;accent-color:#3ddc84">
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:#e0e0e0">⚡ Lite</div>
+                  <div style="font-size:11px;color:#666">1 Core · 1 GB RAM · 540×960 — Cocok untuk PC spesifikasi rendah</div>
+                </div>
+              </label>
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid rgba(61,220,132,0.4);border-radius:8px;cursor:pointer;transition:border-color .15s"
+                id="emuSpecBalanced" onclick="selectEmuSpec('balanced')">
+                <input type="radio" name="emuSpec" value="balanced" checked style="margin-top:3px;accent-color:#3ddc84">
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:#e0e0e0">⚖️ Balanced <span style="font-size:10px;color:#3ddc84;font-weight:400">(Disarankan)</span></div>
+                  <div style="font-size:11px;color:#666">2 Core · 1.5 GB RAM · 720×1280 — Keseimbangan performa &amp; RAM</div>
+                </div>
+              </label>
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid #30363d;border-radius:8px;cursor:pointer;transition:border-color .15s"
+                id="emuSpecPerformance" onclick="selectEmuSpec('performance')">
+                <input type="radio" name="emuSpec" value="performance" style="margin-top:3px;accent-color:#3ddc84">
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:#e0e0e0">🚀 Performance</div>
+                  <div style="font-size:11px;color:#666">4 Core · 2 GB RAM · 1080×1920 — Untuk animasi dan app berat</div>
+                </div>
+              </label>
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid #30363d;border-radius:8px;cursor:pointer;transition:border-color .15s"
+                id="emuSpecCustom" onclick="selectEmuSpec('custom')">
+                <input type="radio" name="emuSpec" value="custom" style="margin-top:3px;accent-color:#3ddc84">
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:#e0e0e0">🎛️ Custom</div>
+                  <div style="font-size:11px;color:#666">Atur sendiri RAM, CPU, dan resolusi dengan slider</div>
+                </div>
+              </label>
+              <div id="emuCustomPanel" style="display:none;padding:12px;border:1px dashed #30363d;border-radius:8px">
+                <label style="font-size:12px;display:flex;justify-content:space-between;color:#e0e0e0">RAM <span id="emuCustomRamLabel" style="color:#3ddc84">1536 MB</span></label>
+                <input type="range" id="emuCustomRam" min="512" max="4096" step="256" value="1536" style="width:100%;accent-color:#3ddc84"
+                  oninput="document.getElementById('emuCustomRamLabel').textContent=this.value+' MB'">
+                <label style="font-size:12px;display:flex;justify-content:space-between;margin-top:10px;color:#e0e0e0">CPU Core <span id="emuCustomCoresLabel" style="color:#3ddc84">2 Core</span></label>
+                <input type="range" id="emuCustomCores" min="1" max="8" step="1" value="2" style="width:100%;accent-color:#3ddc84"
+                  oninput="document.getElementById('emuCustomCoresLabel').textContent=this.value+' Core'">
+                <label style="font-size:12px;display:block;margin-top:10px;margin-bottom:4px;color:#e0e0e0">Resolusi</label>
+                <select id="emuCustomResolution" style="width:100%">
+                  <option value="540x960">540 × 960 (qHD)</option>
+                  <option value="720x1280" selected>720 × 1280 (HD)</option>
+                  <option value="1080x1920">1080 × 1920 (Full HD)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="modal-buttons"
+            style="margin-top: 1rem; text-align: right"
+          >
+            <button onclick="submitAndroidDevice()">
+              <i class="bi bi-plus-circle"></i> Simpan Device
+            </button>
+            <button onclick="closeModalAndroid()" class="ghost">Batal</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal: ADB Tutorial -->
+      <div id="adbTutorialModal" class="modal">
+        <div
+          class="modal-content"
+          style="max-width: 760px; max-height: 90vh; overflow-y: auto"
+        >
+          <span class="close" onclick="closeAdbTutorialModal()">&times;</span>
+          <h3><i class="bi bi-journal-check"></i> Tutorial Koneksi ADB</h3>
+          <p class="small-text" style="margin-top: 0">
+            Langkah singkat menyalakan Developer Options, USB Debugging, dan
+            Debugging nirkabel untuk dipakai di StarBox (Android/iOS page).
+          </p>
+
+          <div
+            style="
+              display: grid;
+              gap: 12px;
+              grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            "
+          >
+            <section
+              style="
+                background: #0f172a;
+                border-radius: 10px;
+                padding: 14px;
+                border: 1px solid rgba(255, 255, 255, 0.06);
+              "
+            >
+              <h4 style="margin: 0 0 8px; color: #22d3ee">
+                1) Aktifkan Developer Options
+              </h4>
+              <ol
+                style="
+                  margin: 0;
+                  padding-left: 18px;
+                  color: #cbd5e1;
+                  line-height: 1.6;
+                "
+              >
+                <li>Buka Settings → About Phone.</li>
+                <li>
+                  Ketuk <strong>Build Number</strong> 7x sampai muncul pesan
+                  pengembang aktif.
+                </li>
+                <li>Masukkan PIN jika diminta.</li>
+              </ol>
+            </section>
+
+            <section
+              style="
+                background: #0f172a;
+                border-radius: 10px;
+                padding: 14px;
+                border: 1px solid rgba(255, 255, 255, 0.06);
+              "
+            >
+              <h4 style="margin: 0 0 8px; color: #22d3ee">
+                2) Aktifkan USB Debugging
+              </h4>
+              <ol
+                style="
+                  margin: 0;
+                  padding-left: 18px;
+                  color: #cbd5e1;
+                  line-height: 1.6;
+                "
+              >
+                <li>
+                  Buka Settings → Developer Options (kadang di Sistem →
+                  Lanjutan).
+                </li>
+                <li>
+                  Nyalakan <strong>USB Debugging</strong> dan konfirmasi OK.
+                </li>
+              </ol>
+              <p class="small-text" style="margin: 8px 0 0; color: #94a3b8">
+                Setelah aktif, sambungkan HP via kabel lalu klik Refresh ADB di
+                dialog <em>Tambah Android</em>.
+              </p>
+            </section>
+
+            <section
+              style="
+                background: #0f172a;
+                border-radius: 10px;
+                padding: 14px;
+                border: 1px solid rgba(255, 255, 255, 0.06);
+              "
+            >
+              <h4 style="margin: 0 0 8px; color: #22d3ee">
+                3) Debugging Nirkabel (opsional)
+              </h4>
+              <ol
+                style="
+                  margin: 0;
+                  padding-left: 18px;
+                  color: #cbd5e1;
+                  line-height: 1.6;
+                "
+              >
+                <li>Nyalakan <strong>Wireless Debugging</strong>.</li>
+                <li>Pastikan HP dan PC di WiFi yang sama.</li>
+                <li>
+                  Pilih <em>Pair device with pairing code</em> lalu jalankan:
+                </li>
+              </ol>
+              <pre
+                style="
+                  background: #111b24;
+                  color: #e2e8f0;
+                  padding: 10px;
+                  border-radius: 8px;
+                  margin: 10px 0 0;
+                  font-size: 12px;
+                "
+              ><code>adb pair ip:port
+adb connect ip:port</code></pre>
+            </section>
+          </div>
+
+          <section
+            style="
+              margin-top: 12px;
+              background: #0f172a;
+              border-radius: 10px;
+              padding: 14px;
+              border: 1px solid rgba(255, 255, 255, 0.06);
+            "
+          >
+            <h4 style="margin: 0 0 8px; color: #f59e0b">Catatan Vendor</h4>
+            <ul
+              style="
+                margin: 0;
+                padding-left: 18px;
+                color: #e2e8f0;
+                line-height: 1.6;
+              "
+            >
+              <li>
+                <strong>Xiaomi / Redmi / POCO:</strong> aktifkan juga
+                <em>USB Debugging (Security Settings)</em> di Developer Options
+                (butuh akun Mi).
+              </li>
+              <li>
+                <strong>Samsung:</strong> Build Number ada di Settings → About
+                phone → Software Information.
+              </li>
+            </ul>
+            <p class="small-text" style="margin: 10px 0 0; color: #94a3b8">
+              Jika Wireless Debugging belum terdeteksi (terutama di Mac),
+              pastikan firewall mati atau izinkan <code>adb</code> melewati
+              firewall, lalu ulangi pair/connect.
+            </p>
+          </section>
+        </div>
+      </div>
+
+      <!-- Modal: Edit Android Device -->
+      <div id="editModalAndroid" class="modal">
+        <div class="modal-content" style="max-width: 500px">
+          <span class="close" onclick="closeEditModalAndroid()">&times;</span>
+          <h3><i class="bi bi-phone"></i> Edit Android Emulator</h3>
+
+          <label for="editDeviceNameAndroid">Nama Device</label>
+          <input type="text" id="editDeviceNameAndroid" />
+
+          <label for="editAndroidVersion">Versi Android</label>
+          <select id="editAndroidVersion" style="width:100%"></select>
+          <p class="android-spec-note">Mengubah versi akan mengunduh image baru (~1.2 GB) saat dijalankan. Restart device agar berlaku.</p>
+
+          <label for="editAndroidSpecPresetAndroid">Spesifikasi Emulator</label>
+          <select id="editAndroidSpecPresetAndroid">
+            <!-- Will be populated by renderer.js -->
+          </select>
+          <p
+            id="editAndroidSpecDescriptionAndroid"
+            class="android-spec-note"
+          ></p>
+
+          <div id="editEmuCustomPanel" style="display:none;padding:12px;border:1px dashed #30363d;border-radius:8px;margin-bottom:10px">
+            <label style="font-size:12px;display:flex;justify-content:space-between;color:#e0e0e0">RAM <span id="editEmuCustomRamLabel" style="color:#3ddc84">1536 MB</span></label>
+            <input type="range" id="editEmuCustomRam" min="512" max="4096" step="256" value="1536" style="width:100%;accent-color:#3ddc84"
+              oninput="document.getElementById('editEmuCustomRamLabel').textContent=this.value+' MB'">
+            <label style="font-size:12px;display:flex;justify-content:space-between;margin-top:10px;color:#e0e0e0">CPU Core <span id="editEmuCustomCoresLabel" style="color:#3ddc84">2 Core</span></label>
+            <input type="range" id="editEmuCustomCores" min="1" max="8" step="1" value="2" style="width:100%;accent-color:#3ddc84"
+              oninput="document.getElementById('editEmuCustomCoresLabel').textContent=this.value+' Core'">
+            <label style="font-size:12px;display:block;margin-top:10px;margin-bottom:4px;color:#e0e0e0">Resolusi</label>
+            <select id="editEmuCustomResolution" style="width:100%">
+              <option value="540x960">540 × 960 (qHD)</option>
+              <option value="720x1280">720 × 1280 (HD)</option>
+              <option value="1080x1920">1080 × 1920 (Full HD)</option>
+            </select>
+          </div>
+
+          <label style="margin-top: 10px">
+            <input type="checkbox" id="editAutoRunAndroid" />
+            Auto Run saat aplikasi dibuka
+          </label>
+
+          <label for="editAndroidAutomationService" style="margin-top: 12px"
+            >Jenis Layanan</label
+          >
+          <select
+            id="editAndroidAutomationService"
+            onchange="toggleEditEmulatorWhatsAppFields()"
+          ></select>
+
+          <div
+            id="editEmuWhatsAppAutomationFields"
+            style="
+              display: none;
+              margin-top: 16px;
+              padding: 12px;
+              background: rgba(37, 211, 102, 0.05);
+              border: 1px solid rgba(37, 211, 102, 0.2);
+              border-radius: 8px;
+            "
+          >
+            <div
+              style="
+                font-size: 13px;
+                font-weight: 600;
+                margin-bottom: 12px;
+                color: #25d366;
+              "
+            >
+              <i class="bi bi-whatsapp"></i> WhatsApp Automation Emulator
+            </div>
+
+            <label for="editEmuWhatsAppVariant">Jenis WhatsApp</label>
+            <select id="editEmuWhatsAppVariant">
+              <option value="consumer" selected>WhatsApp Biasa</option>
+              <option value="business">WhatsApp Business</option>
+            </select>
+
+            <label for="editEmuDisplayMode" style="margin-top: 12px"
+              >Mode Tampilan</label
+            >
+            <select id="editEmuDisplayMode">
+              <option value="readonly" selected>
+                Read-Only (headless + mirror, tidak bisa dikontrol)
+              </option>
+              <option value="native">
+                Native Penuh (window emulator, kontrol penuh)
+              </option>
+            </select>
+
+            <label for="editEmuWhatsAppBaseUrl" style="margin-top: 12px"
+              >Base URL (Fetch Messages)</label
+            >
+            <input
+              type="url"
+              id="editEmuWhatsAppBaseUrl"
+              placeholder="https://yourapi.com/api/messages"
+              style="font-family: monospace; font-size: 12px"
+            />
+
+            <label for="editEmuWhatsAppCallbackUrl" style="margin-top: 12px"
+              >Callback URL (Status Update)</label
+            >
+            <input
+              type="url"
+              id="editEmuWhatsAppCallbackUrl"
+              placeholder="https://yourapi.com/api/callback"
+              style="font-family: monospace; font-size: 12px"
+            />
+          </div>
+
+          <div
+            class="modal-buttons"
+            style="margin-top: 1rem; text-align: right"
+          >
+            <button onclick="saveEditAndroidDevice()">
+              <i class="bi bi-save"></i> Simpan
+            </button>
+            <button onclick="closeEditModalAndroid()" class="ghost">
+              Batal
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal: Edit Android Remote (ADB) Device -->
+      <div id="editModalAndroidRemote" class="modal">
+        <div class="modal-content" style="max-width: 550px">
+          <span class="close" onclick="closeEditAndroidRemoteModal()"
+            >&times;</span
+          >
+          <h3><i class="bi bi-phone-fill"></i> Edit Android Remote Device</h3>
+
+          <input type="hidden" id="editAndroidRemoteUid" />
+
+          <label for="editAndroidRemoteName">Nama Device</label>
+          <input
+            type="text"
+            id="editAndroidRemoteName"
+            placeholder="Nama device"
+          />
+
+          <label for="editAndroidRemoteService" style="margin-top: 12px"
+            >Jenis Layanan</label
+          >
+          <select id="editAndroidRemoteService">
+            <option value="android-general">General (SCRCPY)</option>
+            <option value="android-whatsapp">WhatsApp Automation</option>
+          </select>
+
+          <!-- Connection Mode Toggle -->
+          <div
+            style="
+              margin-top: 16px;
+              padding: 12px;
+              background: rgba(61, 220, 132, 0.05);
+              border: 1px solid rgba(61, 220, 132, 0.2);
+              border-radius: 8px;
+            "
+          >
+            <div
+              style="
+                font-size: 13px;
+                font-weight: 600;
+                margin-bottom: 12px;
+                color: #333;
+              "
+            >
+              Pilih Mode Koneksi:
+            </div>
+
+            <!-- Mode Toggle -->
+            <div style="display: flex; gap: 12px; margin-bottom: 16px">
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  cursor: pointer;
+                  user-select: none;
+                "
+              >
+                <input
+                  type="radio"
+                  name="editConnectionMode"
+                  id="editModeWifi"
+                  value="wifi"
+                  checked
+                  onchange="toggleEditConnectionMode()"
+                  style="margin-right: 6px; cursor: pointer"
+                />
+                <span style="font-size: 12px; font-weight: 600"
+                  ><i class="bi bi-wifi"></i> WiFi</span
+                >
+              </label>
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  cursor: pointer;
+                  user-select: none;
+                "
+              >
+                <input
+                  type="radio"
+                  name="editConnectionMode"
+                  id="editModeCable"
+                  value="cable"
+                  onchange="toggleEditConnectionMode()"
+                  style="margin-right: 6px; cursor: pointer"
+                />
+                <span style="font-size: 12px; font-weight: 600"
+                  ><i class="bi bi-usb-symbol"></i> Kabel/USB</span
+                >
+              </label>
+            </div>
+
+            <!-- WiFi Connection Section -->
+            <div id="editWifiConnectionSection">
+              <div
+                style="
+                  font-size: 13px;
+                  font-weight: 600;
+                  margin-bottom: 12px;
+                  color: #3ddc84;
+                "
+              >
+                <i class="bi bi-wifi"></i> Koneksi WiFi ADB
+              </div>
+              <div
+                style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px"
+              >
+                <div>
+                  <label for="editAndroidRemoteIp" style="font-size: 12px"
+                    >IP Address</label
+                  >
+                  <input
+                    type="text"
+                    id="editAndroidRemoteIp"
+                    placeholder="Misal: 192.168.100.21"
+                    style="font-family: monospace; font-size: 12px"
+                  />
+                </div>
+                <div>
+                  <label for="editAndroidRemotePort" style="font-size: 12px"
+                    >Port</label
+                  >
+                  <input
+                    type="text"
+                    id="editAndroidRemotePort"
+                    placeholder="43393"
+                    style="font-family: monospace; font-size: 12px"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                onclick="reconnectAndroidRemoteDevice()"
+                style="
+                  margin-top: 8px;
+                  width: 100%;
+                  padding: 6px;
+                  background: #3ddc84;
+                  color: white;
+                  border: none;
+                  border-radius: 4px;
+                  font-size: 12px;
+                  cursor: pointer;
+                "
+              >
+                <i class="bi bi-arrow-repeat"></i> Reconnect dengan IP:Port Baru
+              </button>
+              <p
+                class="small-text"
+                style="margin: 8px 0 0 0; color: #666; font-size: 10px"
+              >
+                💡 Port WiFi ADB sering berubah. Update IP:Port lalu klik
+                Reconnect jika device tidak terhubung.
+              </p>
+            </div>
+
+            <!-- Cable Connection Section -->
+            <div id="editCableConnectionSection" style="display: none">
+              <div
+                style="
+                  font-size: 13px;
+                  font-weight: 600;
+                  margin-bottom: 12px;
+                  color: #3ddc84;
+                "
+              >
+                <i class="bi bi-usb-symbol"></i> Koneksi Kabel/USB
+              </div>
+
+              <label
+                for="editAdbDeviceSelect"
+                style="font-size: 12px; margin-bottom: 8px; display: block"
+              >
+                Pilih Perangkat ADB:
+              </label>
+              <div style="display: flex; gap: 8px; margin-bottom: 12px">
+                <select
+                  id="editAdbDeviceSelect"
+                  class="adb-device-select"
+                ></select>
+                <button
+                  type="button"
+                  onclick="scanEditAdbDevices()"
+                  style="
+                    padding: 6px 12px;
+                    background: #3ddc84;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    cursor: pointer;
+                  "
+                  title="Scan perangkat ADB"
+                >
+                  <i class="bi bi-arrow-repeat"></i> Scan
+                </button>
+              </div>
+
+              <!-- Progress Bar untuk Scanning -->
+              <div
+                id="editAdbScanProgress"
+                style="display: none; margin-bottom: 12px"
+              >
+                <div
+                  style="
+                    display: flex;
+                    justify-content: space-between;
+                    margin-bottom: 4px;
+                  "
+                >
+                  <span
+                    id="editAdbScanStatus"
+                    style="font-size: 12px; color: #666"
+                    >Scanning...</span
+                  >
+                  <span
+                    id="editAdbScanPercent"
+                    style="font-size: 12px; font-weight: 600; color: #3ddc84"
+                    >0%</span
+                  >
+                </div>
+                <div
+                  style="
+                    width: 100%;
+                    height: 8px;
+                    background: #e0e0e0;
+                    border-radius: 4px;
+                    overflow: hidden;
+                  "
+                >
+                  <div
+                    id="editAdbScanProgressBar"
+                    style="
+                      width: 0%;
+                      height: 100%;
+                      background: linear-gradient(90deg, #3ddc84, #2ecc71);
+                      transition: width 0.3s ease;
+                    "
+                  ></div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onclick="connectEditAdbDevice()"
+                style="
+                  width: 100%;
+                  padding: 8px;
+                  background: #3ddc84;
+                  color: white;
+                  border: none;
+                  border-radius: 4px;
+                  font-size: 12px;
+                  font-weight: 600;
+                  cursor: pointer;
+                "
+              >
+                <i class="bi bi-plug"></i> Connect Perangkat Terpilih
+              </button>
+
+              <p
+                class="small-text"
+                style="margin: 8px 0 0 0; color: #666; font-size: 10px"
+              >
+                💡 Tip: Pastikan HP sudah terhubung via kabel USB dan USB
+                Debugging aktif. Klik Scan untuk mendeteksi perangkat.
+              </p>
+            </div>
+          </div>
+
+          <!-- WhatsApp Automation Fields (conditional) -->
+          <div
+            id="editWhatsAppAutomationFields"
+            style="
+              display: none;
+              margin-top: 16px;
+              padding: 12px;
+              background: rgba(37, 211, 102, 0.05);
+              border: 1px solid rgba(37, 211, 102, 0.2);
+              border-radius: 8px;
+            "
+          >
+            <div
+              style="
+                font-size: 13px;
+                font-weight: 600;
+                margin-bottom: 12px;
+                color: #25d366;
+              "
+            >
+              <i class="bi bi-whatsapp"></i> WhatsApp Automation Settings
+            </div>
+
+            <label for="editWhatsAppVariant">Jenis WhatsApp</label>
+            <select id="editWhatsAppVariant">
+              <option value="consumer" selected>WhatsApp Biasa</option>
+              <option value="business">WhatsApp Business</option>
+            </select>
+            <p class="small-text" style="margin: 4px 0 12px 0; color: #666">
+              Pilih aplikasi yang dipakai di HP fisik.
+            </p>
+
+            <label for="editWhatsAppBaseUrl">Base URL (Fetch Messages)</label>
+            <input
+              type="url"
+              id="editWhatsAppBaseUrl"
+              placeholder="https://yourapi.com/api/messages"
+              style="font-family: monospace; font-size: 12px"
+            />
+            <p class="small-text" style="margin: 4px 0 12px 0; color: #666">
+              POST ke URL ini dengan <code>{ uid: "device-uid" }</code> untuk
+              mendapatkan pending messages
+            </p>
+
+            <label for="editWhatsAppCallbackUrl"
+              >Callback URL (Status Update)</label
+            >
+            <input
+              type="url"
+              id="editWhatsAppCallbackUrl"
+              placeholder="https://yourapi.com/api/callback"
+              style="font-family: monospace; font-size: 12px"
+            />
+            <p class="small-text" style="margin: 4px 0 0 0; color: #666">
+              POST ke URL ini dengan <code>{ id, status: "done" }</code> setelah
+              message terkirim
+            </p>
+          </div>
+
+          <div
+            class="modal-buttons"
+            style="margin-top: 1.5rem; text-align: right"
+          >
+            <button onclick="saveEditAndroidRemoteDevice()">
+              <i class="bi bi-save"></i> Simpan
+            </button>
+            <button onclick="closeEditAndroidRemoteModal()" class="ghost">
+              Batal
+            </button>
+          </div>
+        </div>
+      </div>
