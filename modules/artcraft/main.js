@@ -48,19 +48,19 @@ const DETAILS = (() => {
 const findApp = (id) => SUITE.find((a) => a.id === id) || (feedCache?.extraApps || []).find((a) => a.id === id);
 
 const SUITE = [
-  { id: "photocraft", name: "PhotoCraft", tagline: "Image editing", color: "#2f7bf5" },
-  { id: "vectorcraft", name: "VectorCraft", tagline: "Vector illustration", color: "#e8573f" },
-  { id: "filmcraft", name: "FilmCraft", tagline: "Video editing, color and sound", color: "#8b5cf6" },
-  { id: "lightcraft", name: "LightCraft", tagline: "Photo library and raw development", color: "#f2a516" },
-  { id: "pdfcraft", name: "PdfCraft", tagline: "Reading, organizing and protecting PDFs", color: "#12a58a" },
-  { id: "effectcraft", name: "EffectCraft", tagline: "Motion graphics and visual effects", color: "#e0368f" },
-  { id: "designcraft", name: "DesignCraft", tagline: "Page layout and publishing", color: "#7bb51c" },
-  { id: "wordcraft", name: "WordCraft", tagline: "Writing and document design", color: "#3f5fe0" },
-  { id: "deckcraft", name: "DeckCraft", tagline: "Presentations and slide shows", color: "#f07a1e" },
-  { id: "gridcraft", name: "GridCraft", tagline: "Spreadsheets and data", color: "#1f9d55" },
-  { id: "cadcraft", name: "CADCraft", tagline: "Computer-aided design and drafting", color: "#3ea6e8" },
-  { id: "soundcraft", name: "SoundCraft", tagline: "Recording, editing and mixing audio", color: "#1fa5c9" },
-  { id: "figcraft", name: "FigCraft", tagline: "Interface design and prototyping", color: "#02da96" },
+  { id: "photocraft", name: "PhotoCraft", tagline: "Image editing", color: "#2f7bf5", group: "classic" },
+  { id: "vectorcraft", name: "VectorCraft", tagline: "Vector illustration", color: "#e8573f", group: "classic" },
+  { id: "filmcraft", name: "FilmCraft", tagline: "Video editing, color and sound", color: "#8b5cf6", group: "classic" },
+  { id: "lightcraft", name: "LightCraft", tagline: "Photo library and raw development", color: "#f2a516", group: "classic" },
+  { id: "pdfcraft", name: "PdfCraft", tagline: "Reading, organizing and protecting PDFs", color: "#12a58a", group: "classic" },
+  { id: "effectcraft", name: "EffectCraft", tagline: "Motion graphics and visual effects", color: "#e0368f", group: "classic" },
+  { id: "designcraft", name: "DesignCraft", tagline: "Page layout and publishing", color: "#7bb51c", group: "classic" },
+  { id: "wordcraft", name: "WordCraft", tagline: "Writing and document design", color: "#3f5fe0", group: "new" },
+  { id: "deckcraft", name: "DeckCraft", tagline: "Presentations and slide shows", color: "#f07a1e", group: "new" },
+  { id: "gridcraft", name: "GridCraft", tagline: "Spreadsheets and data", color: "#1f9d55", group: "new" },
+  { id: "cadcraft", name: "CADCraft", tagline: "Computer-aided design and drafting", color: "#3ea6e8", group: "new" },
+  { id: "soundcraft", name: "SoundCraft", tagline: "Recording, editing and mixing audio", color: "#1fa5c9", group: "new" },
+  { id: "figcraft", name: "FigCraft", tagline: "Interface design and prototyping", color: "#02da96", group: "new" },
 ];
 
 // ── Utilitas ──────────────────────────────────────────────────────────────────
@@ -213,7 +213,7 @@ async function loadReleases(force = false) {
     for (const [id, entry] of Object.entries(apps)) {
       if (id === "artcraft-launcher" || SUITE.some((a) => a.id === id) || !/^[a-z0-9-]+$/.test(id)) continue;
       if (!String(entry?.repo || "").startsWith(`${OWNER}/`) || !entry.latest_release) continue;
-      extraApps.push({ id, name: String(entry.name || id), tagline: "", color: "#7c3aed" });
+      extraApps.push({ id, name: String(entry.name || id), tagline: "", color: "#7c3aed", group: "new" });
       releases[id] = entry.latest_release;
     }
     notices = feed?.important_notices || notices;
@@ -398,6 +398,7 @@ function register(context) {
         ...app,
         icon: `https://raw.githubusercontent.com/${OWNER}/${app.id}/main/assets/app-icon/hicolor/128x128/apps/ai.storyteller.${app.id}.png`,
         repoUrl: `https://github.com/${OWNER}/${app.id}`,
+        websiteUrl: app.group === "classic" ? `https://getartcraft.com/apps/${app.id}` : null,
         latest: rel ? {
           version: rel.version, tag: rel.tag, publishedAt: rel.published_at, url: rel.html_url,
           size: asset?.size_bytes || null, notes: rel.notes_markdown || null,

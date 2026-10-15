@@ -16,8 +16,32 @@
         <button id="artUpdateAllBtn" class="mod-btn mod-btn-primary" style="display:none" onclick="artcraftUpdateAll()"><i class="bi bi-arrow-up-circle"></i> Perbarui semua</button>
       </div>
     </div>
+    <div class="art-toolbar">
+      <div class="art-tabs" id="artTabs">
+        <button data-filter="all" class="active">All <span>0</span></button>
+        <button data-filter="installed">Installed <span>0</span></button>
+        <button data-filter="updates">Updates <span>0</span></button>
+        <button data-filter="not-installed">Not installed <span>0</span></button>
+      </div>
+      <div class="art-toolbar-right">
+        <label class="art-sort-label">Urutkan
+          <select id="artSort">
+            <option value="suite">Suite order</option>
+            <option value="name">Nama (A–Z)</option>
+            <option value="released">Rilis terbaru</option>
+            <option value="status">Status</option>
+          </select>
+        </label>
+        <input id="artSearch" type="search" placeholder="Cari aplikasi" autocomplete="off">
+        <div class="art-view" id="artView">
+          <button data-view="grid" class="active" title="Grid"><i class="bi bi-grid-3x2-gap"></i></button>
+          <button data-view="table" title="Tabel"><i class="bi bi-list-ul"></i></button>
+        </div>
+      </div>
+    </div>
     <div id="artNotices"></div>
     <div id="artGrid" class="art-grid"><div class="art-empty"><i class="bi bi-hourglass-split"></i> Memuat daftar aplikasi…</div></div>
+    <div class="art-status" id="artStatus"></div>
     <p class="art-footnote">
       Lokasi pemasangan: macOS <code>/Applications</code> · Windows <code>%LOCALAPPDATA%\StarBox\CraftApps</code> (tanpa admin) · Linux <code>~/Applications</code>.
       Aplikasi yang dipasang di luar StarBox tetap terdeteksi, tetapi hanya bisa dihapus lewat sistem operasi.

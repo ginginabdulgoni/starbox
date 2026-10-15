@@ -16,6 +16,11 @@ const artcraftApi = (() => {
   "use strict";
 
   let data = null;
+  const view = (() => {
+    const def = { filter: "all", sort: "suite", q: "", mode: "grid" };
+    try { return { ...def, ...JSON.parse(localStorage.getItem("starbox-artcraft-view") || "{}"), q: "" }; } catch { return def; }
+  })();
+  const saveView = () => { try { localStorage.setItem("starbox-artcraft-view", JSON.stringify({ ...view, q: "" })); } catch {} };
   const progress = new Map(); // id → { phase, pct, message }
   const errors = new Map();
 
@@ -32,8 +37,8 @@ const artcraftApi = (() => {
 
   function badge(app) {
     if (app.updateAvailable) return '<span class="art-badge update">Update tersedia</span>';
-    if (app.installed) return '<span class="art-badge ok">Terpasang</span>';
-    return '<span class="art-badge none">Belum terpasang</span>';
+    if (app.installed) return '<span class="art-badge ok">Terpasang · terbaru</span>';
+    return app.installable ? '<span class="art-badge none">Siap dipasang</span>' : '<span class="art-badge none">Tidak tersedia</span>';
   }
 
   function actions(app) {
@@ -58,9 +63,15 @@ const artcraftApi = (() => {
     return b.join("");
   }
 
+  const numOf = (app) => String((data?.apps || []).indexOf(app) + 1).padStart(2, "0");
+  const links = (app) => `<div class="art-links">
+      ${app.websiteUrl ? `<button onclick="artcraftOpenUrl('${esc(app.websiteUrl)}')">Website ↗</button>` : ""}
+      <button onclick="artcraftOpenUrl('${esc(app.repoUrl)}')">GitHub ↗</button></div>`;
+
   function card(app) {
     const err = errors.get(app.id);
     return `<div class="art-card" id="art-card-${esc(app.id)}" style="--art-color:${esc(app.color)}">
+      <div class="art-card-top"><span class="art-num">${numOf(app)}</span>${links(app)}</div>
       <div class="art-card-head">
         <img class="art-icon" src="${esc(app.icon)}" alt="" onerror="this.style.visibility='hidden'">
         <div class="art-title"><strong>${esc(app.name)}</strong><span>${esc(app.tagline)}</span></div>
@@ -80,10 +91,79 @@ const artcraftApi = (() => {
     </div>`;
   }
 
+  const statusRank = (a) => (a.updateAvailable ? 0 : a.installed ? 1 : 2);
+  const FILTERS = {
+    all: () => true,
+    installed: (a) => !!a.installed,
+    updates: (a) => a.updateAvailable,
+    "not-installed": (a) => !a.installed,
+  };
+
+  function visibleApps() {
+    const q = view.q.trim().toLowerCase();
+    let apps = data.apps.filter(FILTERS[view.filter] || FILTERS.all)
+      .filter((a) => !q || `${a.name} ${a.tagline} ${a.details?.headline || ""}`.toLowerCase().includes(q));
+    const order = data.apps.slice();
+    const sorters = {
+      suite: (a, b) => order.indexOf(a) - order.indexOf(b),
+      name: (a, b) => a.name.localeCompare(b.name),
+      released: (a, b) => String(b.latest?.publishedAt || "").localeCompare(String(a.latest?.publishedAt || "")),
+      status: (a, b) => statusRank(a) - statusRank(b) || order.indexOf(a) - order.indexOf(b),
+    };
+    return apps.sort(sorters[view.sort] || sorters.suite);
+  }
+
+
+  function table(apps) {
+    return `<div class="art-table-wrap"><table class="art-table"><thead><tr>
+      <th>#</th><th>Aplikasi</th><th>Status</th><th>Terpasang</th><th>Terbaru</th><th>Rilis</th><th></th></tr></thead><tbody>
+      ${apps.map((a) => `<tr id="art-card-${esc(a.id)}" style="--art-color:${esc(a.color)}">
+        <td><span class="art-num">${numOf(a)}</span></td>
+        <td><img src="${esc(a.icon)}" alt="" onerror="this.style.visibility='hidden'"><strong>${esc(a.name)}</strong></td>
+        <td>${badge(a)}</td>
+        <td>${a.installed ? esc(a.installed.version || "?") : "—"}</td>
+        <td>${a.latest ? esc(a.latest.version) : "—"}</td>
+        <td>${a.latest ? fmtDate(a.latest.publishedAt) : "—"}</td>
+        <td><div class="art-actions">${a.details ? `<button class="art-link" onclick="artcraftShowDetails('${esc(a.id)}')">Detail</button>` : ""}${actions(a)}</div></td>
+      </tr>`).join("")}</tbody></table></div>`;
+  }
+
   function render() {
     const grid = document.getElementById("artGrid");
     if (!grid || !data) return;
-    grid.innerHTML = data.apps.map(card).join("");
+    const apps = visibleApps();
+    if (!apps.length) {
+      grid.innerHTML = '<div class="art-empty">Tidak ada aplikasi yang cocok.</div>';
+    } else if (view.mode === "table") {
+      grid.innerHTML = table(apps);
+    } else if (view.sort === "suite") {
+      // Kelompok seperti launcher resmi: 01 / Classic apps, 02 / New apps
+      const groups = [["classic", "Classic apps"], ["new", "New apps"]];
+      grid.innerHTML = groups.map(([g, label], i) => {
+        const list = apps.filter((a) => (a.group || "new") === g);
+        return list.length ? `<div class="art-group-title"><span>0${i + 1} / ${label}</span><span>${list.length} apps</span></div>
+          <div class="art-grid">${list.map(card).join("")}</div>` : "";
+      }).join("");
+    } else {
+      grid.innerHTML = `<div class="art-grid">${apps.map(card).join("")}</div>`;
+    }
+    grid.classList.toggle("art-grid", false);
+    // tab & kontrol
+    for (const btn of document.querySelectorAll("#artTabs button")) {
+      const f = btn.dataset.filter;
+      btn.classList.toggle("active", f === view.filter);
+      const n = btn.querySelector("span");
+      if (n) n.textContent = data.apps.filter(FILTERS[f]).length;
+    }
+    for (const btn of document.querySelectorAll("#artView button")) btn.classList.toggle("active", btn.dataset.view === view.mode);
+    const sortEl = document.getElementById("artSort");
+    if (sortEl && sortEl.value !== view.sort) sortEl.value = view.sort;
+    const st = document.getElementById("artStatus");
+    if (st) {
+      const ago = data.fetchedAt ? Math.max(0, Math.round((Date.now() - data.fetchedAt) / 60000)) : null;
+      const os = { macos: "macOS", windows: "Windows", linux: "Linux" }[data.platform?.os] || data.platform?.os || "?";
+      st.textContent = `Diperiksa ${ago === null ? "—" : ago === 0 ? "baru saja" : `${ago} menit lalu`} · ${data.feedError ? "via GitHub" : "via ArtCraft API"} · memasang untuk ${os}`;
+    }
     const installed = data.apps.filter((a) => a.installed).length;
     const updates = data.apps.filter((a) => a.updateAvailable);
     const summary = document.getElementById("artSummary");
@@ -251,6 +331,19 @@ const artcraftApi = (() => {
       el.style.width = `${Math.max(3, p.pct || 0)}%`;
       txt.textContent = p.message;
     } else render();
+  });
+
+  document.addEventListener("click", (e) => {
+    const tab = e.target.closest("#artTabs button");
+    if (tab) { view.filter = tab.dataset.filter; saveView(); render(); }
+    const vb = e.target.closest("#artView button");
+    if (vb) { view.mode = vb.dataset.view; saveView(); render(); }
+  });
+  document.addEventListener("change", (e) => {
+    if (e.target.id === "artSort") { view.sort = e.target.value; saveView(); render(); }
+  });
+  document.addEventListener("input", (e) => {
+    if (e.target.id === "artSearch") { view.q = e.target.value; render(); }
   });
 
   window.artcraftRefresh = refresh;
