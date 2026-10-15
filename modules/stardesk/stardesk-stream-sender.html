@@ -33,7 +33,7 @@
 
     let sources;
     try {
-      sources = await ipcRenderer.invoke("starcapture:get-screen-sources");
+      sources = await ipcRenderer.invoke("stardesk:get-screen-sources");
     } catch (e) { sendError("GET_SOURCES_FAILED: " + e.message); return; }
 
     if (!sources || sources.length === 0) { sendError("NO_SOURCES"); return; }

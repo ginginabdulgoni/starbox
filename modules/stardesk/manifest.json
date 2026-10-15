@@ -1,0 +1,91 @@
+{
+  "id": "stardesk",
+  "name": "StarDesk",
+  "version": "1.0.0",
+  "description": "Remote desktop antar perangkat StarBox (MyStarBox): daftar perangkat, OTP/PIN, preview & remote viewer layar, serta halaman Remote Control untuk mengendalikan device di StarBox lain.",
+  "author": "StarBox",
+  "license": "MIT",
+  "icon": "bi-display-fill",
+  "engine": {
+    "starbox": ">=2.1.0"
+  },
+  "distribution": "download",
+  "main": "main.js",
+  "renderer": "renderer.js",
+  "page": "page.html",
+  "pageAfter": [
+    "resource-monitor",
+    "cron",
+    "cctv",
+    "os-virtual",
+    "mikrotik",
+    "remox",
+    "android-ios",
+    "web-emulator"
+  ],
+  "sidebar": {
+    "page": "mystarbox",
+    "label": "StarDesk",
+    "icon": "bi-display-fill",
+    "pro": true,
+    "after": [
+      "resource-monitor",
+      "cron",
+      "cctv",
+      "os-virtual",
+      "mikrotik",
+      "remox",
+      "android-ios",
+      "web-emulator"
+    ],
+    "order": 80,
+    "statsLabel": "🖱️ StarDesk"
+  },
+  "permissions": [
+    "network",
+    "screen-capture",
+    "filesystem"
+  ],
+  "coreServices": [
+    "getRemoteClient",
+    "getAuthSession",
+    "getStore",
+    "getAppInfo"
+  ],
+  "ipc": {
+    "invoke": [
+      "remote:open-window",
+      "remote:open-monitor-window",
+      "stardesk:get-my-devices",
+      "stardesk:agent-status",
+      "stardesk:rename-device",
+      "stardesk:guest-pin-get",
+      "stardesk:guest-pin-refresh",
+      "stardesk:get-settings",
+      "stardesk:save-settings",
+      "stardesk:open-self-preview",
+      "stardesk:generate-otp",
+      "stardesk:connect-by-code",
+      "stardesk:get-screen-size",
+      "stardesk:open-remote-viewer",
+      "stardesk:stream-request",
+      "stardesk:connect-by-pin",
+      "stardesk:get-screen-sources"
+    ],
+    "send": [
+      "stardesk:send-input",
+      "stardesk:stream-input",
+      "stardesk:stream-frame"
+    ],
+    "events": [
+      "remote:clients-updated",
+      "remote:connection-changed",
+      "remote:monitor:update-meta",
+      "stardesk:stop-capture",
+      "stardesk:viewer-error",
+      "stardesk:viewer-frame",
+      "stardesk:viewer-init",
+      "stardesk:viewer-ready"
+    ]
+  }
+}

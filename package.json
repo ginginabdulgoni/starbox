@@ -71,6 +71,8 @@
       "!modules/android-ios/**/*",
       "!modules/cron/**/*",
       "!modules/resource-monitor/**/*",
+      "!modules/stardesk/**/*",
+      "!modules/cctv/**/*",
       "!dist-modules/**/*"
     ],
     "mac": {

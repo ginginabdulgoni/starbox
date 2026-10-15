@@ -627,7 +627,7 @@ async function openRemoteWindow(uid, encodedName = "") {
   };
 
   try {
-    const res = await window.electronAPI.remote.openMonitorWindow(payload);
+    const res = await window.electronAPI.modules.invoke("remote:open-monitor-window", payload);
     if (!res?.success) throw new Error(res?.error || "Gagal membuka monitor window");
     addLog("info", `Monitor dibuka: ${deviceName} (${payload.resolution})`);
   } catch (err) {

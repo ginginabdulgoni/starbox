@@ -59,5 +59,6 @@
       "cctv-ffmpeg-install-progress",
       "cctv-scan-progress"
     ]
-  }
+  },
+  "distribution": "download"
 }

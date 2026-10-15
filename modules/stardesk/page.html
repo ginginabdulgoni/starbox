@@ -1,0 +1,544 @@
+      <!-- Page: Remote Control (embedded) -->
+      <div id="page-remote-control" class="page-content">
+        <style>
+          #page-remote-control {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
+            background:
+              radial-gradient(1200px 600px at -10% -20%, #1f6e8b35, transparent),
+              radial-gradient(1000px 500px at 120% -10%, #15c7a21f, transparent),
+              linear-gradient(145deg, #041523, #071f31 45%, #0d2940);
+            color: #e6f2fb;
+            font-family: "Sora", "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+            cursor: default;
+          }
+
+          #page-remote-control *, #page-remote-control *::before, #page-remote-control *::after {
+            box-sizing: border-box;
+          }
+
+          .rc-topbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 18px;
+            border-bottom: 1px solid #2d4d67;
+            background: #081826d8;
+            backdrop-filter: blur(10px);
+            flex-shrink: 0;
+          }
+
+          .rc-dot {
+            width: 9px; height: 9px;
+            border-radius: 99px;
+            box-shadow: 0 0 0 4px #4edc9022;
+            background: #4edc90;
+            flex-shrink: 0;
+          }
+          .rc-dot.rc-dot-offline { background: #e05b6f; box-shadow: 0 0 0 4px #e05b6f2b; }
+
+          .rc-title { font-size: 16px; letter-spacing: .01em; font-weight: 700; color: #d8f3ff; white-space: nowrap; }
+
+          .rc-conn-label {
+            font-size: 12px; color: #95aec4; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis; max-width: 44vw;
+          }
+
+          .rc-spacer { flex: 1; }
+
+          .rc-btn {
+            border: 1px solid #35556f; background: #153048; color: #dff3ff;
+            border-radius: 10px; padding: 6px 12px; font-size: 12px; font-weight: 600;
+            cursor: pointer !important; transition: transform .12s ease, opacity .12s ease;
+            user-select: none;
+          }
+          .rc-btn:hover { transform: translateY(-1px); opacity: .92; }
+          .rc-btn:active { transform: translateY(0); }
+
+          .rc-btn-primary {
+            background: linear-gradient(135deg, #1ec8a5, #16a085);
+            border-color: #1ec8a588; color: #03251f;
+          }
+          .rc-btn-danger { background: #452332; border-color: #6d384b; color: #ffd8df; }
+          .rc-btn-soft { background: #10283d; border-color: #2a4a61; color: #c4daea; }
+          .rc-btn-xs { padding: 5px 9px; border-radius: 8px; font-size: 11px; }
+
+          .rc-workspace {
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            overflow: hidden;
+            flex: 1;
+            min-height: 0;
+          }
+
+          .rc-sidebar {
+            border-right: 1px solid #27475f;
+            background: #071a2abf;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            overflow: hidden;
+            min-height: 0;
+          }
+
+          .rc-sidebar-head {
+            padding: 12px 15px 10px;
+            border-bottom: 1px solid #1f3a4f;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            font-size: 11px;
+            color: #86a7bf;
+            font-weight: 700;
+            flex-shrink: 0;
+          }
+
+          .rc-client-list {
+            overflow-y: auto; padding: 8px;
+            display: flex; flex-direction: column; gap: 8px; flex: 1;
+          }
+
+          .rc-client-item {
+            border: 1px solid #24455d; border-radius: 12px; padding: 10px 11px;
+            cursor: pointer !important; background: #0d2437;
+            transition: border-color .12s ease, background .12s ease;
+            user-select: none;
+          }
+          .rc-client-item:hover { border-color: #3e6f90; background: #112c42; }
+          .rc-client-item.rc-active { border-color: #1ec8a5; background: #123848; box-shadow: inset 0 0 0 1px #1ec8a522; }
+
+          .rc-client-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          .rc-client-meta { margin-top: 3px; color: #95aec4; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          .rc-client-badge {
+            margin-top: 8px; display: inline-flex; align-items: center;
+            border-radius: 999px; padding: 3px 8px; font-size: 10px; font-weight: 700; border: 1px solid transparent;
+          }
+          .rc-badge-online { background: #173927; border-color: #2d6b4a; color: #8cf3bf; }
+          .rc-badge-offline { background: #402634; border-color: #6a3a4d; color: #ffb8c5; }
+
+          .rc-empty-client {
+            margin: 10px; padding: 16px 14px;
+            border: 1px dashed #2e4b61; border-radius: 12px;
+            color: #7f9bb0; text-align: center; font-size: 12px; line-height: 1.45;
+          }
+
+          .rc-main {
+            overflow-y: auto; overflow-x: hidden;
+            padding: 14px; display: flex; flex-direction: column; gap: 12px; min-height: 0;
+          }
+
+          .rc-panel {
+            background: #0e2234cc; border: 1px solid #28445d;
+            border-radius: 14px; box-shadow: 0 18px 40px rgba(2,10,18,.45);
+            overflow: visible; flex-shrink: 0;
+          }
+
+          .rc-panel-head {
+            padding: 12px 14px; border-bottom: 1px solid #21435c;
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            background: #0e2235cc; border-radius: 14px 14px 0 0; overflow: hidden;
+          }
+          .rc-panel-title { font-size: 14px; font-weight: 700; }
+          .rc-panel-sub { margin-top: 2px; font-size: 11px; color: #95aec4; }
+          .rc-panel-body { padding: 12px; }
+
+          .rc-chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
+          .rc-chip {
+            display: inline-flex; align-items: center; gap: 6px;
+            border: 1px solid #325671; background: #0d273c; color: #c2daed;
+            border-radius: 999px; font-size: 11px; padding: 5px 9px; font-weight: 600;
+          }
+
+          .rc-device-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 10px;
+          }
+
+          .rc-device-card {
+            border: 1px solid #294a63; background: #0d2234;
+            border-radius: 12px; padding: 11px;
+            display: flex; flex-direction: column; gap: 8px; min-height: 140px;
+          }
+          .rc-device-head { display: flex; gap: 8px; align-items: center; min-width: 0; }
+          .rc-device-icon {
+            width: 33px; height: 33px; border-radius: 9px; display: grid; place-items: center;
+            background: #173248; border: 1px solid #2b4f68; flex-shrink: 0; font-size: 15px;
+          }
+          .rc-device-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          .rc-device-meta { font-size: 11px; color: #95aec4; }
+          .rc-status-pill {
+            display: inline-flex; border-radius: 999px; border: 1px solid transparent;
+            font-size: 10px; padding: 3px 8px; font-weight: 700; width: fit-content;
+          }
+          .rc-running { background: #133b29; border-color: #2d6b4a; color: #8cf3bf; }
+          .rc-stopped { background: #23374a; border-color: #3a5871; color: #adc5d8; }
+          .rc-device-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+          .rc-remote-disabled { opacity: 0.75; border-color: #3a4a5a; }
+          .rc-remote-disabled-info {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 11px; color: #f59e0b;
+            background: #2a1f00; border: 1px solid #5a3e00;
+            border-radius: 8px; padding: 6px 10px; margin-top: auto;
+          }
+          .rc-remote-disabled-info i { font-size: 13px; flex-shrink: 0; }
+
+          .rc-hint {
+            color: #9ab5c9; font-size: 12px; line-height: 1.5;
+            border: 1px dashed #355972; border-radius: 12px;
+            background: #0a1f31; padding: 12px;
+          }
+
+          .rc-log-panel {
+            height: 160px; overflow-y: auto; padding: 10px;
+            font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+            font-size: 11px; background: #061521;
+            border-radius: 0 0 14px 14px;
+          }
+          .rc-log-entry { display: flex; gap: 10px; border-bottom: 1px solid #10283b; padding: 2px 0; }
+          .rc-log-time { color: #6c879d; flex-shrink: 0; }
+          .rc-log-info { color: #8acbff; }
+          .rc-log-success { color: #6ef0b7; }
+          .rc-log-warn { color: #ffd08a; }
+          .rc-log-error { color: #ff9dad; }
+
+          #page-remote-control ::-webkit-scrollbar { width: 6px; height: 6px; }
+          #page-remote-control ::-webkit-scrollbar-thumb { background: #23455e; border-radius: 999px; }
+          #page-remote-control ::-webkit-scrollbar-track { background: transparent; }
+
+          @media (max-width: 900px) {
+            .rc-workspace { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+            .rc-sidebar { max-height: 180px; border-right: none; border-bottom: 1px solid #27475f; }
+          }
+          @media (max-width: 600px) {
+            .rc-device-grid { grid-template-columns: 1fr; }
+          }
+        </style>
+
+        <!-- Paywall Overlay (hidden by default, shown for free/guest users) -->
+        <div id="rc-paywall" style="display:none; flex:1; flex-direction:column; align-items:center; justify-content:center; padding:32px 24px; background: radial-gradient(900px 500px at 50% 30%, #1ec8a512, transparent), linear-gradient(160deg, #041523, #071f31 60%, #0d2940);">
+          <div style="max-width:560px; width:100%; text-align:center;">
+            <!-- Icon -->
+            <div style="width:72px;height:72px;border-radius:20px;background:linear-gradient(135deg,#1ec8a5,#16a085);display:inline-flex;align-items:center;justify-content:center;margin-bottom:24px;box-shadow:0 12px 32px #1ec8a530;">
+              <i class="bi bi-pc-display" style="font-size:32px;color:#031f18;"></i>
+            </div>
+
+            <!-- Badge -->
+            <div style="display:inline-flex;align-items:center;gap:6px;background:#1a3a2a;border:1px solid #2d6b4a;border-radius:999px;padding:4px 14px;font-size:11px;font-weight:700;color:#6ef0b7;letter-spacing:.06em;text-transform:uppercase;margin-bottom:16px;">
+              <i class="bi bi-star-fill" style="font-size:9px;"></i> Fitur Premium
+            </div>
+
+            <h2 style="font-size:26px;font-weight:800;color:#d8f3ff;margin:0 0 12px;line-height:1.25;">
+              Remote Web Emulator<br>Tanpa Login Ulang
+            </h2>
+
+            <p style="color:#95aec4;font-size:14px;line-height:1.65;margin:0 0 28px;">
+              Kendalikan seluruh <strong style="color:#c8dff0;">web emulator</strong> di PC lain dari satu dashboard — sesi WhatsApp, Shopee, TikTok, dan layanan lainnya tetap aktif tanpa perlu scan ulang atau login ulang.
+            </p>
+
+            <!-- Benefits -->
+            <div style="background:#0d2234;border:1px solid #1e3d55;border-radius:14px;padding:20px 24px;margin-bottom:28px;text-align:left;">
+              <div style="font-size:11px;font-weight:700;color:#86a7bf;text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px;">Yang Anda dapatkan</div>
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                  <i class="bi bi-check-circle-fill" style="color:#1ec8a5;font-size:15px;flex-shrink:0;margin-top:1px;"></i>
+                  <div style="color:#c8dff0;font-size:13px;line-height:1.5;">Remote semua web emulator (WhatsApp, Shopee, TikTok, dll) dari PC mana pun</div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                  <i class="bi bi-check-circle-fill" style="color:#1ec8a5;font-size:15px;flex-shrink:0;margin-top:1px;"></i>
+                  <div style="color:#c8dff0;font-size:13px;line-height:1.5;">Sesi tetap aktif — tidak perlu scan ulang QR atau login ulang di setiap perangkat</div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                  <i class="bi bi-check-circle-fill" style="color:#1ec8a5;font-size:15px;flex-shrink:0;margin-top:1px;"></i>
+                  <div style="color:#c8dff0;font-size:13px;line-height:1.5;">Start, stop, dan pantau status semua device web secara real-time</div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                  <i class="bi bi-check-circle-fill" style="color:#1ec8a5;font-size:15px;flex-shrink:0;margin-top:1px;"></i>
+                  <div style="color:#c8dff0;font-size:13px;line-height:1.5;">Tampilan layar dan kontrol mouse/keyboard jarak jauh secara real-time</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- CTA Buttons -->
+            <div id="rc-paywall-actions" style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;"></div>
+
+            <p style="color:#4a6a82;font-size:11px;margin-top:20px;">
+              Sudah berlangganan? Pastikan Anda masuk dengan akun yang aktif.
+            </p>
+          </div>
+        </div>
+
+        <!-- Topbar (hanya tampil untuk pengguna premium) -->
+        <header id="rc-main-header" class="rc-topbar">
+          <div id="rc-dot" class="rc-dot rc-dot-offline"></div>
+          <div class="rc-title">Remote Control</div>
+          <span id="rc-connLabel" class="rc-conn-label">Tidak terhubung</span>
+          <span class="rc-spacer"></span>
+          <button class="rc-btn rc-btn-soft" onclick="rcRefreshClients()">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+          </button>
+        </header>
+
+        <!-- Workspace -->
+        <div class="rc-workspace">
+          <aside class="rc-sidebar">
+            <div class="rc-sidebar-head">Komputer Online</div>
+            <div id="rc-clientList" class="rc-client-list">
+              <div class="rc-empty-client">Memuat daftar client...</div>
+            </div>
+          </aside>
+
+          <main class="rc-main">
+            <section class="rc-panel">
+              <div class="rc-panel-head">
+                <div>
+                  <div id="rc-selectedTitle" class="rc-panel-title">Belum ada komputer dipilih</div>
+                  <div id="rc-selectedSub" class="rc-panel-sub">Pilih client dari panel kiri untuk mulai remote.</div>
+                </div>
+                <div class="rc-chip-row">
+                  <span class="rc-chip">Device: <strong id="rc-chipDevice">0</strong></span>
+                  <span class="rc-chip">Running: <strong id="rc-chipRunning">0</strong></span>
+                </div>
+              </div>
+              <div class="rc-panel-body">
+                <div id="rc-deviceGrid" class="rc-device-grid">
+                  <div class="rc-hint">Pilih komputer untuk memuat device.</div>
+                </div>
+              </div>
+            </section>
+
+            <section class="rc-panel">
+              <div class="rc-panel-head">
+                <div class="rc-panel-title">Log Aktivitas</div>
+              </div>
+              <div id="rc-logPanel" class="rc-log-panel"></div>
+            </section>
+          </main>
+        </div>
+      </div>
+      <!-- End Page: Remote Control -->
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- Page: StarDesk – Remote Control & MyStarBox             -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div id="page-mystarbox" class="page-content">
+      <style>
+        #page-mystarbox { display:none; flex-direction:column; overflow:hidden; background:var(--color-dark-purple); color:var(--color-text-light); }
+        #page-mystarbox.active { display:flex; }
+
+        /* Top header */
+        .sds-topbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:16px 24px 0; flex-shrink:0; }
+        .sds-topbar h2 { margin:0; font-size:1.3rem; font-weight:700; display:flex; align-items:center; gap:10px; }
+        .sds-topbar-actions { display:flex; gap:8px; align-items:center; }
+
+        /* Tab navigation */
+        .sds-tab-nav { display:flex; gap:2px; padding:14px 24px 0; flex-shrink:0; border-bottom:1px solid rgba(124,111,224,0.2); }
+        .sds-tab-btn { padding:8px 18px; border-radius:8px 8px 0 0; border:1px solid transparent; border-bottom:none; cursor:pointer; font-size:0.87rem; font-weight:500; transition:all .15s; background:transparent; color:rgba(255,255,255,0.45); display:flex; align-items:center; gap:7px; margin-bottom:-1px; }
+        .sds-tab-btn:hover { color:rgba(255,255,255,0.8); background:rgba(124,111,224,0.1); }
+        .sds-tab-btn.active { background:var(--color-dark-purple,#120d2b); color:#a78bfa; border-color:rgba(124,111,224,0.3); border-bottom-color:var(--color-dark-purple,#120d2b); }
+
+        /* Panels */
+        .sds-panels { flex:1; overflow:hidden; display:flex; flex-direction:column; min-height:0; }
+        .sds-panel { display:none; flex-direction:column; overflow-y:auto; padding:20px 24px; gap:20px; flex:1; }
+        .sds-panel.active { display:flex; }
+
+        /* Agent status */
+        .msb-agent-status { display:flex; align-items:center; gap:8px; padding:8px 14px; border-radius:8px; background:rgba(124,111,224,0.12); border:1px solid rgba(124,111,224,0.2); font-size:0.85rem; }
+        .msb-agent-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+        .msb-agent-dot.online { background:#22c55e; box-shadow:0 0 6px #22c55e88; }
+        .msb-agent-dot.offline { background:#ef4444; }
+
+        /* Device grid */
+        .msb-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap:16px; }
+        .msb-card { background:rgba(124,111,224,0.08); border:1px solid rgba(124,111,224,0.2); border-radius:12px; padding:18px; display:flex; flex-direction:column; gap:12px; transition:border-color .2s,box-shadow .2s; }
+        .msb-card:hover { border-color:rgba(124,111,224,0.55); box-shadow:0 4px 20px rgba(124,111,224,0.15); }
+        .msb-card.is-self { border-color:rgba(124,111,224,0.5); background:rgba(124,111,224,0.12); }
+        .msb-self-badge { display:inline-block; font-size:0.68rem; font-weight:600; background:#7c6fe0; color:#fff; padding:1px 7px; border-radius:10px; white-space:nowrap; vertical-align:middle; margin-top:-2px; }
+        .msb-card-top { display:flex; align-items:flex-start; gap:12px; }
+        .msb-card-icon { width:44px; height:44px; border-radius:10px; background:rgba(124,111,224,0.25); display:flex; align-items:center; justify-content:center; font-size:1.3rem; flex-shrink:0; color:#a78bfa; }
+        .msb-card-title { flex:1; min-width:0; }
+        .msb-card-title h3 { margin:0 0 3px; font-size:1rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .msb-card-title .msb-hostname { font-size:0.8rem; color:rgba(255,255,255,0.5); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .msb-status-badge { display:inline-flex; align-items:center; gap:5px; font-size:0.78rem; padding:3px 10px; border-radius:20px; font-weight:600; flex-shrink:0; }
+        .msb-status-badge.online { background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.3); }
+        .msb-status-badge.offline { background:rgba(239,68,68,0.12); color:#f87171; border:1px solid rgba(239,68,68,0.25); }
+        .msb-status-badge .dot { width:7px; height:7px; border-radius:50%; }
+        .msb-status-badge.online .dot { background:#22c55e; }
+        .msb-status-badge.offline .dot { background:#ef4444; }
+        .msb-card-meta { display:flex; flex-direction:column; gap:5px; font-size:0.8rem; color:rgba(255,255,255,0.55); }
+        .msb-card-meta span { display:flex; align-items:center; gap:6px; }
+        .msb-card-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.06); }
+        .msb-btn { padding:6px 14px; border-radius:7px; border:none; cursor:pointer; font-size:0.82rem; font-weight:500; display:flex; align-items:center; gap:6px; transition:background .15s,opacity .15s; }
+        .msb-btn:disabled { opacity:0.35; cursor:not-allowed; }
+        .msb-btn-primary { background:#7c6fe0; color:#fff; }
+        .msb-btn-primary:hover:not(:disabled) { background:#6b5fd4; }
+        .msb-btn-secondary { background:rgba(255,255,255,0.1); color:var(--color-text-light,#fff); border:1px solid rgba(255,255,255,0.15); }
+        .msb-btn-secondary:hover:not(:disabled) { background:rgba(255,255,255,0.18); }
+        .msb-empty { text-align:center; padding:60px 20px; color:rgba(255,255,255,0.35); }
+        .msb-empty i { font-size:3rem; display:block; margin-bottom:12px; }
+        .msb-loading { text-align:center; padding:40px; color:rgba(255,255,255,0.4); }
+
+        /* Inline connect form */
+        .sds-connect-box { background:rgba(124,111,224,0.1); border:1px solid rgba(124,111,224,0.25); border-radius:12px; padding:16px 20px; display:flex; flex-direction:column; gap:10px; flex-shrink:0; }
+        .sds-connect-title { font-size:0.88rem; font-weight:600; color:#a78bfa; display:flex; align-items:center; gap:8px; }
+        .sds-connect-row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+        .sds-connect-field { display:flex; flex-direction:column; gap:5px; min-width:160px; }
+        .sds-connect-field label { font-size:0.78rem; color:rgba(255,255,255,0.5); font-weight:500; }
+        .sds-connect-field input { background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:9px 12px; color:#fff; font-size:0.9rem; outline:none; font-family:inherit; transition:border-color .15s; }
+        .sds-connect-field input:focus { border-color:rgba(124,111,224,0.6); background:rgba(255,255,255,0.1); }
+        .sds-connect-field input::placeholder { color:rgba(255,255,255,0.3); }
+        .sds-connect-go { padding:9px 20px; align-self:flex-end; font-size:0.88rem; }
+        .sds-connect-err { font-size:0.8rem; color:#f87171; min-height:16px; }
+        body.theme-mode-light .sds-connect-box { background:rgba(124,111,224,0.07); border-color:rgba(124,111,224,0.22); }
+        body.theme-mode-light .sds-connect-title { color:#7c6fe0; }
+        body.theme-mode-light .sds-connect-field label { color:#6b7280; }
+        body.theme-mode-light .sds-connect-field input { background:#fff; border-color:rgba(124,111,224,0.25); color:#1e1a3f; }
+        body.theme-mode-light .sds-connect-field input:focus { border-color:#7c6fe0; }
+        body.theme-mode-light .sds-connect-field input::placeholder { color:#9ca3af; }
+
+        /* Session history */
+        .sds-section-title { font-size:0.85rem; font-weight:600; color:rgba(255,255,255,0.45); display:flex; align-items:center; gap:8px; padding-bottom:10px; border-bottom:1px solid rgba(124,111,224,0.15); }
+        .sds-session-list { display:flex; flex-direction:column; gap:6px; }
+        .sds-session-item { display:flex; align-items:center; gap:12px; padding:10px 14px; border-radius:8px; background:rgba(124,111,224,0.06); border:1px solid rgba(124,111,224,0.12); font-size:0.83rem; }
+        .sds-si-icon { width:32px; height:32px; border-radius:8px; background:rgba(124,111,224,0.2); display:flex; align-items:center; justify-content:center; color:#a78bfa; font-size:1rem; flex-shrink:0; }
+        .sds-si-info { flex:1; min-width:0; }
+        .sds-si-name { font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .sds-si-sub { font-size:0.75rem; color:rgba(255,255,255,0.4); margin-top:2px; }
+        .sds-si-time { font-size:0.75rem; color:rgba(255,255,255,0.35); white-space:nowrap; }
+        .sds-session-empty { text-align:center; padding:20px; color:rgba(255,255,255,0.3); font-size:0.85rem; }
+
+        /* MyStarBox account tab */
+        .sds-account-card { background:rgba(124,111,224,0.08); border:1px solid rgba(124,111,224,0.2); border-radius:12px; padding:20px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+        .sds-account-avatar { width:52px; height:52px; border-radius:50%; background:linear-gradient(135deg,#7c6fe0,#a78bfa); display:flex; align-items:center; justify-content:center; font-size:1.5rem; color:#fff; flex-shrink:0; font-weight:700; }
+        .sds-account-info { flex:1; min-width:0; }
+        .sds-account-info h3 { margin:0 0 3px; font-size:1rem; font-weight:600; }
+        .sds-account-info p { margin:0; font-size:0.83rem; color:rgba(255,255,255,0.5); }
+        .sds-plan-badge { display:inline-flex; align-items:center; gap:5px; font-size:0.72rem; padding:3px 10px; border-radius:20px; font-weight:600; margin-top:7px; }
+        .sds-plan-badge.free { background:rgba(255,255,255,0.1); color:rgba(255,255,255,0.55); }
+        .sds-plan-badge.pro { background:rgba(124,111,224,0.25); color:#a78bfa; border:1px solid rgba(124,111,224,0.4); }
+        .sds-mybox-login { text-align:center; padding:60px 20px; color:rgba(255,255,255,0.35); }
+        .sds-mybox-login i { font-size:3rem; display:block; margin-bottom:14px; opacity:0.45; }
+        .sds-mybox-login p { margin:0 0 18px; line-height:1.6; }
+        .sds-mybox-devices { display:flex; flex-direction:column; gap:8px; }
+        .sds-mybox-device-row { display:flex; align-items:center; gap:12px; padding:10px 14px; border-radius:9px; background:rgba(124,111,224,0.07); border:1px solid rgba(124,111,224,0.14); font-size:0.85rem; }
+        .sds-mybox-device-row .sds-si-icon { background:rgba(124,111,224,0.18); }
+
+        /* Light mode */
+        body.theme-mode-light #page-mystarbox { background:#f0eeff; color:#1e1a3f; }
+        body.theme-mode-light .sds-tab-btn { color:rgba(30,26,63,0.45); }
+        body.theme-mode-light .sds-tab-btn:hover { color:#3d3480; background:rgba(124,111,224,0.08); }
+        body.theme-mode-light .sds-tab-btn.active { background:#f0eeff; color:#7c6fe0; border-color:rgba(124,111,224,0.3); border-bottom-color:#f0eeff; }
+        body.theme-mode-light .sds-tab-nav { border-bottom-color:rgba(124,111,224,0.22); }
+        body.theme-mode-light .sds-topbar h2 { color:#1e1a3f; }
+        body.theme-mode-light .msb-agent-status { background:rgba(124,111,224,0.1); border-color:rgba(124,111,224,0.3); color:#3d3480; }
+        body.theme-mode-light .msb-card { background:#fff; border-color:rgba(124,111,224,0.25); box-shadow:0 2px 8px rgba(124,111,224,0.08); }
+        body.theme-mode-light .msb-card:hover { border-color:#7c6fe0; box-shadow:0 4px 16px rgba(124,111,224,0.18); }
+        body.theme-mode-light .msb-card.is-self { background:#f5f2ff; border-color:rgba(124,111,224,0.5); }
+        body.theme-mode-light .msb-self-badge { background:#7c6fe0; color:#fff; }
+        body.theme-mode-light .msb-card-icon { background:rgba(124,111,224,0.12); color:#7c6fe0; }
+        body.theme-mode-light .msb-card-title h3 { color:#1e1a3f; }
+        body.theme-mode-light .msb-card-title .msb-hostname { color:#6b7280; }
+        body.theme-mode-light .msb-card-meta { color:#6b7280; }
+        body.theme-mode-light .msb-card-actions { border-top-color:rgba(0,0,0,0.06); }
+        body.theme-mode-light .msb-btn-secondary { background:rgba(124,111,224,0.08); color:#3d3480; border-color:rgba(124,111,224,0.25); }
+        body.theme-mode-light .msb-btn-secondary:hover:not(:disabled) { background:rgba(124,111,224,0.16); }
+        body.theme-mode-light .msb-status-badge.online { background:rgba(34,197,94,0.1); color:#16a34a; border-color:rgba(34,197,94,0.3); }
+        body.theme-mode-light .msb-status-badge.offline { background:rgba(239,68,68,0.08); color:#dc2626; border-color:rgba(239,68,68,0.25); }
+        body.theme-mode-light .msb-empty { color:#9ca3af; }
+        body.theme-mode-light .msb-loading { color:#9ca3af; }
+        body.theme-mode-light .sds-section-title { color:rgba(30,26,63,0.45); border-bottom-color:rgba(124,111,224,0.15); }
+        body.theme-mode-light .sds-session-item { background:rgba(124,111,224,0.05); border-color:rgba(124,111,224,0.14); }
+        body.theme-mode-light .sds-si-icon { background:rgba(124,111,224,0.12); }
+        body.theme-mode-light .sds-si-sub,.sds-si-time { color:rgba(30,26,63,0.4); }
+        body.theme-mode-light .sds-session-empty { color:#9ca3af; }
+        body.theme-mode-light .sds-account-card { background:#fff; border-color:rgba(124,111,224,0.25); }
+        body.theme-mode-light .sds-account-info p { color:#6b7280; }
+        body.theme-mode-light .sds-plan-badge.free { background:rgba(0,0,0,0.06); color:#6b7280; }
+        body.theme-mode-light .sds-mybox-login { color:#9ca3af; }
+        body.theme-mode-light .sds-mybox-device-row { background:rgba(124,111,224,0.05); border-color:rgba(124,111,224,0.14); }
+      </style>
+
+      <!-- Header -->
+      <div class="sds-topbar">
+        <h2>
+          <i class="bi bi-display-fill" style="color:#7c6fe0"></i>
+          StarDesk
+        </h2>
+        <div class="sds-topbar-actions">
+          <div class="msb-agent-status" id="msbAgentStatus">
+            <span class="msb-agent-dot offline" id="msbAgentDot"></span>
+            <span id="msbAgentStatusText">Tidak terhubung</span>
+          </div>
+          <button class="msb-btn msb-btn-primary" onclick="sdsFocusConnect()" style="gap:6px;">
+            <i class="bi bi-plug-fill"></i> Hubungkan
+          </button>
+          <button class="msb-btn msb-btn-secondary" onclick="msbRefresh()">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab navigation -->
+      <div class="sds-tab-nav">
+        <button class="sds-tab-btn active" id="sdsTabBtnStardesk" onclick="sdsSwitchTab('stardesk')">
+          <i class="bi bi-display"></i> StarDesk
+        </button>
+        <button class="sds-tab-btn" id="sdsTabBtnMystarbox" onclick="sdsSwitchTab('mystarbox')">
+          <i class="bi bi-person-circle"></i> MyStarBox
+        </button>
+      </div>
+
+      <!-- Tab panels -->
+      <div class="sds-panels">
+
+        <!-- Tab: StarDesk – remote control -->
+        <div class="sds-panel active" id="sdsPanelStardesk">
+
+          <!-- Inline connect form -->
+          <div class="sds-connect-box">
+            <div class="sds-connect-title"><i class="bi bi-plug-fill"></i> Hubungkan ke Perangkat</div>
+            <div class="sds-connect-row">
+              <div class="sds-connect-field" style="flex:2;">
+                <label>Device ID</label>
+                <input id="sdsConnectId" type="text" placeholder="Masukkan Device ID..." autocomplete="off" spellcheck="false" oninput="sdsConnectValidate()" onkeydown="if(event.key==='Enter') sdsDoConnect()" />
+              </div>
+              <div class="sds-connect-field" style="flex:1;">
+                <label>Kode OTP / PIN <span style="font-weight:400;opacity:0.55;">(opsional)</span></label>
+                <input id="sdsConnectPin" type="text" placeholder="Masukkan OTP atau PIN" maxlength="8" autocomplete="off" spellcheck="false" oninput="sdsConnectValidate()" onkeydown="if(event.key==='Enter') sdsDoConnect()" />
+              </div>
+              <button id="sdsConnectBtn" class="msb-btn msb-btn-primary sds-connect-go" onclick="sdsDoConnect()" disabled>
+                <i class="bi bi-display"></i> Remote
+              </button>
+            </div>
+            <div id="sdsConnectErr" class="sds-connect-err"></div>
+          </div>
+
+          <div id="msbDeviceGrid" class="msb-grid">
+            <div class="msb-loading"><i class="bi bi-hourglass-split"></i> Memuat perangkat...</div>
+          </div>
+
+          <!-- Session history -->
+          <div>
+            <div class="sds-section-title">
+              <i class="bi bi-clock-history"></i> Riwayat Session
+              <button class="msb-btn msb-btn-secondary" style="margin-left:auto;font-size:0.75rem;padding:3px 10px;" onclick="sdsClearHistory()">
+                <i class="bi bi-trash3"></i> Hapus
+              </button>
+            </div>
+            <div id="sdsSessionList" class="sds-session-list">
+              <div class="sds-session-empty">Belum ada riwayat session remote</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: MyStarBox – account data -->
+        <div class="sds-panel" id="sdsPanelMystarbox">
+          <div id="sdsMyboxContent">
+            <div class="msb-loading"><i class="bi bi-hourglass-split"></i> Memuat data akun...</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
