@@ -103,14 +103,20 @@
         item.dataset.page = sb.page;
         item.dataset.label = sb.label || mod.name;
         item.dataset.module = mod.id;
+        item.dataset.order = String(sb.order ?? 999);
         if (sb.pro) item.dataset.pro = "true";
         item.setAttribute("onclick", `switchPage('${sb.page}')`);
         item.innerHTML = `<i class="bi ${esc(sb.icon || "bi-puzzle")}"></i>` +
           `<span${sb.labelKey ? ` data-i18n="${esc(sb.labelKey)}"` : ""}>${esc(sb.label || mod.name)}</span>`;
 
-        const after = firstExisting(sb.after, (p) => `.sidebar-item[data-page="${p}"]`)
+        let after = firstExisting(sb.after, (p) => `.sidebar-item[data-page="${p}"]`)
           || lastModuleItem
           || document.querySelector('.sidebar-item[data-page="web-emulator"]');
+        // Lewati item modul ber-order lebih kecil yang sudah ada di belakang anchor
+        while (after?.nextElementSibling?.dataset?.module &&
+               Number(after.nextElementSibling.dataset.order) <= Number(sb.order ?? 999)) {
+          after = after.nextElementSibling;
+        }
         if (after) insertAfter(after, item);
         lastModuleItem = item;
       }

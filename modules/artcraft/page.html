@@ -1,0 +1,26 @@
+<!-- Page: ArtCraft Apps (modul artcraft) -->
+<div id="page-artcraft" class="page-content">
+  <main class="page-main art-page-main">
+    <div class="art-head">
+      <div>
+        <h1><i class="bi bi-palette"></i> ArtCraft Apps</h1>
+        <p>
+          Pasang, perbarui dan buka aplikasi <strong>Craft App Suite</strong> — PhotoCraft, WordCraft, FilmCraft dan lainnya.
+          Aplikasi open-source dari tim <a href="#" onclick="artcraftOpenUrl('https://getartcraft.com/'); return false;">ArtCraft</a>,
+          diunduh langsung dari rilis resmi GitHub mereka dan dicek SHA-256 sebelum dipasang.
+        </p>
+      </div>
+      <div class="art-head-actions">
+        <span id="artSummary" class="art-summary"></span>
+        <button class="mod-btn" onclick="artcraftRefresh(true)"><i class="bi bi-arrow-clockwise"></i> Periksa update</button>
+        <button id="artUpdateAllBtn" class="mod-btn mod-btn-primary" style="display:none" onclick="artcraftUpdateAll()"><i class="bi bi-arrow-up-circle"></i> Perbarui semua</button>
+      </div>
+    </div>
+    <div id="artNotices"></div>
+    <div id="artGrid" class="art-grid"><div class="art-empty"><i class="bi bi-hourglass-split"></i> Memuat daftar aplikasi…</div></div>
+    <p class="art-footnote">
+      Lokasi pemasangan: macOS <code>/Applications</code> · Windows <code>%LOCALAPPDATA%\StarBox\CraftApps</code> (tanpa admin) · Linux <code>~/Applications</code>.
+      Aplikasi yang dipasang di luar StarBox tetap terdeteksi, tetapi hanya bisa dihapus lewat sistem operasi.
+    </p>
+  </main>
+</div>

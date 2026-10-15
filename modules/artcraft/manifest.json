@@ -1,0 +1,30 @@
+{
+  "id": "artcraft",
+  "name": "ArtCraft Apps",
+  "version": "1.0.0",
+  "description": "Pasang, perbarui dan buka aplikasi Craft App Suite (PhotoCraft, WordCraft, FilmCraft, VectorCraft, PdfCraft, dll.) dari rilis resmi ArtCraft, lengkap dengan status versi & notifikasi update.",
+  "author": "StarBox",
+  "license": "MIT",
+  "icon": "bi-palette",
+  "engine": { "starbox": ">=2.1.0" },
+  "distribution": "download",
+  "main": "main.js",
+  "renderer": "renderer.js",
+  "page": "page.html",
+  "style": "style.css",
+  "pageAfter": ["web-emulator"],
+  "sidebar": {
+    "page": "artcraft",
+    "label": "ArtCraft Apps",
+    "icon": "bi-palette",
+    "after": ["web-emulator"],
+    "order": 3,
+    "statsLabel": "🎨 ArtCraft Apps"
+  },
+  "permissions": ["network", "child_process", "filesystem", "system-install"],
+  "sharedDependencies": ["extract-zip"],
+  "ipc": {
+    "invoke": ["artcraft:list", "artcraft:install", "artcraft:open", "artcraft:uninstall", "artcraft:open-url"],
+    "events": ["artcraft:progress"]
+  }
+}

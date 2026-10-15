@@ -74,6 +74,7 @@
       "!modules/resource-monitor/**/*",
       "!modules/stardesk/**/*",
       "!modules/cctv/**/*",
+      "!modules/artcraft/**/*",
       "!dist-modules/**/*"
     ],
     "mac": {
