@@ -1,0 +1,94 @@
+/* Gaya modul remox — dipindah dari style.css core */
+@media (max-width: 1024px) {
+
+  #page-remox .rmx-workspace {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 768px) {
+
+  #page-remox .rmx-topbar {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  #page-remox .rmx-topbar .rmx-topbar-actions {
+    width: 100%;
+  }
+
+  #page-remox .rmx-topbar .rmx-topbar-actions {
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+
+  #page-remox .rmx-topbar .rmx-topbar-actions > * {
+    flex: 1 1 calc(50% - 8px);
+  }
+
+  #page-remox .rmx-sidebar {
+    width: 100% !important;
+    min-width: 0;
+    max-width: none;
+    border-right: none;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+
+  #page-remox .rmx-workspace {
+    flex-direction: column;
+  }
+
+  #page-remox .rmx-resize-handle {
+    display: none;
+  }
+
+  #page-remox .rmx-terminal-area,
+  #page-remox .rmx-terminal-panels {
+    min-height: 0;
+  }
+
+  #page-remox .rmx-quickbar {
+    padding: 8px 12px;
+  }
+
+  #page-remox .rmx-quickbar-menu {
+    left: 0;
+    right: 0;
+    width: auto;
+  }
+
+  #page-remox .rmx-tab {
+    padding: 7px 10px;
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 560px) {
+
+  #page-remox .rmx-topbar .rmx-topbar-actions > * {
+    flex: 1 1 100%;
+  }
+
+  #page-remox .rmx-sidebar-head,
+  #page-remox .rmx-search-wrap {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  #page-remox .rmx-quickbar-label {
+    font-size: 9px;
+  }
+
+  #page-remox .rmx-quickbar-toggle {
+    width: 100%;
+    justify-content: center;
+  }
+
+  #page-remox .rmx-quickbar-dropdown {
+    flex: 1 1 auto;
+  }
+
+  #page-remox .rmx-quickbar-menu {
+    top: calc(100% + 6px);
+  }
+}

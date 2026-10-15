@@ -1,0 +1,81 @@
+/* Gaya modul mikrotik — dipindah dari style.css core */
+@media (max-width: 1024px) {
+
+  #page-mikrotik .mtk-body {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 768px) {
+
+  #page-mikrotik .mtk-body {
+    flex-direction: column;
+  }
+
+  #page-mikrotik .mtk-topbar {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  #page-mikrotik .mtk-topbar > div {
+    width: 100%;
+  }
+
+  #page-mikrotik .mtk-sidebar {
+    width: 100% !important;
+    min-width: 0;
+    max-width: none;
+    border-right: none;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+
+  #page-mikrotik .mtk-main {
+    min-height: 0;
+  }
+
+  #page-mikrotik .mtk-detail {
+    padding: 16px;
+  }
+
+  #page-mikrotik .mtk-detail-hdr,
+  #page-mikrotik .mtk-detail-actions {
+    flex-wrap: wrap;
+  }
+
+  #page-mikrotik .mtk-detail-actions .mtk-btn,
+  #page-mikrotik .mtk-topbar .mtk-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 560px) {
+
+  #page-mikrotik .mtk-sidebar-hdr {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  #page-mikrotik .mtk-info-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+#page-mikrotik { display: none; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
+
+#page-mikrotik.active { display: flex; }
+
+body.theme-mode-light .mtk-conn-item:hover { background: rgba(0,0,0,.05); }
+
+body.theme-mode-light .mtk-conn-item.active { background: rgba(91,106,240,.12); }
+
+body.theme-mode-light .mtk-info-card { background: rgba(0,0,0,.04); }
+
+body.theme-mode-light .mtk-scan-box,
+body.theme-mode-light .mtk-modal { background: #fff; color: #1a1a2e; }
+
+body.theme-mode-light .mtk-form-group input { background: #f8f9fa; color: #1a1a2e; }
+
+body.theme-mode-light .mtk-scan-result-item { background: #f4f5f7; }
+
+body.theme-mode-light .mtk-scan-result-item:hover { background: rgba(91,106,240,.1); }

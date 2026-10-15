@@ -11,6 +11,7 @@
   "main": "main.js",
   "renderer": "renderer.js",
   "page": "page.html",
+  "style": "style.css",
   "i18n": "i18n.json",
   "sidebar": {
     "page": "cctv",

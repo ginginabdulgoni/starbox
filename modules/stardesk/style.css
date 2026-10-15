@@ -1,0 +1,43 @@
+/* Gaya modul stardesk — dipindah dari style.css core */
+@media (max-width: 1024px) {
+
+  #page-remote-control .rc-layout {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 768px) {
+
+  #page-remote-control .rc-layout {
+    flex-direction: column;
+  }
+
+  #page-remote-control .rc-toolbar {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  #page-remote-control .rc-sidebar {
+    width: 100% !important;
+    min-width: 0;
+    max-width: none;
+    border-right: none;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+
+  #page-remote-control .rc-main {
+    min-height: 0;
+  }
+
+  #page-remote-control .rc-table-wrap {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 560px) {
+
+  #page-remote-control .rc-sidebar-head {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}

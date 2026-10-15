@@ -13,6 +13,7 @@
   "main": "main.js",
   "renderer": "renderer.js",
   "page": "page.html",
+  "style": "style.css",
   "pageAfter": [
     "remox",
     "android-ios"

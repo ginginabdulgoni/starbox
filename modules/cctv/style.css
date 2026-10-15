@@ -1,0 +1,466 @@
+/* Gaya modul cctv — dipindah dari style.css core */
+@media (max-width: 768px) {
+
+  #page-cctv .page-main {
+    min-height: 0;
+  }
+
+  #page-cctv .page-main {
+    padding: 0 !important;
+  }
+
+  #page-cctv .cctv-toolbar {
+    flex-wrap: wrap;
+  }
+
+  #page-cctv .cctv-toolbar > * {
+    width: 100%;
+  }
+}
+.btn-cctv-layout {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-muted, #94a3b8);
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: all .2s ease;
+}
+.btn-cctv-layout:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.btn-cctv-layout.active {
+  background: var(--color-primary, #7c3aed);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35);
+}
+.cctv-grid-container {
+  flex: 1;
+  overflow: auto;
+  padding: 14px 18px 24px;
+  display: flex;
+  flex-direction: column;
+}
+.cctv-grid {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+}
+.cctv-grid-4  { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 900px) {
+  .cctv-grid-4 {
+    grid-template-columns: 1fr;
+  }
+}
+.cctv-cell {
+  position: relative;
+  background: #0d1117;
+  border-radius: 12px;
+  overflow: hidden;
+  aspect-ratio: 16/9;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  transition: all .25s ease;
+}
+.cctv-cell:hover {
+  border-color: rgba(6, 182, 212, 0.5);
+  box-shadow: 0 8px 24px rgba(6, 182, 212, 0.15);
+}
+.cctv-cell img, .cctv-cell video, .cctv-cell canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #000;
+}
+.cctv-cell .cctv-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 10px 14px;
+  background: linear-gradient(transparent, rgba(10, 15, 29, 0.92));
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  opacity: 0;
+  transition: opacity .2s ease;
+  backdrop-filter: blur(3px);
+}
+.cctv-cell:hover .cctv-overlay {
+  opacity: 1;
+}
+.cctv-cell .cctv-label {
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 55%;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+.cctv-cell .cctv-actions {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.cctv-cell .cctv-actions button {
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 500;
+  backdrop-filter: blur(6px);
+  transition: all .15s ease;
+}
+.cctv-cell .cctv-actions button:hover {
+  background: rgba(255, 255, 255, 0.35);
+  transform: translateY(-1px);
+}
+.cctv-live-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  letter-spacing: .5px;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.45);
+  animation: pulseLive 2s infinite ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cctv-empty-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #64748b;
+  gap: 10px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+}
+.cctv-empty-cell i {
+  font-size: 2.2rem;
+  color: #334155;
+}
+.cctv-empty-cell span {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #475569;
+}
+.cctv-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #94a3b8;
+  gap: 12px;
+  background: #090d16;
+  padding: 16px;
+  text-align: center;
+}
+.cctv-placeholder i {
+  font-size: 2.6rem;
+  color: #334155;
+}
+.cctv-dashboard-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  width: 100%;
+}
+@media (max-width: 1024px) {
+  .cctv-dashboard-metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .cctv-dashboard-metrics {
+    grid-template-columns: 1fr;
+  }
+}
+.cctv-missing-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(217, 119, 6, 0.06));
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 12px;
+  flex-wrap: wrap;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+.cctv-missing-banner-icon {
+  font-size: 1.5rem;
+  color: #f59e0b;
+  flex-shrink: 0;
+}
+.cctv-missing-banner-text {
+  flex: 1;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cctv-missing-banner-text strong {
+  font-size: 0.92rem;
+  color: #fbbf24;
+}
+.cctv-missing-banner-text span {
+  font-size: 0.82rem;
+  color: var(--color-muted, #94a3b8);
+}
+.cctv-missing-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+#page-cctv {
+  overflow-y: auto;
+}
+.cctv-page-main {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 100%;
+}
+.cctv-hero-card {
+  background: linear-gradient(135deg, rgba(35, 18, 26, 0.95), rgba(15, 23, 42, 0.95));
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 20px;
+  padding: 24px 28px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.cctv-hero-card::after {
+  content: "";
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(239, 68, 68, 0.22), transparent 70%);
+  pointer-events: none;
+}
+.cctv-hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+}
+.cctv-hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+.cctv-hero-badge-sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+.cctv-hero-badge-engine {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(6, 182, 212, 0.15);
+  color: #22d3ee;
+  border: 1px solid rgba(6, 182, 212, 0.35);
+}
+.cctv-hero-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+  z-index: 1;
+}
+.cctv-hero-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.5px;
+}
+.cctv-hero-icon {
+  font-size: 1.8rem;
+  color: #ef4444;
+  filter: drop-shadow(0 0 12px rgba(239, 68, 68, 0.5));
+}
+.cctv-hero-desc {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: #cbd5e1;
+  max-width: 860px;
+}
+.cctv-hero-highlights {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  position: relative;
+  z-index: 1;
+}
+.cctv-hl-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.cctv-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  background: var(--color-card, #1e1e2f);
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  border-radius: 14px;
+  flex-wrap: wrap;
+}
+.cctv-status-indicator-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+.cctv-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #64748b;
+  display: inline-block;
+}
+.cctv-status-text {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-muted, #94a3b8);
+}
+.cctv-search-box {
+  flex: 1;
+  min-width: 220px;
+}
+.cctv-layout-selector {
+  display: flex;
+  gap: 4px;
+  background: var(--color-bg, #0f172a);
+  border-radius: 10px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.cctv-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+body.theme-mode-light #page-cctv {
+  background: radial-gradient(circle at 90% 10%, rgba(239, 68, 68, 0.08), transparent 45%),
+              radial-gradient(circle at 10% 85%, rgba(6, 182, 212, 0.08), transparent 40%),
+              #f8fafc;
+  color: var(--color-text-dark, #0f172a);
+}
+body.theme-mode-light .cctv-hero-card {
+  background: linear-gradient(135deg, #ffffff, #fef2f2);
+  border-color: rgba(239, 68, 68, 0.35);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+body.theme-mode-light .cctv-hero-title {
+  color: #0f172a;
+}
+body.theme-mode-light .cctv-hero-desc {
+  color: #475569;
+}
+body.theme-mode-light .cctv-hl-item {
+  background: #ffffff;
+  border-color: rgba(239, 68, 68, 0.2);
+  color: #334155;
+}
+body.theme-mode-light .cctv-toolbar {
+  background: #ffffff;
+  border-color: rgba(100, 116, 139, 0.2);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+}
+body.theme-mode-light .cctv-status-indicator-box {
+  border-right-color: rgba(100, 116, 139, 0.2);
+}
+body.theme-mode-light .cctv-status-text {
+  color: #475569;
+}
+body.theme-mode-light .cctv-layout-selector {
+  background: #f1f5f9;
+  border-color: rgba(100, 116, 139, 0.2);
+}
+body.theme-mode-light .btn-cctv-layout {
+  color: #64748b;
+}
+body.theme-mode-light .btn-cctv-layout:hover {
+  background: rgba(100, 116, 139, 0.12);
+  color: #0f172a;
+}
+body.theme-mode-light .btn-cctv-layout.active {
+  background: var(--color-primary, #7c3aed);
+  color: #fff;
+}

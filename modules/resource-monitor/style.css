@@ -1,0 +1,36 @@
+/* Gaya modul resource-monitor — dipindah dari style.css core */
+@media (max-width: 1024px) {
+
+  #page-resource-monitor .rm-layout {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 768px) {
+
+  #page-resource-monitor .rm-topbar {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  #page-resource-monitor .page-main {
+    min-height: 0;
+  }
+
+  #page-resource-monitor .rm-proc-toolbar {
+    flex-wrap: wrap;
+  }
+
+  #page-resource-monitor .rm-proc-toolbar > * {
+    width: 100%;
+  }
+
+  #page-resource-monitor canvas,
+  #page-resource-monitor table {
+    max-width: 100%;
+  }
+
+  #page-resource-monitor .rm-proc-table-wrap {
+    overflow-x: auto;
+  }
+}

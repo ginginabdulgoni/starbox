@@ -1,0 +1,20 @@
+/* Gaya modul cron — dipindah dari style.css core */
+@media (max-width: 768px) {
+
+  #page-cron .cron-toolbar {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  #page-cron .cron-toolbar > div {
+    width: 100%;
+  }
+
+  #page-cron table {
+    max-width: 100%;
+  }
+
+  #page-cron .cron-table-wrap {
+    overflow-x: auto;
+  }
+}
